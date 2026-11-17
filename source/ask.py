@@ -41,7 +41,7 @@ async def _main(request: str) -> None:
             return await mcp_tools(await source.session())
 
         agent = LangGraphAgent(make_model(s.agent_model, s.openrouter_api_key),
-                               tools_provider=tools, max_steps=s.agent_max_steps)
+                               tools_provider=tools, max_steps=s.agent_max_steps, allow_plug_on=True)
         try:
             out = await agent.run(ctx)
         except Exception as exc:  # e.g. the model provider refusing the request

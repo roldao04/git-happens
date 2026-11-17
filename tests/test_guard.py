@@ -1,6 +1,6 @@
 import unittest
 
-from source.guard import check_write
+from source.guard import check_write, verify
 
 BULB, PLUG, CAMERA, HUB = "bulb-1", "plug-1", "cam-1", "hub-1"
 DEVICES = {BULB: "bulb", PLUG: "plug", CAMERA: "camera", HUB: "gateway", "home-security": "security"}
@@ -62,6 +62,37 @@ class CheckWriteTest(unittest.TestCase):
     def test_missing_body_or_type_blocked(self):
         self.assertIsNotNone(check({"deviceId": BULB}))
         self.assertIsNotNone(check(write(BULB, value="on")))
+
+
+BLUE = {"type": "color_rgb", "redValue": 0, "greenValue": 0, "blueValue": 255}
+
+
+def details(ts, **caps):
+    out = [{"type": "color_rgb", "value": "{redValue},{greenValue},{blueValue}".format(**caps["rgb"]), **caps["rgb"]}
+           ] if "rgb" in caps else []
+    out += [{"type": k, "value": v} for k, v in caps.items() if k != "rgb"]
+    return {"id": BULB, "type": "bulb", "lastCommunicationTime": ts, "capabilities": out}
+
+
+class VerifyTest(unittest.TestCase):
+    def test_colour_match_with_newer_report(self):
+        self.assertTrue(verify(BLUE, 1000, details(2000, rgb={"redValue": 0, "greenValue": 0, "blueValue": 255})))
+
+    def test_colour_mismatch(self):
+        self.assertFalse(verify(BLUE, 1000, details(2000, rgb={"redValue": 255, "greenValue": 0, "blueValue": 0})))
+
+    def test_value_match(self):
+        self.assertTrue(verify({"type": "brightness", "value": 60}, 1000, details(2000, brightness=60)))
+
+    def test_same_report_time_not_confirmed(self):
+        self.assertFalse(verify({"type": "power", "value": "off"}, 2000, details(2000, power="off")))
+
+    def test_no_before_time_not_confirmed(self):
+        self.assertFalse(verify({"type": "power", "value": "off"}, None, details(2000, power="off")))
+
+    def test_bad_details_not_confirmed(self):
+        self.assertFalse(verify({"type": "power", "value": "off"}, 1000, None))
+        self.assertFalse(verify({"type": "power", "value": "off"}, 1000, {"lastCommunicationTime": 2000}))
 
 
 if __name__ == "__main__":

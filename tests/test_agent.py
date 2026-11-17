@@ -1,25 +1,29 @@
-"""LangGraphAgent driven by a scripted fake chat model and fake tools (no network, no API keys).
+"""LangGraphAgent driven by a scripted fake chat model and a fake house (no network, no API keys).
 
   uv run python -m unittest discover -s tests -t . -v
 """
+import json
 import unittest
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool
 
 from source.agent import REPORT_ASK, LangGraphAgent, parse_report
 
+BULB, PLUG = "bulb-1", "plug-1"
 CTX = {
     "now": "2026-11-17T10:00:00",
-    "reasons": [{"trigger_id": "smoke", "detail": "smoke detected"}],
-    "state": {"dev1": {"switch": "on", "lastSeen": "2026-11-17T09:59:50"}},
-    "events_since_last_run": ["2026-11-17T09:59:50 dev1 switch=on"],
+    "reasons": [{"trigger_id": "person", "reason": "a person asked"}],
+    "state": {BULB: {"name": "Light", "type": "bulb", "fresh": True, "power": "on"},
+              PLUG: {"name": "Plug", "type": "plug", "fresh": True, "power": "off"}},
+    "events_since_last_run": [],
     "timeline_today": [],
     "baselines": {},
 }
+BLUE = {"type": "color_rgb", "redValue": 0, "greenValue": 0, "blueValue": 255}
 
 
 def call(name: str, args: dict, id: str) -> AIMessage:
@@ -30,15 +34,15 @@ class ScriptedModel(BaseChatModel):
     """Replays `script` in order (repeating the last message once exhausted)."""
     script: list[Any]
     step: int = 0
-    structured_calls: int = 0
+    seen: list[Any] = []
 
     @property
     def _llm_type(self) -> str:
         return "scripted"
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        self.seen = list(messages)
         if messages[-1].content == REPORT_ASK:  # the report step: answer it, don't consume the script
-            self.structured_calls += 1
             msg = AIMessage(content='Here: {"notes": "report-notes", "trigger_updates": []}')
             return ChatResult(generations=[ChatGeneration(message=msg)])
         msg = self.script[min(self.step, len(self.script) - 1)]
@@ -52,23 +56,39 @@ class ScriptedModel(BaseChatModel):
         return self
 
 
+class FakeHouse:
+    """The two MCP tools the agent uses, over one in-memory device.
 
-class FakeTools:
-    def __init__(self, write_result: str = '{"ok": true}'):
-        self.calls: list[tuple[str, dict]] = []
-        calls = self.calls
+    `reports=False` = the device never sends a newer lastCommunicationTime (offline or slow).
+    """
+
+    def __init__(self, write_result: str = '{"ok": true}', reports: bool = True):
+        self.calls: list[str] = []
+        self.ts = 1000
+        self.caps: dict = {"power": "on", "rgb": (255, 255, 255)}
+        house = self
 
         @tool
-        async def update_device_capabilities(device_id: str, value: str) -> str:
+        async def update_device_capabilities(deviceId: str, body: dict) -> str:
             """Set a capability."""
-            calls.append(("update_device_capabilities", {"device_id": device_id, "value": value}))
+            house.calls.append("update")
+            if "SH_10500" not in write_result:
+                if body["type"] == "color_rgb":
+                    house.caps["rgb"] = (body["redValue"], body["greenValue"], body["blueValue"])
+                else:
+                    house.caps[body["type"]] = body["value"]
+                if reports:
+                    house.ts += 1000
             return write_result
 
         @tool
-        def get_device_details(device_id: str) -> str:
+        def get_device_details(deviceId: str) -> str:
             """Read a device."""
-            calls.append(("get_device_details", {"device_id": device_id}))
-            return '{"id": "dev1", "value": "off"}'
+            house.calls.append("details")
+            r, g, b = house.caps["rgb"]
+            caps = [{"type": "color_rgb", "value": f"{r},{g},{b}", "redValue": r, "greenValue": g, "blueValue": b}]
+            caps += [{"type": k, "value": v} for k, v in house.caps.items() if k != "rgb"]
+            return json.dumps({"id": deviceId, "lastCommunicationTime": house.ts, "capabilities": caps})
 
         self.tools = [update_device_capabilities, get_device_details]
 
@@ -76,39 +96,65 @@ class FakeTools:
         return self.tools
 
 
+def agent(model, house, **kw):
+    return LangGraphAgent(model, house.provider, readback_delay_s=0, **kw)
+
+
 class AgentTest(unittest.IsolatedAsyncioTestCase):
-    async def test_write_then_read_back(self):
-        fake = FakeTools()
-        write_args = {"device_id": "dev1", "value": "off"}
-        model = ScriptedModel(script=[
-            call("update_device_capabilities", write_args, "c1"),
-            call("get_device_details", {"device_id": "dev1"}, "c2"),
-            AIMessage(content="done"),
-        ])
-        out = await LangGraphAgent(model, fake.provider).run(CTX)
+    async def test_write_confirmed_by_code(self):
+        house = FakeHouse()
+        model = ScriptedModel(script=[call("update_device_capabilities", {"deviceId": BULB, "body": BLUE}, "c1"),
+                                      AIMessage(content="done")])
+        out = await agent(model, house).run(CTX)
 
-        self.assertEqual(set(out), {"notes", "trigger_updates", "actions"})
         self.assertEqual(out["notes"], "report-notes")
-        self.assertEqual(out["trigger_updates"], [])
-        self.assertEqual(fake.calls, [("update_device_capabilities", write_args),
-                                      ("get_device_details", {"device_id": "dev1"})])
+        self.assertEqual(house.calls, ["details", "update", "details"])
         self.assertEqual(len(out["actions"]), 1)
-        action = out["actions"][0]
-        self.assertEqual(action["tool"], "update_device_capabilities")
-        self.assertEqual(action["args"], write_args)
-        self.assertIn("ok", action["result"])
-        self.assertIs(action["error"], False)
+        a = out["actions"][0]
+        self.assertEqual((a["tool"], a["args"]), ("update_device_capabilities", {"deviceId": BULB, "body": BLUE}))
+        self.assertEqual((a["status"], a["verified"], a["error"]), ("sent", "confirmed", False))
 
-    async def test_failed_write_is_flagged(self):
-        fake = FakeTools(write_result='{"message":"SH_10500: x","error":"tool_error"}')
-        model = ScriptedModel(script=[
-            call("update_device_capabilities", {"device_id": "dev1", "value": "off"}, "c1"),
-            AIMessage(content="done"),
-        ])
-        out = await LangGraphAgent(model, fake.provider).run(CTX)
-        self.assertEqual(len(out["actions"]), 1)
-        self.assertIs(out["actions"][0]["error"], True)
-        self.assertIn("SH_10500", out["actions"][0]["result"])
+    async def test_plug_on_blocked_in_loop(self):
+        house = FakeHouse()
+        on = {"deviceId": PLUG, "body": {"type": "power", "value": "on"}}
+        model = ScriptedModel(script=[call("update_device_capabilities", on, "c1"), AIMessage(content="done")])
+        out = await agent(model, house).run(CTX)
+
+        self.assertNotIn("update", house.calls)
+        self.assertEqual((out["actions"][0]["status"], out["actions"][0]["error"]), ("blocked", True))
+        told = [m.content for m in model.seen if isinstance(m, ToolMessage)]
+        self.assertTrue(any("approval" in t for t in told))
+        self.assertEqual(out["notes"], "report-notes")
+
+    async def test_plug_on_allowed_for_ask(self):
+        house = FakeHouse()
+        on = {"deviceId": PLUG, "body": {"type": "power", "value": "on"}}
+        model = ScriptedModel(script=[call("update_device_capabilities", on, "c1"), AIMessage(content="done")])
+        out = await agent(model, house, allow_plug_on=True).run(CTX)
+        self.assertEqual(out["actions"][0]["status"], "sent")
+
+    async def test_slow_readback_unconfirmed(self):
+        house = FakeHouse(reports=False)
+        model = ScriptedModel(script=[call("update_device_capabilities", {"deviceId": BULB, "body": BLUE}, "c1"),
+                                      AIMessage(content="done")])
+        out = await agent(model, house, readback_tries=3).run(CTX)
+
+        a = out["actions"][0]
+        self.assertEqual((a["status"], a["verified"], a["error"]), ("sent", "unconfirmed", True))
+        self.assertEqual(house.calls.count("details"), 1 + 3)
+        told = [m.content for m in model.seen if isinstance(m, ToolMessage)]
+        self.assertTrue(any("NOT confirmed" in t for t in told))
+
+    async def test_failed_write_not_verified(self):
+        house = FakeHouse(write_result='{"message":"SH_10500: x","error":"tool_error"}')
+        model = ScriptedModel(script=[call("update_device_capabilities", {"deviceId": BULB, "body": BLUE}, "c1"),
+                                      AIMessage(content="done")])
+        out = await agent(model, house).run(CTX)
+
+        a = out["actions"][0]
+        self.assertEqual((a["status"], a["verified"], a["error"]), ("failed", None, True))
+        self.assertIn("SH_10500", a["result"])
+        self.assertEqual(house.calls, ["details", "update"])
 
     async def test_no_tools(self):
         model = ScriptedModel(script=[AIMessage(content="nothing to do")])
@@ -125,16 +171,12 @@ class AgentTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["notes"], "report-notes")
 
     async def test_looping_model_stops_at_max_steps(self):
-        fake = FakeTools()
-        model = ScriptedModel(script=[call("get_device_details", {"device_id": "dev1"}, "c1")])
-        out = await LangGraphAgent(model, fake.provider, max_steps=3).run(CTX)
+        house = FakeHouse()
+        model = ScriptedModel(script=[call("get_device_details", {"deviceId": BULB}, "c1")])
+        out = await agent(model, house, max_steps=3).run(CTX)
         self.assertTrue(out["notes"])
         self.assertEqual(out["actions"], [])
-        self.assertLess(len(fake.calls), 10)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        self.assertLess(len(house.calls), 10)
 
 
 class ParseReportTest(unittest.TestCase):
@@ -144,3 +186,7 @@ class ParseReportTest(unittest.TestCase):
 
     def test_not_json_becomes_notes(self):
         self.assertEqual(parse_report("The plug is on.").notes, "The plug is on.")
+
+
+if __name__ == "__main__":
+    unittest.main()

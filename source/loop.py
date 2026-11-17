@@ -12,7 +12,7 @@ from .actions import Actuator, DryRunActuator, run_actions
 from .context import build_context
 from .diff import diff, initially_stale
 from .model import Event
-from .normalize import normalize
+from .normalize import device_types, normalize
 from .sources import Source, SourceError
 from .store import Store
 from .triggers import Triggers
@@ -22,7 +22,7 @@ log = logging.getLogger("source.loop")
 
 async def run(source: Source, store: Store, triggers: Triggers, agent, *,
               poll_seconds: float, stale_minutes: float, max_ticks: int | None = None,
-              actuator: Actuator | None = None) -> None:
+              actuator: Actuator | None = None, readback_delay_s: float = 0.0) -> None:
     actuator = actuator or DryRunActuator()
     stale_ms = int(stale_minutes * 60_000)
     prev = None
@@ -69,7 +69,8 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
         for r in fired:  # hard rules first: code runs their actions, no LLM
             t = triggers.triggers[r.trigger_id]
             if t.actions:
-                store.log_rule_run(now, r.trigger_id, await run_actions(actuator, r.trigger_id, t.actions))
+                store.log_rule_run(now, r.trigger_id, await run_actions(
+                    actuator, r.trigger_id, t.actions, device_types(state), readback_delay_s=readback_delay_s))
         reasons = [r for r in fired if triggers.triggers[r.trigger_id].wake_agent]
         rules = [r.trigger_id for r in fired if r not in reasons]
         log.info("tick %d @ %s: %d readings, %d events, %s%s (%.1fs)",
