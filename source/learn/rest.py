@@ -5,6 +5,7 @@ apart (gap), while a device was silent (stale) or after a signal left the snapsh
 """
 from collections.abc import Iterable
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 from ..model import Event
@@ -98,7 +99,9 @@ class Rest:
     observed_ms: int
 
     def at_rest(self, v: Any) -> bool:
-        return v == self.value
+        if self.kind == "state":
+            return v == self.value
+        return _is_number(v) and abs(v - self.value) <= self.wobble
 
 
 def find_rest(events: Iterable[Event], observed_until: int) -> dict[SignalId, Rest]:
@@ -110,10 +113,58 @@ def find_rest(events: Iterable[Event], observed_until: int) -> dict[SignalId, Re
         observed = sum(held.values())
         if observed == 0:
             continue
-        value = _longest(held)
-        out[sig] = Rest(sig, stretches[0].signal, "state", value, 0.0, 0.0, None, None,
-                        held[value] / observed, observed)
+        if all(_is_number(v) for v in held):
+            out[sig] = _level(sig, stretches[0].signal, held, observed)
+        else:
+            value = _longest(held)
+            out[sig] = Rest(sig, stretches[0].signal, "state", value, 0.0, 0.0, None, None,
+                            held[value] / observed, observed)
     return out
+
+
+def _level(sig: SignalId, signal: str, held: dict[Any, int], observed: int) -> Rest:
+    step = _resolution(held)
+    group = _busiest_group(held, step)
+    value = _weighted_median([(v, held[v]) for v in group])
+    wobble = max(step, max(abs(v - value) for v in group))
+    at_rest = sum(ms for v, ms in held.items() if abs(v - value) <= wobble)
+    return Rest(sig, signal, "level", value, wobble, step, None, None, at_rest / observed, observed)
+
+
+def _is_number(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _resolution(held: dict[Any, int]) -> float:
+    """The finest unit the values are reported in: 1 for whole numbers, 0.1 for 22.9."""
+    exponent = min(min(Decimal(str(v)).normalize().as_tuple().exponent, 0) for v in held)
+    return float(Decimal(1).scaleb(exponent))
+
+
+def _busiest_group(held: dict[Any, int], step: float) -> list[Any]:
+    """Values close together form a group; the group held longest is rest (ties: the lowest)."""
+    values = sorted(held)
+    split = max(step, 0.05 * (values[-1] - values[0]))
+    groups = [[values[0]]]
+    for a, b in zip(values, values[1:]):
+        if b - a > split:
+            groups.append([])
+        groups[-1].append(b)
+    best = groups[0]
+    for g in groups[1:]:
+        if sum(held[v] for v in g) > sum(held[v] for v in best):
+            best = g
+    return best
+
+
+def _weighted_median(pairs: list[tuple[Any, int]]) -> Any:
+    pairs = sorted(pairs)
+    half, acc = sum(ms for _, ms in pairs) / 2, 0
+    for v, ms in pairs:
+        acc += ms
+        if acc >= half:
+            return v
+    return pairs[-1][0]
 
 
 def _longest(held: dict[Any, int]) -> Any:

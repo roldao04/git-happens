@@ -125,5 +125,57 @@ class StateRestTest(unittest.TestCase):
         self.assertEqual((rest.value, rest.observed_ms), ("normal", 3 * H))
 
 
+def series(sig, start, steps):
+    """Events for a signal holding each (value, ms) in turn; returns (events, end)."""
+    events, prev, t = [], None, start
+    for value, ms in steps:
+        events.append(init(t, sig, value) if prev is None and t == start else chg(t, sig, prev, value))
+        prev, t = value, t + ms
+    return events, t
+
+
+class LevelRestTest(unittest.TestCase):
+    def test_flat_plug_rests_at_zero(self):
+        burst = [(2140, 3 * 60_000), (0, 4 * H)]
+        events, end = series(PLUG, 0, [(0, 8 * H)] + burst * 3)
+        rest = find_rest(events, end)[PLUG]
+        self.assertEqual((rest.kind, rest.value, rest.step, rest.wobble), ("level", 0, 1, 1))
+        self.assertTrue(rest.at_rest(0.5))
+        self.assertFalse(rest.at_rest(2140))
+
+    def test_noisy_idle_beats_a_busy_burst(self):
+        idle = [(w, 4 * H) for w in (80, 78, 82, 79, 81)]
+        burst = [(2000 + 10 * i, 9_000) for i in range(20)]  # 20 readings in 3 min
+        events, end = series(PLUG, 0, idle + burst + [(80, 1 * H)])
+        rest = find_rest(events, end)[PLUG]
+        self.assertTrue(78 <= rest.value <= 82)
+        self.assertTrue(all(rest.at_rest(w) for w in range(78, 83)))
+        self.assertFalse(rest.at_rest(2100))
+        self.assertGreater(rest.share, 0.99)
+
+    def test_three_levels_never_pick_the_one_held_least(self):
+        events, end = series(PLUG, 0, [(0, 4 * H), (60, 2 * H), (80, 4 * H)])
+        self.assertEqual(find_rest(events, end)[PLUG].value, 0)
+
+    def test_decimal_resolution(self):
+        sig = ("p1", "instantCurrent")
+        events, end = series(sig, 0, [(0.0, 20 * H), (9.3, 1 * H), (0.0, 3 * H)])
+        rest = find_rest(events, end)[sig]
+        self.assertAlmostEqual(rest.step, 0.1)
+        self.assertTrue(rest.at_rest(0.05))
+        self.assertFalse(rest.at_rest(9.3))
+
+    def test_non_numbers_are_never_at_rest_for_a_level(self):
+        events, end = series(PLUG, 0, [(0, 4 * H), (5, 1 * H)])
+        rest = find_rest(events, end)[PLUG]
+        self.assertFalse(rest.at_rest("on"))
+        self.assertFalse(rest.at_rest(None))
+        self.assertFalse(rest.at_rest(False))
+
+    def test_numbers_mixed_with_text_are_a_state(self):
+        events, end = series(PLUG, 0, [(0, 4 * H), ("off", 1 * H)])
+        self.assertEqual(find_rest(events, end)[PLUG].kind, "state")
+
+
 if __name__ == "__main__":
     unittest.main()
