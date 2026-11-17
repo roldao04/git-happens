@@ -1,26 +1,29 @@
-# SYNAPSE: the semantic layer for the connected home
+# Alfred: the semantic layer for the connected home
 
 > **From "Plug: 2140 W" to "Rosa is making her morning tea".**
 
 Concept for Altice Labs Desafio #3, checked against the real MCP ([`mcp-capabilities.md`](mcp-capabilities.md)) and the judging criteria ([`altice-hackathon-brief.md`](altice-hackathon-brief.md)). It builds on the [strategy PDF](reference/strategy-ideas.pdf)'s plan (working name there: Casa Atenta).
 
+> **Direction changed on 17 Nov:** Alfred now leads with **learned sensors** ([`learned-sensors-plan.md`](learned-sensors-plan.md); tasks in [`build-tree.md`](build-tree.md)). This doc keeps the story and the reasoning. Its rules and memories are stretch, and §15's build plan is replaced by the tree. Full rewrite: task G2.
+
 ## 1. The idea in one minute
 Smart homes speak in **devices and values**: `Contact sensor: alarm`, `Plug: 2140 W`. People speak in **moments, places and habits**: "Mum's up", "tea time", "when I go to the market".
-**SYNAPSE is the semantic layer in between.** It turns raw MCP state into meaning (*what things are, what just happened, what usually happens*), **detects routines**, **proposes rules from them**, **remembers what happened and what worked**, and lets people shape their home **just by talking**.
-Altice keeps its devices, its MCP and its scenario engine. SYNAPSE adds understanding on top.
+**Alfred is the semantic layer in between.** It turns raw MCP state into meaning (*what things are, what just happened, what usually happens, what's planned*), **detects routines**, **proposes rules from them**, **remembers what happened and what worked**, lets people **invent new sensors just by describing them**, and lets them shape their home **just by talking**.
+Altice keeps its devices, its MCP and its scenario engine. Alfred adds understanding on top.
 
 ## 2. The story: "The house that learned Rosa"
-**Rosa**, 81, lives alone in Ílhavo and is a MEO customer. **Ana**, her daughter, lives in Paris with SFR. Ana installs the Altice kit and SYNAPSE.
+**Rosa**, 81, lives alone in Ílhavo and is a MEO customer. **Ana**, her daughter, lives in Paris with SFR. Ana installs the Altice kit and Alfred.
 
-| Day | What the house sees (raw MCP) | What SYNAPSE understands | What happens |
+| Day | What the house sees (raw MCP) | What Alfred understands | What happens |
 |---|---|---|---|
-| **0** | 7 devices called "Light", "Plug", "Contact sensor"… No rooms, no meaning | Nothing yet | SYNAPSE asks two questions out loud. *"What's on the plug?"* Rosa: *"My kettle."* *"Where's the door sensor?"* *"The front door."* |
+| **0** | 7 devices called "Light", "Plug", "Contact sensor"… No rooms, no meaning | Nothing yet | Alfred asks two questions out loud. *"What's on the plug?"* Rosa: *"My kettle."* *"Where's the door sensor?"* *"The front door."* |
 | **2** | `Contact: alarm` 08:09 · `Plug: 2140 W` 08:21–08:24 | Front door opened → **"Rosa made her tea"** | Moments start to fill Rosa's day |
 | **7** | A week of state changes | **Routines:** morning tea (08:05–08:30, 6 of 7 days) · bedtime (lamp off ~23:10) · Thursday market (out 10:00–12:00) | The house now knows what a normal day looks like |
 | **8** | — | **Possible rules, from those routines** | Three cards, in Rosa's words: *"When you make your morning tea, shall I warm up your lamp?"* ✅ · *"If you haven't had your tea by 9:30, may I check on you and tell Ana?"* ✅ · *"On market Thursdays, shall I switch the plug off?"* ❌ |
-| **12** | — | Rosa says: *"Let me sleep in on Sundays."* | SYNAPSE knows what "sleep in" means *for this rule*: the Sunday check moves to 10:30. A new version replaces the old one, explained first |
-| **15** | Kettle on (2140 W, 08:19) · lamp unchanged, last seen 2 days ago | **"The tea rule fired, but the lamp didn't respond: it's offline."** Checked on a *different* device, not assumed | Instead of reporting success, SYNAPSE tells Ana: *"Mum's lamp hasn't responded since Tuesday. Probably unplugged."* Ana calls; Rosa had unplugged it. It's back by day 21 |
-| **21** | 09:30: no door, no kettle | **"Morning tea hasn't happened. Unusual: 20 of the last 21 days it happened by 08:40."** | The lamp turns amber and the tablet asks *"Bom dia, Rosa! Está tudo bem?"*. No answer → Ana gets the reason, the evidence and three options: call · ask the neighbour · book a MEO Care visit. Ana asks the neighbour; Rosa just has a cold. **SYNAPSE keeps this as a memory** |
+| **9** | — | **A new sensor, from one sentence:** "asleep" = quiet after the lamp goes off at night | Ana types *"A sensor that knows when Mum is asleep."* An 8th device card appears, **Sleep sensor · asleep since 23:12**, already showing 9 nights of history |
+| **12** | — | Rosa says: *"Let me sleep in on Sundays."* | Alfred knows what "sleep in" means *for this rule*: the Sunday check moves to 10:30. A new version replaces the old one, explained first |
+| **15** | Kettle on (2140 W, 08:19) · lamp unchanged, last seen 2 days ago | **"The tea rule fired, but the lamp didn't respond: it's offline."** Checked on a *different* device, not assumed | Instead of reporting success, Alfred tells Ana: *"Mum's lamp hasn't responded since Tuesday. Probably unplugged."* Ana calls; Rosa had unplugged it. It's back by day 21 |
+| **21** | 09:30: no door, no kettle | **"Morning tea hasn't happened. Unusual: 20 of the last 21 days it happened by 08:40."** | The lamp turns amber and the tablet asks *"Bom dia, Rosa! Está tudo bem?"*. No answer → Ana gets the reason, the evidence and three options: call · ask the neighbour · book a MEO Care visit. Ana asks the neighbour; Rosa just has a cold. **Alfred keeps this as a memory** |
 | **40** | 09:00: no door, no kettle, after a cold night (15 °C) | **"This happened before (day 21): a cold night, then no tea. Last time Rosa had a cold and the neighbour helped."** | It recalls the memory: checks in 30 min earlier and offers Ana *"ask the neighbour (worked last time)"* first. One tap, sorted in 10 minutes |
 
 **The point:** the same seven devices tell Ana nothing on day 0. By day 21 they tell her exactly what she needs to know, and nobody had to write a single rule. By day 40 the house remembers what helped last time.
@@ -43,7 +46,13 @@ ROUTINE  "Morning tea" · 08:05–08:30 · 6 of 7 days · confidence 0.86
 RULE     proposed: "If no morning tea by 09:30 → check on Rosa, then tell Ana"
 ```
 
-**The home model** is a small graph of **people, places, things, moments, routines, rules, words and memories**. *Words* holds the household's own vocabulary ("Mum's lamp", "tea time", "market day") linked to the rest, so whatever people say lands on something real. *Memories* hold what happened before and what worked (§7).
+**The home model** is a small graph of **people, places, things, moments, routines, rules, words, memories and plans**. *Words* holds the household's own vocabulary ("Mum's lamp", "tea time", "market day") linked to the rest, so whatever people say lands on something real. *Memories* hold what happened before and what worked (§7). *Plans* come from the household's calendar: what people intend to do.
+
+### Virtual sensors: meaning as devices
+- **From a sentence:** *"A sensor that knows when Rosa is asleep"* → the LLM fills in a small declarative spec (devices, time windows, thresholds), never code.
+- **With history:** one evaluator runs the spec over the stored history (filled in at once) and on every poll (live).
+- **As a device:** a card next to the real ones, with its value, history, confidence and plain-words definition. A moment becomes an event sensor, a state an on/off sensor, a routine a trend.
+- **For any agent:** Alfred's MCP serves it like any device, so MyButler reads "Rosa is asleep" without knowing how it's worked out. When the kit can't support a sensor, Alfred says which device it would need.
 
 ## 4. How it infers details
 | Detail | Signal | Method | Confirmed by |
@@ -51,7 +60,7 @@ RULE     proposed: "If no morning tea by 09:30 → check on Rosa, then tell Ana"
 | What's on the plug | Power signature | Kettle: 1.8–3 kW for 2–5 min. Heater: 1–2 kW for a long time. Fridge: ~100 W, cycling. TV/lamp: <150 W in the evening | One question, once |
 | Door or window | What follows the opening | Temperature or humidity drifts → window. A quick open/close plus activity → door | One question, once |
 | Someone home and active | Any change made by a person | Manual light change, plug use, door; or "Fora de casa" active → nobody home | Automatic |
-| Who did it | Timing | SYNAPSE's own action / a scenario's action / otherwise a person | Automatic |
+| Who did it | Timing | Alfred's own action / a scenario's action / otherwise a person | Automatic |
 | Wake-up and bedtime | First and last activity of the day | Daily times → routine windows | Automatic |
 | Comfort preferences | Light settings people choose by hand | "Warm, 60 % in the morning", turned into rule defaults | Shown in the rule card |
 | Something unusual | Routine window + its spread | Not seen by the usual time + tolerance → a deviation, with evidence | Automatic, explained |
@@ -64,7 +73,7 @@ It works with what this kit has (door, climate, smoke, one plug, one light), and
  moments ──► routine detected ──► candidate rules ──► rule card (plain words + evidence)
                                                           │  Yes / Not now / Change…
                                                           ▼
-                    MCP scenario (when it can be expressed)  or  SYNAPSE rule (when it can't)
+                    MCP scenario (when it can be expressed)  or  Alfred rule (when it can't)
                                                           │
                                                           ▼
                     observe: kept, undone, ignored? ──► adapt (new version, pause, suggest less)
@@ -73,11 +82,11 @@ It works with what this kit has (door, climate, smoke, one plug, one light), and
 |---|---|---|
 | Starts with a device event (kettle on) | "When X happens, do Y" (lamp warm 60 %) | **MCP scenario**, device trigger (`instantPower > 1500`) |
 | Happens at a time (bedtime ~23:10) | "At 23:00, dim the lamp and switch the plug off" | **MCP scenario**, schedule trigger |
-| Expected but missing (no tea by 9:30) | "Check on Rosa, then tell Ana" | **SYNAPSE** (scenarios can't express absence) |
+| Expected but missing (no tea by 9:30) | "Check on Rosa, then tell Ana" | **Alfred** (scenarios can't express absence) |
 | People undo an automation (lamp back on after bedtime) | A new, later or dimmer version, or a pause | Replaces the old scenario (v2) |
 | Nobody home at a regular time (Thursdays) | "Switch the plug off when you're out" | MCP scenario, schedule |
 | Two rules fight over one device | Merge them | Registry |
-| The same situation keeps getting the same human choice (≥3 times) | Make that choice the default response | MCP scenario or SYNAPSE rule, from memories (§7) |
+| The same situation keeps getting the same human choice (≥3 times) | Make that choice the default response | MCP scenario or Alfred rule, from memories (§7) |
 
 **Rule card** (what Rosa or Ana sees)
 > **When you make your morning tea, shall I warm up your lamp?**
@@ -97,10 +106,10 @@ It works with what this kit has (door, climate, smoke, one plug, one light), and
   "endActions": []
 }
 ```
-**Living without edit or delete:** SYNAPSE keeps its own **rule registry**. "Edit" = create `v2` + deactivate `v1`. "Delete" = deactivate + hide. Names follow `SY · <name> · v<n>`. New scenarios are created inactive, checked, then activated.
+**Living without edit or delete:** Alfred keeps its own **rule registry**. "Edit" = create `v2` + deactivate `v1`. "Delete" = deactivate + hide. Names follow `SY · <name> · v<n>`. New scenarios are created inactive, checked, then activated.
 
 ## 6. Verification loop: did it actually work?
-An action isn't done when the API says "OK". It's done when **the home shows it**. SYNAPSE checks every action, first on the device itself, then on **another device** that should feel the effect.
+An action isn't done when the API says "OK". It's done when **the home shows it**. Alfred checks every action, first on the device itself, then on **another device** that should feel the effect.
 ```
  act ──► predict (which device, what change, by when) ──► observe ──► compare
                                                                          │
@@ -121,8 +130,8 @@ An action isn't done when the API says "OK". It's done when **the home shows it*
 | Plug on (e.g. a dehumidifier) | Plug power → humidity | >150 W within a minute; humidity down ≥3 points in 45 min | Humidity flat and the window open (contact) → *"Close the window, it's working against the dehumidifier"* |
 | "Close the window" suggestion | Contact → temperature and humidity | Contact back to normal; readings settle | Still open after 15 min → remind once, then tell Ana if it's cold |
 | Lamp amber (check-in) | Lamp read-back → door and kettle | Lamp matches; any activity from Rosa within 10 min = she's OK | No activity → Ana gets the options (tier 4) |
-| "Chá da manhã" scenario | Kettle (trigger) → lamp (effect) | Lamp warm within one poll after the kettle starts | SYNAPSE sets the lamp itself; if the lamp doesn't answer → "lamp offline" (day 15) |
-| "SY · Fumo" scenario | Lamp + plug read-back | Lamp red, plug ~0 W within one poll | SYNAPSE sends the actions directly, alerts Ana, logs "scenario didn't fire" |
+| "Chá da manhã" scenario | Kettle (trigger) → lamp (effect) | Lamp warm within one poll after the kettle starts | Alfred sets the lamp itself; if the lamp doesn't answer → "lamp offline" (day 15) |
+| "SY · Fumo" scenario | Lamp + plug read-back | Lamp red, plug ~0 W within one poll | Alfred sends the actions directly, alerts Ana, logs "scenario didn't fire" |
 | Scenario created or switched | `get_home_scenarios` | Listed with the right `isActive` | Retry once, then mark it "not saved" in the registry |
 | Alarm mode (tier 4) | `get_home_security_status` | New status | Tell the person immediately; never assume |
 
@@ -133,10 +142,10 @@ An action isn't done when the API says "OK". It's done when **the home shows it*
 - *Opening the contact lowers humidity* → it's a window, not a door.
 - Every confirmed effect raises confidence in the home model. Every failed one lowers it and may prompt a question.
 
-*Real case from our kit (16 Nov): a colour command to the lamp returned `SH_10500`, and its `lastCommunicationTime` didn't move. SYNAPSE would report "couldn't reach the lamp, offline since 14 Nov" instead of claiming success.*
+*Real case from our kit (16 Nov): a colour command to the lamp returned `SH_10500`, and its `lastCommunicationTime` didn't move. Alfred would report "couldn't reach the lamp, offline since 14 Nov" instead of claiming success.*
 
 ## 7. Memories: the house remembers what happened and what worked
-Every time something happens and SYNAPSE responds, it keeps a **memory** of the whole episode. When a similar situation comes back, it remembers and does better.
+Every time something happens and Alfred responds, it keeps a **memory** of the whole episode. When a similar situation comes back, it remembers and does better.
 ```
  situation ──► recall similar memories ──► respond (reuse what worked) ──► verify (§6)
      ▲                                                                       │
@@ -151,7 +160,7 @@ people     Ana chose "ask the neighbour" · Rosa had a cold, all fine at 10:05
 outcome    resolved in 35 min · no service needed
 lesson     tea missing after a cold night → check in earlier; offer "neighbour" first
 ```
-| Happening | What SYNAPSE did the first time | What it does next time |
+| Happening | What Alfred did the first time | What it does next time |
 |---|---|---|
 | No morning tea after a cold night (day 21) | Amber lamp, tablet, then Ana; the neighbour helped | Checks in 30 min earlier and offers "neighbour" first (day 40) |
 | Lamp offline on a Friday (day 15) | Told Ana; Rosa had unplugged it while cleaning | Asks Rosa first (*"Unplugged while cleaning again?"*) and tells Ana only if there's no answer |
@@ -167,7 +176,7 @@ lesson     tea missing after a cold night → check in earlier; offer "neighbour
 - **Guardrails:** memories can speed things up and pre-select options, but **never skip an approval tier** and **never silence the safety path** (§10). People can see, correct and delete any memory, and memories stay in the EU.
 
 ## 8. Just talk: how interaction changes
-| Today (device language) | With SYNAPSE (people's language) |
+| Today (device language) | With Alfred (people's language) |
 |---|---|
 | App → Devices → Light → colour picker | *"Make Mum's lamp cosy."* |
 | Scenario editor: `Contact sensorState = alarm` AND 23:00–07:00 → `Light color_rgb …` | *"If the front door opens at night, give Mum a soft light."* |
@@ -177,7 +186,7 @@ lesson     tea missing after a cold night → check in earlier; offer "neighbour
 
 What talking can do:
 - **Ask:** *"Is Mum OK?"* → an answer built from today's moments versus her routine.
-- **Tell:** *"Let me sleep in on Sundays."* → SYNAPSE finds which rules this touches and shows the change before saving it.
+- **Tell:** *"Let me sleep in on Sundays."* → Alfred finds which rules this touches and shows the change before saving it.
 - **Teach:** *"That's not the kettle, it's the heater."* → the thing is renamed, and its moments and rules are rebuilt.
 - **Question:** *"Why did the lamp turn amber?"* → **"Porquê?"**: the evidence, the rule, and who approved it.
 - **Check:** *"Did the heater go off?"* → *"Yes: the plug dropped to 0 W at 21:02, and the bedroom stopped warming."*
@@ -185,12 +194,12 @@ What talking can do:
 
 The house also **talks back to learn**. It asks only when an answer unlocks meaning ("Is that your kettle?"), and asks less when people ignore it.
 
-## 9. How SYNAPSE works
+## 9. How Alfred works
 ```
  Altice kit ◄──► connected-home MCP ◄─────────── actions: lamp, plug, scenarios
                         │ poll every 30–60 s                      ▲
                         ▼                                         │
- ┌──────────────────── SYNAPSE (itself an MCP server) ────────────┴───────────┐
+ ┌──────────────────── Alfred (itself an MCP server) ─────────────┴───────────┐
  │  Event bridge + history ──► SEMANTIC LAYER: things · moments · routines ·  │
  │                             rules · words · memories (+ simulator)         │
  │        │                                                                   │
@@ -201,7 +210,7 @@ The house also **talks back to learn**. It asks only when an answer unlocks mean
  │        └──► Memory store: situation · response · outcome · lesson          │
  │                  └──► recalled by the agent next time it happens           │
  └────────────────────────────────────────────────────────────────────────────┘
-   in: Rosa's voice, Ana's app, profile, tariff        out: tablet · Ana's app · MEO services
+   in: Rosa's voice, Ana's app, calendar, profile, tariff   out: tablet · Ana's app · MEO services
 ```
 | Block | Job |
 |---|---|
@@ -213,8 +222,10 @@ The house also **talks back to learn**. It asks only when an answer unlocks mean
 | Guardrails | Approval tiers, audit log, "Porquê?" |
 | Verifier | Checks each action by read-back and on another device; feeds results back into the model (§6) |
 | Memory store | Keeps every episode (situation, response, outcome, lesson) and recalls similar ones (§7) |
+| Virtual sensors | Sensors made from a sentence: a declarative spec over the history, filled in at once and then live, exposed as devices (§3) |
+| Calendar connector | Reads plans (Google Calendar first) and adds the events people ask for |
 
-**SYNAPSE is itself an MCP server**, so MyButler or any other agent gets *understanding*, not just devices: `what_happened(since)`, `is_anyone_home()`, `get_routines()`, `propose_rules()`, `explain(event)`, `verify(action)`, `recall(situation)`.
+**Alfred is itself an MCP server**, so MyButler or any other agent gets *understanding*, not just devices: `what_happened(since)`, `is_anyone_home()`, `list_sensors()`, `create_sensor(sentence)`, `get_routines()`, `get_plans()`, `propose_rules()`, `explain(event)`, `verify(action)`, `recall(situation)`.
 
 ## 10. Guardrails
 | Tier | What | Who decides |
@@ -241,7 +252,7 @@ The house also **talks back to learn**. It asks only when an answer unlocks mean
 | Verify actions | `get_device_details` read-back, `lastCommunicationTime`, other sensors, `get_home_scenarios` | ✅ reads work today |
 
 ## 12. Why it scores
-| Criterion (final weight) | How SYNAPSE hits it |
+| Criterion (final weight) | How Alfred hits it |
 |---|---|
 | Fit (20 %) | Exactly what the brief asks for: **context + intent + information + action**, not commands. The house understands, reasons, suggests, and **learns from experience** (memories) |
 | Altice adoption (20 %) | A layer on the kit and MCP Altice already have. It feeds **their** scenario engine, matches their roadmap of using generative AI to write scenarios, and gives MyButler understanding through MCP |
@@ -253,19 +264,22 @@ The house also **talks back to learn**. It asks only when an answer unlocks mean
 ## 13. Business
 - **An add-on at about €3–5/month** (SFR's Maison Sécurisée costs €14.99), plus the services it leads to: **MEO Care** visits, **MEO Energia** tariff advice, **Europ Assistance** in France.
 - **Lower costs:** fewer false alarms (they're judged against routines) and fewer support calls (the house explains itself, and verification spots broken or offline devices before the customer does).
+- **Software sensors:** a catalogue of virtual sensors with no hardware, stock, installer or returns (illustratively ~€1/month each). Sensors the kit can't support become device recommendations.
 - **A platform asset:** the semantic layer makes every Altice device and partner app smarter, including MyButler. Sellable to other operators.
 - **Why now:** 37.8 % of people aged 80+ in Portugal lived alone (2021). Generic AI summaries (Google's Gemini for Home) are becoming a commodity, while a model that learns each home and ends in operator services is something only an operator can offer.
 
 ## 14. Demo (5 minutes)
 | Time | Moment |
 |---|---|
-| 0:00–0:40 | **The gap:** raw MCP JSON on screen (`Plug 2140 W`, `Contact: alarm`) next to Ana's real question: "Is Mum OK?" |
-| 0:40–1:40 | **21 days in 60 seconds:** the simulator replays Rosa's weeks while the layers fill up live: things get names, moments appear, routines form with confidence bars |
-| 1:40–2:30 | **Rules from routines:** three rule cards; we approve two → they appear as scenarios in `get_home_scenarios` |
-| 2:30–3:15 | **Just talk:** "Let me sleep in on Sundays" → SYNAPSE shows which rule changes (v2) and why |
-| 3:15–4:05 | **Day 21 + verification panel:** no tea → the real lamp turns amber (✓ read back), the tablet asks, no door or kettle within 10 min (✗ checked on other devices) → Ana gets the evidence + a MEO Care option |
-| 4:05–4:30 | **Day 40, it happens again:** the house recalls memory #14 → checks in earlier and offers "neighbour (worked last time)" |
-| 4:30–5:00 | Architecture, "MyButler gets understanding through SYNAPSE's MCP", business |
+| 0:00–0:30 | **The gap:** 7 device cards and raw MCP JSON (`Plug 2140 W`, `Contact: alarm`) next to Ana's real question: "Is Mum OK?" |
+| 0:30–1:30 | **A sensor that doesn't exist:** *"A sensor that knows when Rosa is asleep"* → an 8th card, **Sleep sensor · asleep since 23:12**, with 3 weeks of nights already filled in, and its definition in plain words |
+| 1:30–2:15 | **7 → 12 devices:** someone home · room being aired · morning as usual · kettle getting slower. One it can't build: *"I'd need a motion sensor in the bedroom"* |
+| 2:15–3:00 | **Sensors drive the house:** *"When Rosa is asleep, switch the plug lamp off"* → rule card → it fires → ✓ verified on the plug |
+| 3:00–3:40 | **Plans:** *"The grandchildren are coming on Saturday at seven"* → a calendar event + a setup card for the house |
+| 3:40–4:20 | **Day 21:** "morning as usual" turns red → the real lamp turns amber (✓ read back) → Ana gets the evidence + a MEO Care option. On day 40, the house recalls what helped |
+| 4:20–5:00 | MyButler reads Rosa's sensors through Alfred's MCP like any device · architecture · business |
+
+**3-minute cut (first round):** the gap → the sleep sensor → 7 → 12 → sensors drive the house *or* plans → business.
 
 Fallback: the whole demo runs on the simulator with the same tool calls. When the kit is live, a side panel shows the real MCP calls.
 
@@ -279,7 +293,7 @@ Fallback: the whole demo runs on the simulator with the same tool calls. When th
 | Fri 20 (coding 09:30–16:30; **submit 17:30**) | Ana's app + Rosa's tablet; amber check-in; "Porquê?" log; rehearse; summary + slides |
 
 **MVP:** history, simulator, things + moments + routines, three rule types (device trigger, schedule, absence), rule cards → scenarios, "Let me sleep in on Sundays", verification loop (levels 1–3, at least one cross-device check), memories (record + recall by situation type, for the day-40 replay), day-21 check-in, safety scenario.
-**Stretch:** SYNAPSE MCP server for MyButler; comfort-preference learning; French for Ana; IPMA weather.
+**Stretch:** Alfred MCP server for MyButler; comfort-preference learning; French for Ana; IPMA weather.
 **Team of 4:** data (bridge, history, simulator) · semantics (things, moments, routines, rule miner) · language (LLM, rule cards, explanations) · front-end & pitch.
 
 ## 16. Risks and questions
@@ -293,5 +307,7 @@ Fallback: the whole demo runs on the simulator with the same tool calls. When th
 | Learns the wrong lesson from one episode | One episode only suggests; behaviour changes only after repeats with verified outcomes; memories are visible and correctable |
 | "Elderly care" is a crowded theme | Lead with the **semantic layer** (any home, any person); Rosa is the story, not the product |
 | Privacy | No cameras, only meanings shared with family (never raw data), data in the EU, memories deletable ("forget that") |
+| A sensor made from a sentence is wrong | A pre-built, tested demo set; every card shows its plain-words definition and confidence; people correct it ("teach") |
+| Prior art (Home Assistant template sensors, Google Home's "Help me create") | Our edge: a sentence instead of code, history filled in at once, and an operator catalogue. Recheck before the pitch |
 
 **Questions for the mentors:** scenario `triggerLogic` / schedule / `operator` format? Can test scenarios be deleted? Is the kit online and ours alone? Can the platform speak or notify? Any rate limits?
