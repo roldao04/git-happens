@@ -107,6 +107,8 @@ Every poll logs one `tick` line (`tick 22 @ 11-18 08:21:00: 52 readings, 2 event
 ```
 uv run python -m source.ingest data/sim/couple.jsonl --out data/sim/couple/   # --replace to start the run again
 ```
+Checked on the simulator's output (starting-plan part 2): 90 days of a house (27,000 snapshots, 155 MB) take about 6 s and 37 MB of memory, with no gap, stale or gone event. `SimulatedMonthsTest` in `tests/test_ingest.py` runs two months, across the October clock change, with the real clock blocked.
+
 In code: `ingest(read_jsonl(path), store, stale_ms=..., on_day_end=fn)`. `fn(day)` runs once per local date (empty days too), after that day is committed and before anything later is stored, so a learner run there never sees the future.
 
 What it writes to `home.sqlite3`:
@@ -126,10 +128,16 @@ Times are epoch ms; days are Lisbon dates (`source/clock.py`: `local_day`, `day_
 | Kind | For | Rest | Check |
 |---|---|---|---|
 | `state` | on/off and text signals, including `True`/`False` | the value held longest | `at_rest(v)` |
-| `level` | numbers | the busiest group of close values: its median `value` ± `wobble` (at least `step`, the reporting resolution) | `at_rest(v)` |
+| `level` | numbers | the busiest group of close values: its median `value` ± `wobble`, the spread that covers 99.5% of the group's time (at least `step`, the reporting resolution) | `at_rest(v)` |
 | `slow` | `temperatureValue`, `humidityValue` | its normal rate of change, `rate_per_h` + `rate_wobble` | `rate_at_rest(dv, dt_ms)` |
 
 `share` is the part of observed time spent at rest; no threshold is applied. Counters and bookkeeping (`todayConsumption`, battery, signal strength, `multiPower`, `instantVoltage`, …) are skipped (`SKIP`). `observed_stretches(events, observed_until)` is public so the happening extractor can end happenings at the same gaps. Rest is not stored in a table yet.
+
+To see the rests of an ingested history:
+```
+uv run python -m source.learn.rest data/sim/rosa/      # --all also lists signals that never left rest
+```
+On 90 simulated days the plug rests at 0 ± 1 W (`rosa`, `couple`, the real house `home-a`) or 8 ± 1 W (`students`, whose console idles), the door at `normal`, the light at `off`, and the temperature moves about 0.2 °C per hour. Running the finder at every day end reads the whole history again each time: 0.2 s per day at 90 days, 2 to 9 s over the 90.
 
 ### LangGraph
 Not used in the loop: poll → diff → store → decide is simpler and easier to debug as plain asyncio. LangGraph lives inside **`agent.run(ctx)`** (`source/agent.py`), with the same contract: context dict in, `{notes, trigger_updates, actions}` out.
