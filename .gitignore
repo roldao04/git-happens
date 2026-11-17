@@ -1,0 +1,21 @@
+# Secrets and local config: never commit
+.mcp.json
+.env
+.env.*
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local data (poller history, memory store)
+*.sqlite
+*.sqlite3
+*.db
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/

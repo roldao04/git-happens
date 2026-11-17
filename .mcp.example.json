@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "connected-home": {
+      "type": "http",
+      "url": "https://cognitive-home.futurelabsinnovations.com",
+      "headers": {
+        "X-Client-Type": "core",
+        "Content-Type": "application/json",
+        "X-API-Key": "<API_KEY>"
+      },
+      "headersHelper": "python3 /ABSOLUTE/PATH/TO/hackathon/tools/connected_home_auth.py headers"
+    }
+  }
+}
