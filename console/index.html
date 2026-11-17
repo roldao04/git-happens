@@ -6,16 +6,16 @@
 <title>Connected Home console</title>
 <style>
   :root {
+    color-scheme: light;
     --bg: #f4f5f7; --panel: #ffffff; --line: #dfe2e8; --text: #1b1f27; --muted: #667085;
     --accent: #0a6cff; --accent-text: #ffffff; --ok: #12805c; --warn: #b54708; --bad: #c4320a;
     --chip: #eef1f5; --code: #f1f3f6;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #101319; --panel: #181c24; --line: #2a303b; --text: #e8eaf0; --muted: #98a2b3;
-      --accent: #4c94ff; --accent-text: #0b1220; --ok: #4cc79a; --warn: #f5a524; --bad: #ff7a59;
-      --chip: #222834; --code: #12151b;
-    }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #101319; --panel: #181c24; --line: #2a303b; --text: #e8eaf0; --muted: #98a2b3;
+    --accent: #4c94ff; --accent-text: #0b1220; --ok: #4cc79a; --warn: #f5a524; --bad: #ff7a59;
+    --chip: #222834; --code: #12151b;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
@@ -54,11 +54,16 @@
   #log div { display: flex; gap: 8px; } #log time { color: var(--muted); flex: none; }
   .err { color: var(--bad); }
 </style>
+<script>
+  // Light by default; a saved choice is applied before the page paints.
+  try { if (localStorage.getItem('theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch {}
+</script>
 </head>
 <body>
 <header>
   <h1>Connected Home console</h1>
   <span id="conn" class="pill">connecting…</span>
+  <button id="theme"></button>
   <button id="refresh">Refresh</button>
 </header>
 <main>
@@ -340,6 +345,18 @@ $('run').onclick = async () => {
   if (ok && isWrite(name)) load();
 };
 $('refresh').onclick = load;
+
+function showTheme() {
+  $('theme').textContent = document.documentElement.dataset.theme === 'dark' ? 'Light mode' : 'Dark mode';
+}
+$('theme').onclick = () => {
+  const dark = document.documentElement.dataset.theme !== 'dark';
+  if (dark) document.documentElement.dataset.theme = 'dark';
+  else delete document.documentElement.dataset.theme;
+  try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch {}
+  showTheme();
+};
+showTheme();
 for (const b of document.querySelectorAll('[data-sec]')) {
   b.onclick = () => {
     const mode = b.dataset.sec;
