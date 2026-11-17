@@ -13,7 +13,7 @@ from unittest import mock
 
 from source.agent import StubAgent
 from source.clock import TZ, day_bounds
-from source.ingest import IngestStats, ingest, read_jsonl
+from source.ingest import IngestStats, ingest, main, read_jsonl
 from source.loop import run
 from source.model import Event
 from source.normalize import normalize
@@ -209,6 +209,41 @@ class DaysAndGapsTest(unittest.TestCase):
         ingest([plug(a, 0), plug(b, 0), plug(c, 0)], self.store, stale_ms=STALE_MS * 24, gap_ms=30 * 60_000)
         gaps = [(e.ts, e.old, e.new) for e in self.store.events_since(-1) if e.kind == "gap"]
         self.assertEqual(gaps, [(c, b, c)])
+
+
+
+class CommandTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.out = Path(tmp.name) / "run"
+
+    def _events_on_disk(self) -> int:
+        db = sqlite3.connect(self.out / "home.sqlite3")
+        n = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        db.close()
+        return n
+
+    def test_ingests_a_file_into_its_own_folder(self):
+        with self.assertLogs("source.ingest", "INFO") as logs:
+            self.assertEqual(main([str(MORNING), "--out", str(self.out)]), 0)
+        self.assertGreater(self._events_on_disk(), 0)
+        self.assertTrue(any("2026-11-18" in m for m in logs.output))  # one line per day
+
+    def test_refuses_to_add_to_an_existing_run(self):
+        with self.assertLogs("source.ingest", "INFO"):
+            main([str(MORNING), "--out", str(self.out)])
+        before = self._events_on_disk()
+        with self.assertLogs("source.ingest", "ERROR"):
+            self.assertEqual(main([str(MORNING), "--out", str(self.out)]), 1)
+        self.assertEqual(self._events_on_disk(), before)
+
+    def test_replace_starts_the_run_again(self):
+        with self.assertLogs("source.ingest", "INFO"):
+            main([str(MORNING), "--out", str(self.out)])
+            before = self._events_on_disk()
+            self.assertEqual(main([str(MORNING), "--out", str(self.out), "--replace"]), 0)
+        self.assertEqual(self._events_on_disk(), before)
 
 
 if __name__ == "__main__":

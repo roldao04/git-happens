@@ -2,8 +2,13 @@
 
 No agent, no triggers, no rules: this only builds the history the learners read.
 The live loop (`source/loop.py`) is separate and unchanged.
+
+  uv run python -m source.ingest data/sim/couple.jsonl --out data/sim/couple/
+  uv run python -m source.ingest data/recording.jsonl --out data/sim/live/ --replace
 """
+import argparse
 import json
+import logging
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, timedelta, tzinfo
@@ -14,6 +19,8 @@ from .diff import diff, initially_stale
 from .model import Event, State
 from .normalize import normalize
 from .store import Store
+
+log = logging.getLogger("source.ingest")
 
 Snapshot = tuple[int, dict]
 
@@ -89,3 +96,35 @@ def _end_days(store: Store, day: date, until: date, on_day_end: Callable[[date],
         if on_day_end is not None:
             on_day_end(day)
         day += timedelta(days=1)
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="source.ingest", description="Ingest JSONL snapshots into a history store")
+    p.add_argument("file", type=Path, help='JSONL of {"ts": <ms>, "home": <get_home>} lines')
+    p.add_argument("--out", type=Path, required=True, help="folder for this run's home.sqlite3")
+    p.add_argument("--stale-minutes", type=float, default=60, help="a device is stale after this long silent")
+    p.add_argument("--gap-minutes", type=float, default=30, help="snapshots further apart add a gap event")
+    p.add_argument("--replace", action="store_true", help="delete this folder's existing history first")
+    args = p.parse_args(argv)
+
+    db = args.out / "home.sqlite3"
+    if db.exists():
+        if not args.replace:
+            log.error("%s already has a history; use --replace to start it again", args.out)
+            return 1
+        db.unlink()
+    store = Store(args.out, record=False)
+    try:
+        stats = ingest(read_jsonl(args.file), store, stale_ms=int(args.stale_minutes * 60_000),
+                       gap_ms=int(args.gap_minutes * 60_000), on_day_end=lambda day: log.info("day %s done", day))
+    finally:
+        store.close()
+    log.info("ingested %d snapshots, %d events into %s", stats.snapshots, stats.events, db)
+    return 0
+
+
+if __name__ == "__main__":
+    from .logs import setup_logging
+
+    setup_logging(None)
+    raise SystemExit(main())
