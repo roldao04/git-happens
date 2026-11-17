@@ -11,6 +11,7 @@ Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimag
 | [`docs/starting-plan.md`](docs/starting-plan.md) | **The starting plan:** how Alfred learns its own sensors, the parts to build, the shapes to agree, who builds what | First |
 | [`docs/learned-sensors-plan.md`](docs/learned-sensors-plan.md) | Earlier build plan (sensors as SQL queries), superseded by the starting plan | For background only |
 | [`docs/synapse.md`](docs/synapse.md) | Earlier concept under the old name (rules, verification, memories); not yet rewritten around Alfred | For background only |
+| [`docs/simulator.md`](docs/simulator.md) | **The simulator:** how to generate a household's history, the presets, the real house | Before generating data |
 | [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how the learners plug in | Before writing the poller or agent |
 | [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; device IDs | Before writing code |
 | [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules | Before the pitch or report |
@@ -41,6 +42,8 @@ uv run python -m source                                         # live: LangGrap
 uv run python -m source --stub                                  # live, stub agent: no LLM, no writes
 uv run python -m source.ask "make the lamp blue"               # ask the agent once, on the live house
 uv run python -m source.show events                             # what it saw
+uv run python -m source.simulate --days 14 --household rosa --out data/sim/rosa.jsonl   # simulated history
+uv run python -m source.simulate --serve                        # the same, from a form in the browser
 tail -f data/logs/loop.log                                      # logs
 ```
 Without `OPENROUTER_API_KEY` (or with `--stub`) the stub agent runs. Replays give the LLM no tools. Details: [`docs/event-loop.md`](docs/event-loop.md).
@@ -62,7 +65,7 @@ tools/                  connected_home_auth.py (OAuth helper used by .mcp.json)
 source/                 event loop: poll the MCP, diff, store, triggers, agent (LangGraph + stub), logs, show
 tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): `source/simulate.py` (the simulator) · `source/learn/` (rest, happenings, kinds, habits, namer) · sensor storage · the dashboard in `console/`.
+Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): `source/learn/` (rest, happenings, kinds, habits, namer) · sensor storage · the dashboard in `console/`.
 
 ## Conventions
 - **Never commit secrets:** `.mcp.json`, `.env` and tokens stay local (see `.gitignore`).

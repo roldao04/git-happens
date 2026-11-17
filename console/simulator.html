@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred simulator</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f5f7; --panel: #ffffff; --line: #dfe2e8; --text: #1b1f27; --muted: #667085;
+    --accent: #0a6cff; --accent-text: #ffffff; --accent-soft: #eaf2ff; --ok: #12805c; --bad: #c4320a;
+    --real: #12805c; --part: #b54708; --sim: #667085; --chip: #eef1f5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; padding: 24px 16px; }
+  form { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 16px; margin: 0; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .choice { display: grid; gap: 8px; align-content: start; background: var(--panel); border: 2px solid var(--line);
+            border-radius: 12px; padding: 16px; cursor: pointer; }
+  .choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .choice input { position: absolute; opacity: 0; }
+  .choice .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .tag { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--chip); white-space: nowrap; }
+  .tag.real { color: var(--real); } .tag.part { color: var(--part); } .tag.sim { color: var(--sim); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  label.field { display: grid; gap: 5px; font-weight: 600; }
+  label.field small { font-weight: 400; color: var(--muted); }
+  input[type=number], button { font: inherit; color: inherit; }
+  input[type=number] { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; width: 100%; }
+  input[type=number]:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button { border: 0; background: var(--accent); color: var(--accent-text); border-radius: 8px; padding: 11px 16px;
+           font-weight: 600; cursor: pointer; justify-self: start; }
+  button:disabled { opacity: .55; cursor: default; }
+  #status { min-height: 1.5em; color: var(--muted); }
+  #status.bad { color: var(--bad); }
+  #status.ok { color: var(--ok); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<form id="form">
+  <div>
+    <h1>Alfred simulator</h1>
+    <p class="muted">Generates a home's history as <code>get_home</code> snapshots. Choose what kind of home.</p>
+  </div>
+
+  <div class="choices">
+    <label class="choice">
+      <input type="radio" name="kind" value="simulated" checked>
+      <span class="head"><h2>Simulated houses</h2><span class="tag sim">Fully simulated</span></span>
+      <p>Made-up homes. Every value is generated: nothing in the file was measured in a real house.</p>
+      <p class="muted">Each house gets its own random habits, so you can make as many different homes as you want, for as many days as you want.</p>
+    </label>
+    <label class="choice">
+      <input type="radio" name="kind" value="real">
+      <span class="head"><h2>Real house</h2><span class="tag part">Partly real</span></span>
+      <p>One real home, replayed. Three of the seven devices carry values that were measured in that house.</p>
+      <p class="muted">There is only one such house and it was recorded for __REAL_MAX_DAYS__ days, so that is the most you can get.</p>
+    </label>
+  </div>
+
+  <div class="panel" id="about-simulated">
+    <h2>What is in a simulated house</h2>
+    <div class="scroll"><table>
+      <tr><th>Device</th><th>Source</th><th>What it does</th></tr>
+      <tr><td>Contact sensor</td><td><span class="tag sim">Simulated</span></td><td>The door opens after waking, on outings, and at a few random times.</td></tr>
+      <tr><td>Plug</td><td><span class="tag sim">Simulated</span></td><td>One appliance per house (a kettle, a coffee machine, a television…), used at that house's usual time.</td></tr>
+      <tr><td>Light</td><td><span class="tag sim">Simulated</span></td><td>On for a while after waking, and from the evening until bedtime.</td></tr>
+      <tr><td>Temperature sensor</td><td><span class="tag sim">Simulated</span></td><td>Temperature and humidity follow a daily curve with a small random drift.</td></tr>
+      <tr><td>Camera, smoke sensor, hub</td><td><span class="tag sim">Constant</span></td><td>They report, but their values never change.</td></tr>
+    </table></div>
+    <p class="muted">Wake time, bedtime, appliance and outings are drawn at random for each house, vary a little every day, and are skipped on some days. Only the file's layout, the device names and the value words (<code>alarm</code>, <code>normal</code>) are copied from our real kit.</p>
+  </div>
+
+  <div class="panel" id="about-real" hidden>
+    <h2>What is real in the real house</h2>
+    <div class="scroll"><table>
+      <tr><th>Device</th><th>Source</th><th>What it is</th></tr>
+      <tr><td>Contact sensor</td><td><span class="tag real">Real</span></td><td>Every opening and closing of that house's <b>fridge door</b>, about 65 a day. It is not a front door: the fridge was the only door with a sensor.</td></tr>
+      <tr><td>Light</td><td><span class="tag real">Real</span></td><td>The kitchen lights: when they were switched on and off, and how bright.</td></tr>
+      <tr><td>Temperature sensor</td><td><span class="tag real">Real</span></td><td>Indoor temperature and humidity, measured every 5 minutes.</td></tr>
+      <tr><td>Plug</td><td><span class="tag part">Partly real</span></td><td>The coffee maker (about 1,000 W for 7 minutes, on a timer at 06:30). Its meter only recorded 17 of the days. On the other days, one of its recorded uses is replayed at one of its recorded start times.</td></tr>
+      <tr><td>Camera, smoke sensor, hub</td><td><span class="tag sim">Constant</span></td><td>Not from that house. They keep the values of our own kit and never change.</td></tr>
+    </table></div>
+    <p class="muted">The house is "Home A" of the UMass Smart* data set, in Massachusetts, recorded from May to July 2012. All the real values come from that same house, so the links between them are genuine. Two things are changed: the dates are moved to 2026, keeping each weekday and time of day, and temperatures are converted from °F to °C.</p>
+  </div>
+
+  <div class="panel">
+    <div class="fields">
+      <label class="field">Days
+        <input name="days" id="days" type="number" min="1" max="365" value="14" required>
+        <small id="days-hint"></small>
+      </label>
+      <label class="field" id="houses-field">Houses
+        <input name="houses" id="houses" type="number" min="1" max="20" value="1" required>
+        <small>Up to 20, each one different</small>
+      </label>
+    </div>
+    <button id="go" type="submit">Generate and download</button>
+    <p id="status" role="status"></p>
+  </div>
+</form>
+<script>
+const REAL_MAX_DAYS = Number('__REAL_MAX_DAYS__') || 91;
+const $ = (id) => document.getElementById(id);
+const form = $('form'), status = $('status');
+const setStatus = (text, kind) => { status.textContent = text; status.className = kind || ''; };
+const isReal = () => form.elements.kind.value === 'real';
+
+function refresh() {
+  const real = isReal();
+  $('about-real').hidden = !real;
+  $('about-simulated').hidden = real;
+  $('houses-field').hidden = real;
+  $('houses').disabled = real;
+  $('days').max = real ? REAL_MAX_DAYS : 365;
+  $('days-hint').textContent = real ? `Up to ${REAL_MAX_DAYS}: all that was recorded` : 'Up to 365';
+  const total = Number($('days').value) * (real ? 1 : Number($('houses').value));
+  // Measured: about 1.7 MB of JSONL per house per day (2.3 MB for the real house), about an eightieth once zipped.
+  const perDay = real ? 2.3 : 1.7;
+  setStatus(total > 0 ? `A zip of about ${Math.max(0.1, total * perDay / 80).toFixed(1)} MB (${Math.round(total * perDay)} MB unzipped).` : '');
+}
+form.addEventListener('input', refresh);
+refresh();
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('go').disabled = true;
+  setStatus('Generating… a few seconds per house.');
+  try {
+    const res = await fetch('/generate', { method: 'POST', body: new URLSearchParams(new FormData(form)) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Failed (${res.status})`);
+    const blob = await res.blob();
+    const name = isReal() ? `alfred-real-house-${$('days').value}d.zip` : `alfred-${$('houses').value}-houses-${$('days').value}d.zip`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+    setStatus(`Done: ${name}, ${(blob.size / 1e6).toFixed(1)} MB.`, 'ok');
+  } catch (err) {
+    setStatus(err.message === 'Failed to fetch' ? 'Could not reach the simulator. Is it still running?' : err.message, 'bad');
+  } finally {
+    $('go').disabled = false;
+  }
+});
+</script>
+</body>
+</html>
