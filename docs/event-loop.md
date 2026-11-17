@@ -68,6 +68,7 @@ source/
   context.py    builds what the agent reads
   agent.py      StubAgent · LangGraphAgent (LLM + MCP tools)
   loop.py       the loop above
+  learn/rest.py each signal's rest, from observed time (starting-plan part 3)
 ```
 
 ### Running and testing it
@@ -112,12 +113,23 @@ What it writes to `home.sqlite3`:
 
 | Table | Holds |
 |---|---|
-| `events` | `initial` (each signal's value at the first snapshot), `change`, `stale`, `returned`, and `gap` (snapshots more than 30 min apart: `old` = last before, `new` = first after) |
+| `events` | `initial` (each signal's value at the first snapshot), `change`, `gone` (a signal no longer in the snapshot; it comes back as a `change` from `None`), `stale`, `returned`, and `gap` (snapshots more than 30 min apart: `old` = last before, `new` = first after) |
 | `devices` | `device_id`, `type`, `name`, `first_ts`: find devices by type with `store.devices_of_type("plug")`, even after re-pairing |
 | `days` | Each local date that has data: `first_ts`, `last_ts`, `snapshots` |
 | `snapshots` | Every snapshot, as before |
 
 Times are epoch ms; days are Lisbon dates (`source/clock.py`: `local_day`, `day_bounds`; 25 Oct 2026 is 25 h long).
+
+### Rest (starting-plan part 3)
+`rest_from_store(store, until_ms)` in `source/learn/rest.py` gives one `Rest` per signal, `(device_id, capability)`. Call it from `on_day_end` with `day_bounds(day)[1]`. Rest is measured in observed time, never in event counts: time inside a `gap`, while a device is stale (from its last contact until it returns), after a signal is `gone`, or after the last snapshot does not count.
+
+| Kind | For | Rest | Check |
+|---|---|---|---|
+| `state` | on/off and text signals, including `True`/`False` | the value held longest | `at_rest(v)` |
+| `level` | numbers | the busiest group of close values: its median `value` ± `wobble` (at least `step`, the reporting resolution) | `at_rest(v)` |
+| `slow` | `temperatureValue`, `humidityValue` | its normal rate of change, `rate_per_h` + `rate_wobble` | `rate_at_rest(dv, dt_ms)` |
+
+`share` is the part of observed time spent at rest; no threshold is applied. Counters and bookkeeping (`todayConsumption`, battery, signal strength, `multiPower`, `instantVoltage`, …) are skipped (`SKIP`). `observed_stretches(events, observed_until)` is public so the happening extractor can end happenings at the same gaps. Rest is not stored in a table yet.
 
 ### LangGraph
 Not used in the loop: poll → diff → store → decide is simpler and easier to debug as plain asyncio. LangGraph lives inside **`agent.run(ctx)`** (`source/agent.py`), with the same contract: context dict in, `{notes, trigger_updates, actions}` out.
@@ -152,7 +164,7 @@ Later:
 ## 5. Data shapes (fix these now, they're costly to change later)
 **Event**
 ```
-{id, ts, device, capability, old, new, kind: change|stale|returned, source: "unknown"}
+{id, ts, device, capability, old, new, kind: initial|change|gone|stale|returned|gap, source: "unknown"}
 ```
 `source` stays `unknown` in v1; attribution (§7) later fills `alfred | scenario:<id> | human`.
 
