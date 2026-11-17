@@ -94,7 +94,7 @@ Live runs write to `data/`, replays to `data/replay/` (both gitignored):
 | `logs/loop.log` | Human-readable log, DEBUG and up, rotated daily, 14 days kept | `tail -f data/logs/loop.log` |
 | `logs/loop.jsonl` | Same log as JSON, with structured `data` (events, wake reasons, agent context at DEBUG) | `jq 'select(.data.wake != null and (.data.wake \| length) > 0)' data/logs/loop.jsonl` |
 | `logs/mcp-remote.log` | The MCP proxy's own output (auth, connection problems) | when polling fails |
-| `home.sqlite3` | Snapshots, events, agent runs | `uv run python -m source.show events \| wakes \| state` (`--replay` for replay data, `--since 2h`, `-n 100`, `wakes --context`) |
+| `home.sqlite3` | Snapshots, events, agent runs | `uv run python -m source.show events \| wakes \| state` (`source.show --replay wakes` for replay data, before the subcommand; `--since 2h`, `-n 100`, `wakes --context`) |
 | `recording.jsonl` | Every raw snapshot (live only) | replay it with `--replay` |
 
 Every poll logs one `tick` line (`tick 22 @ 11-18 08:21:00: 52 readings, 2 events, wake: plug-power`), every change an `event` line, every wake-up a `wake` line. Console level: `LOOP_LOG_LEVEL` or `-v`; `-q` for files only. In code, attach data with `log.info("...", extra={"data": {...}})`.
