@@ -4,12 +4,15 @@
 """
 import asyncio
 import json
+import sqlite3
 import tempfile
 import unittest
+from datetime import date, datetime
 from pathlib import Path
 from unittest import mock
 
 from source.agent import StubAgent
+from source.clock import TZ, day_bounds
 from source.ingest import IngestStats, ingest, read_jsonl
 from source.loop import run
 from source.sources import ReplaySource
@@ -85,6 +88,62 @@ class IngestTest(unittest.TestCase):
     def test_empty_input(self):
         store = self._store()
         self.assertEqual(ingest(iter([]), store, stale_ms=STALE_MS), IngestStats(0, 0, None, None))
+
+
+def at(*args) -> int:
+    return int(datetime(*args, tzinfo=TZ).timestamp() * 1000)
+
+
+def plug(ts: int, watts: int) -> tuple[int, dict]:
+    return ts, {"devices": [{"id": "p1", "name": "Plug", "type": "plug", "lastCommunicationTime": ts,
+                             "capabilities": [{"type": "instantPower", "value": watts}]}]}
+
+
+class DayEndTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        self.store = Store(self.dir, record=False)
+        self.addCleanup(self.store.close)
+
+    def test_once_per_date_in_order_including_gaps(self):
+        snaps = [plug(at(2026, 9, 1, 8), 0), plug(at(2026, 9, 1, 9), 2100), plug(at(2026, 9, 3, 8), 0)]
+        days = []
+        ingest(snaps, self.store, stale_ms=STALE_MS, on_day_end=days.append)
+        self.assertEqual(days, [date(2026, 9, 1), date(2026, 9, 2), date(2026, 9, 3)])
+
+    def test_across_the_clock_change(self):
+        snaps = [plug(at(2026, 10, 24, 23, 30), 0), plug(at(2026, 10, 25, 1, 30), 5),
+                 plug(at(2026, 10, 25, 23, 30), 0), plug(at(2026, 10, 26, 0, 30), 5)]
+        days = []
+        ingest(snaps, self.store, stale_ms=STALE_MS, on_day_end=days.append)
+        self.assertEqual(days, [date(2026, 10, 24), date(2026, 10, 25), date(2026, 10, 26)])
+
+    def test_day_is_committed_and_nothing_later_is_stored(self):
+        snaps = [plug(at(2026, 9, 1, 8), 0), plug(at(2026, 9, 1, 9), 2100), plug(at(2026, 9, 2, 0, 5), 0)]
+        seen = {}
+
+        def check(day):
+            other = sqlite3.connect(self.dir / "home.sqlite3")  # sees only committed rows
+            seen[day] = other.execute("SELECT COUNT(*), MAX(ts) FROM events").fetchone()
+            other.close()
+
+        ingest(snaps, self.store, stale_ms=STALE_MS, on_day_end=check)
+        count, latest = seen[date(2026, 9, 1)]
+        self.assertEqual(count, 1)
+        self.assertLess(latest, day_bounds(date(2026, 9, 1))[1])
+        self.assertEqual(seen[date(2026, 9, 2)][0], 2)
+
+    def test_out_of_order_snapshots_rejected(self):
+        with self.assertRaises(ValueError):
+            ingest([plug(at(2026, 9, 2, 8), 0), plug(at(2026, 9, 1, 8), 5)], self.store, stale_ms=STALE_MS)
+
+    def test_no_hook_still_commits(self):
+        ingest([plug(at(2026, 9, 1, 8), 0), plug(at(2026, 9, 1, 9), 2100)], self.store, stale_ms=STALE_MS)
+        other = sqlite3.connect(self.dir / "home.sqlite3")
+        self.assertEqual(other.execute("SELECT COUNT(*) FROM events").fetchone()[0], 1)
+        other.close()
 
 
 if __name__ == "__main__":

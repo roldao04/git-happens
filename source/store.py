@@ -36,14 +36,14 @@ class Store:
         self.db.executescript(SCHEMA)
         self._recording = open(data_dir / "recording.jsonl", "a") if record else None
 
-    def save(self, ts: int, home: dict, events: list[Event]) -> None:
+    def save(self, ts: int, home: dict, events: list[Event], *, commit: bool = True) -> None:
         self.db.execute("INSERT OR REPLACE INTO snapshots VALUES (?, ?)", (ts, json.dumps(home)))
-        self.save_events(events)  # commits
+        self.save_events(events, commit=commit)
         if self._recording:
             self._recording.write(json.dumps({"ts": ts, "home": home}) + "\n")
             self._recording.flush()
 
-    def save_events(self, events: list[Event]) -> None:
+    def save_events(self, events: list[Event], *, commit: bool = True) -> None:
         for e in events:
             cur = self.db.execute(
                 "INSERT INTO events (ts, device_id, device, capability, kind, old, new, source)"
@@ -52,6 +52,10 @@ class Store:
                  json.dumps(e.old), json.dumps(e.new), e.source),
             )
             e.id = cur.lastrowid
+        if commit:
+            self.db.commit()
+
+    def commit(self) -> None:
         self.db.commit()
 
     def events_since(self, ts_ms: int) -> list[Event]:
