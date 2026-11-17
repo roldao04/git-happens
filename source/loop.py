@@ -8,6 +8,7 @@ import logging
 import time
 from datetime import datetime
 
+from .actions import Actuator, DryRunActuator, run_actions
 from .context import build_context
 from .diff import diff, initially_stale
 from .model import Event
@@ -20,7 +21,9 @@ log = logging.getLogger("source.loop")
 
 
 async def run(source: Source, store: Store, triggers: Triggers, agent, *,
-              poll_seconds: float, stale_minutes: float, max_ticks: int | None = None) -> None:
+              poll_seconds: float, stale_minutes: float, max_ticks: int | None = None,
+              actuator: Actuator | None = None) -> None:
+    actuator = actuator or DryRunActuator()
     stale_ms = int(stale_minutes * 60_000)
     prev = None
     prev_now: int | None = None
@@ -62,13 +65,21 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
         for e in events:
             log.info("event  %s", e.describe(), extra={"data": {"event": e.to_dict()}})
 
-        reasons = triggers.match(events, now)
-        log.info("tick %d @ %s: %d readings, %d events, %s (%.1fs)",
+        fired = triggers.match(events, now)
+        for r in fired:  # hard rules first: code runs their actions, no LLM
+            t = triggers.triggers[r.trigger_id]
+            if t.actions:
+                store.log_rule_run(now, r.trigger_id, await run_actions(actuator, r.trigger_id, t.actions))
+        reasons = [r for r in fired if triggers.triggers[r.trigger_id].wake_agent]
+        rules = [r.trigger_id for r in fired if r not in reasons]
+        log.info("tick %d @ %s: %d readings, %d events, %s%s (%.1fs)",
                  ticks, _hhmmss(now), len(state), len(events),
                  "wake: " + ", ".join(r.trigger_id for r in reasons) if reasons else "no wake",
+                 ", rules: " + ", ".join(rules) if rules else "",
                  time.monotonic() - started,
                  extra={"data": {"tick": ticks, "home_ts": now, "readings": len(state),
-                                 "events": len(events), "wake": [r.trigger_id for r in reasons]}})
+                                 "events": len(events), "wake": [r.trigger_id for r in reasons],
+                                 "rules": rules}})
         if reasons:
             ctx = build_context(now, reasons, state, store, last_run_ms)
             log.debug("agent context", extra={"data": {"context": ctx}})

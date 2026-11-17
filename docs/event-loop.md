@@ -128,8 +128,10 @@ Later:
 **Trigger**
 ```
 {id, kind: change|threshold|stale|interval, condition: {...}, reason,
- created_by: seed|agent|human, locked, expires_at, enabled}
+ created_by: seed|agent|human, locked, expires_at, enabled,
+ actions: [{tool, args}], wake_agent}
 ```
+**Hard rules.** A trigger's `actions` are tool calls the loop runs itself, with no LLM ([`source/actions.py`](../source/actions.py)). Only `update_device_capabilities` is allowed, replays and `--stub` never write, and each run is stored in `rule_runs`. `wake_agent: false` keeps the LLM out completely. Example: door open → lamp blue, door closed → lamp red (`door-open` / `door-closed`, no cooldown).
 | Seed trigger | Locked |
 |---|---|
 | `interval` 15 min (heartbeat) | yes (period editable, with a minimum) |
