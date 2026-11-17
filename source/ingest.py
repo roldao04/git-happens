@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .clock import TZ, local_day
 from .diff import diff, initially_stale
+from .model import Event, State
 from .normalize import normalize
 from .store import Store
 
@@ -43,6 +44,7 @@ def ingest(snaps: Iterable[Snapshot], store: Store, *, stale_ms: int, tz: tzinfo
     """
     prev = prev_ts = first_ts = day = None
     count = events = 0
+    known: set[str] = set()
     for ts, home in snaps:
         if prev_ts is not None and ts < prev_ts:
             raise ValueError(f"snapshots out of order: {ts} after {prev_ts}")
@@ -51,7 +53,14 @@ def ingest(snaps: Iterable[Snapshot], store: Store, *, stale_ms: int, tz: tzinfo
             _end_days(store, day, today, on_day_end)
         day = today
         state = normalize(home)
-        found = diff(prev, state, ts, stale_ms, prev_ts) if prev is not None else initially_stale(state, ts, stale_ms)
+        if prev is None:
+            found = _initial(state, ts) + initially_stale(state, ts, stale_ms)
+        else:
+            found = diff(prev, state, ts, stale_ms, prev_ts)
+        new_devices = {r.device_id: (r.device_type, r.device) for r in state.values() if r.device_id not in known}
+        if new_devices:
+            store.save_devices(ts, new_devices)
+            known.update(new_devices)
         store.save(ts, home, found, commit=False)
         count, events = count + 1, events + len(found)
         first_ts = ts if first_ts is None else first_ts
@@ -59,6 +68,11 @@ def ingest(snaps: Iterable[Snapshot], store: Store, *, stale_ms: int, tz: tzinfo
     if day is not None:
         _end_days(store, day, day + timedelta(days=1), on_day_end)
     return IngestStats(count, events, first_ts, prev_ts)
+
+
+def _initial(state: State, ts: int) -> list[Event]:
+    """Where every signal starts, so the history says what each value was before its first change."""
+    return [Event(ts, r.device_id, r.device, r.capability, "initial", None, r.value) for r in state.values()]
 
 
 def _end_days(store: Store, day: date, until: date, on_day_end: Callable[[date], None] | None) -> None:

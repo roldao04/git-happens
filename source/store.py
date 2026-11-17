@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS events (
     old TEXT, new TEXT, source TEXT NOT NULL DEFAULT 'unknown'
 );
 CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
+CREATE TABLE IF NOT EXISTS devices (
+    device_id TEXT NOT NULL UNIQUE, type TEXT NOT NULL, name TEXT NOT NULL, first_ts INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts INTEGER NOT NULL, reasons TEXT NOT NULL, context TEXT NOT NULL, output TEXT
@@ -57,6 +60,16 @@ class Store:
 
     def commit(self) -> None:
         self.db.commit()
+
+    def save_devices(self, ts: int, devices: dict[str, tuple[str, str]]) -> None:
+        """device_id -> (type, name); keeps the first time each id was seen. Commits with the next commit."""
+        self.db.executemany("INSERT OR IGNORE INTO devices (device_id, type, name, first_ts) VALUES (?, ?, ?, ?)",
+                            [(dev_id, dtype, name, ts) for dev_id, (dtype, name) in devices.items()])
+
+    def devices_of_type(self, device_type: str) -> list[str]:
+        rows = self.db.execute("SELECT device_id FROM devices WHERE type = ? ORDER BY first_ts, device_id",
+                               (device_type,)).fetchall()
+        return [r[0] for r in rows]
 
     def events_since(self, ts_ms: int) -> list[Event]:
         rows = self.db.execute(

@@ -15,6 +15,8 @@ from source.agent import StubAgent
 from source.clock import TZ, day_bounds
 from source.ingest import IngestStats, ingest, read_jsonl
 from source.loop import run
+from source.model import Event
+from source.normalize import normalize
 from source.sources import ReplaySource
 from source.store import Store
 from source.triggers import Triggers, seed_triggers
@@ -65,7 +67,8 @@ class IngestTest(unittest.TestCase):
         via_ingest = self._store()
         ingest(read_jsonl(MORNING), via_ingest, stale_ms=STALE_MS)
         self.assertTrue(_events(via_loop))
-        self.assertEqual(_events(via_ingest), _events(via_loop))
+        not_initial = [e for e in _events(via_ingest) if e[3] != "initial"]  # only ingest records starting values
+        self.assertEqual(not_initial, _events(via_loop))
 
     def test_never_reads_the_real_clock(self):
         store = self._store()
@@ -131,9 +134,9 @@ class DayEndTest(unittest.TestCase):
 
         ingest(snaps, self.store, stale_ms=STALE_MS, on_day_end=check)
         count, latest = seen[date(2026, 9, 1)]
-        self.assertEqual(count, 1)
+        self.assertEqual(count, 2)  # the plug's initial value and its change
         self.assertLess(latest, day_bounds(date(2026, 9, 1))[1])
-        self.assertEqual(seen[date(2026, 9, 2)][0], 2)
+        self.assertEqual(seen[date(2026, 9, 2)][0], 3)
 
     def test_out_of_order_snapshots_rejected(self):
         with self.assertRaises(ValueError):
@@ -142,8 +145,42 @@ class DayEndTest(unittest.TestCase):
     def test_no_hook_still_commits(self):
         ingest([plug(at(2026, 9, 1, 8), 0), plug(at(2026, 9, 1, 9), 2100)], self.store, stale_ms=STALE_MS)
         other = sqlite3.connect(self.dir / "home.sqlite3")
-        self.assertEqual(other.execute("SELECT COUNT(*) FROM events").fetchone()[0], 1)
+        self.assertEqual(other.execute("SELECT COUNT(*) FROM events").fetchone()[0], 2)
         other.close()
+
+
+
+class InitialAndDevicesTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.store = Store(Path(tmp.name), record=False)
+        self.addCleanup(self.store.close)
+
+    def test_one_initial_event_per_signal(self):
+        ingest(read_jsonl(MORNING), self.store, stale_ms=STALE_MS)
+        first_ts, first_home = next(read_jsonl(MORNING))
+        expected = sorted((r.device_id, r.capability, r.value) for r in normalize(first_home).values())
+        initial = [e for e in self.store.events_since(-1) if e.kind == "initial"]
+        self.assertEqual(sorted((e.device_id, e.capability, e.new) for e in initial), expected)
+        self.assertTrue(all(e.ts == first_ts and e.old is None for e in initial))
+
+    def test_devices_found_by_type(self):
+        ingest(read_jsonl(MORNING), self.store, stale_ms=STALE_MS)
+        _, home = next(read_jsonl(MORNING))
+        plugs = [d["id"] for d in home["devices"] if d["type"] == "plug"]
+        self.assertEqual(self.store.devices_of_type("plug"), plugs)
+        self.assertEqual(self.store.devices_of_type("security"), ["home-security"])
+
+    def test_repaired_device_keeps_its_type(self):
+        first, second = plug(at(2026, 9, 1, 8), 0), plug(at(2026, 9, 1, 9), 5)
+        second[1]["devices"][0]["id"] = "p2"
+        ingest([first, second], self.store, stale_ms=STALE_MS)
+        self.assertEqual(self.store.devices_of_type("plug"), ["p1", "p2"])
+
+    def test_initial_event_reads_plainly(self):
+        self.assertEqual(Event(0, "p1", "Plug", "instantPower", "initial", None, 0).describe(),
+                         "Plug.instantPower starts at 0")
 
 
 if __name__ == "__main__":
