@@ -7,7 +7,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -17,6 +17,7 @@ from source.ingest import IngestStats, ingest, main, read_jsonl
 from source.loop import run
 from source.model import Event
 from source.normalize import normalize
+from source.simulate import generate
 from source.sources import ReplaySource
 from source.store import Store
 from source.triggers import Triggers, seed_triggers
@@ -210,6 +211,46 @@ class DaysAndGapsTest(unittest.TestCase):
         gaps = [(e.ts, e.old, e.new) for e in self.store.events_since(-1) if e.kind == "gap"]
         self.assertEqual(gaps, [(c, b, c)])
 
+
+
+class SimulatedMonthsTest(unittest.TestCase):
+    """Starting-plan part 2: months of the simulator's output go through, with every time taken from the data."""
+    START, DAYS = date(2026, 9, 1), 61  # to 31 October: the clocks go back on the 25th, a 25-hour day
+
+    def test_two_simulated_months(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = Store(Path(tmp.name), record=False)
+        self.addCleanup(store.close)
+        lines, _ = generate("rosa", self.DAYS, start=self.START, interval_s=900)
+        snaps = ((row["ts"], row["home"]) for row in map(json.loads, lines))
+        ended = []
+        clock = mock.Mock(side_effect=AssertionError("real clock read"))
+        with mock.patch("time.time", clock), mock.patch("time.monotonic", clock):
+            stats = ingest(snaps, store, stale_ms=STALE_MS, on_day_end=ended.append)
+
+        every_day = [self.START + timedelta(days=n) for n in range(self.DAYS)]
+        self.assertEqual(ended, every_day)
+        days = store.days()
+        self.assertEqual([d for d, *_ in days], every_day)
+        for day, first, last, _ in days:
+            start, end = day_bounds(day)
+            self.assertEqual(first, start)  # the simulator's first snapshot of a day is at local midnight
+            self.assertTrue(start <= last < end)
+        self.assertEqual(sum(n for *_, n in days), stats.snapshots)
+        self.assertEqual(stats.first_ts, day_bounds(every_day[0])[0])
+        self.assertLess(stats.last_ts, day_bounds(every_day[-1])[1])
+
+        kinds = dict(store.db.execute("SELECT kind, COUNT(*) FROM events GROUP BY kind").fetchall())
+        self.assertEqual(set(kinds), {"initial", "change"})  # no gap, no stale device, nothing gone
+        self.assertEqual(sum(kinds.values()), stats.events)
+        first_event, last_event = store.db.execute("SELECT MIN(ts), MAX(ts) FROM events").fetchone()
+        self.assertEqual(first_event, stats.first_ts)
+        self.assertLessEqual(last_event, stats.last_ts)
+        kettle_days = store.db.execute(
+            "SELECT COUNT(DISTINCT ts / 86400000) FROM events WHERE capability = 'instantPower' AND CAST(new AS REAL) > 1000"
+        ).fetchone()[0]
+        self.assertGreater(kettle_days, self.DAYS // 2)  # the kettle ran on most of the days
 
 
 class CommandTest(unittest.TestCase):
