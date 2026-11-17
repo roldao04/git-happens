@@ -2,28 +2,28 @@
 
 How Alfred notices what happens in the home and decides when the LLM should think about it.
 It is the history that the learners in [`starting-plan.md`](starting-plan.md) read from. It began as the "event bridge + history" block of the earlier concept ([`synapse.md`](synapse.md) §9), which is where the § references to verification and scenarios below point.
-Status: **v1 built** in [`source/`](../source/) (branch `feat/house-mcp-polling-loop`): poll, normalize, diff, store, seed triggers, stub agent, plus the **LangGraph agent** (reads the home, can set the lamp and plug, verifies by reading back). Not yet: agent-editable triggers, guardrails/approval for writes, action ledger, attribution.
+Status: **v1 built** in [`source/`](../source/): poll, normalize, diff, store, seed triggers, hard-rule actions, the stub agent and the **LangGraph agent** (reads the home, can set the lamp and plug, verifies by reading back), plus ingest and the first two learners (rest, happenings) for simulated days. Not yet: agent-editable triggers, approval for writes, the action ledger, attribution.
 
 ## 1. Why poll, and why not call the LLM on every poll
 - The MCP has **no live events** ([`mcp-capabilities.md`](mcp-capabilities.md)), so we poll `get_home` (one call returns every device with its values and `lastCommunicationTime`).
-- **The LLM does not run on every poll.** At 20–30 s that is ~3,000 calls a day, almost all on an unchanged home: expensive, slow, inconsistent, and a single snapshot can't show a change in behaviour anyway.
+- **The LLM does not run on every poll.** At 20 s that is ~4,000 calls a day, almost all on an unchanged home: expensive, slow, inconsistent, and a single snapshot can't show a change in behaviour anyway.
 - **Safety never waits for an LLM.** Smoke → red lamp + plug off is code (and an Altice scenario), never a model call.
 
 ## 2. Three speeds
 | Speed | Who | Input | Job |
 |---|---|---|---|
-| Every poll (~20 s) | Code | Raw snapshot | Diff into events, safety rules, check expectations |
-| Every 10–15 min (heartbeat) **plus** important events | LLM | Recent events + current state + baselines | "Is right now normal? Act, ask or wait?" |
+| Every poll (20 s) | Code | Raw snapshot | Diff into events, run hard rules, match triggers |
+| Every 15 min (heartbeat) **plus** important events | LLM | Recent events + current state + baselines | "Is right now normal? Act, ask or wait?" |
 | Once a day | Code (the learners), then the LLM for names only | The stored history: happenings vs rest and the usual day | Find habits, events and drift, and write them as learned sensors ([`starting-plan.md`](starting-plan.md)) |
 
 - **The heartbeat always runs**, even when nothing changed. That is how Alfred notices *absence* ("no tea by 10:00", "no activity for 4 h"), which a change-only loop never sees.
 - **Behaviour change is a slow signal.** "Rosa's tea moved from 08:10 to 09:40 over a week" only shows in summarised history, so learning happens in the daily run, not in the 20 s loop.
 
 ## 3. The LLM decides what to watch; code does the watching
-Wake rules (**triggers**) are **rows in the database, not code**. The agent can add, change and expire them, each with a reason and an expiry, e.g.:
+Wake rules (**triggers**) are **plain data, not code**: in v1 a seed list in [`source/triggers.py`](../source/triggers.py). Later they move into the database and the agent can add, change and expire them, each with a reason and an expiry, e.g.:
 > "Rosa's mornings are shifting. Until Sunday, wake me on any plug use between 07:00 and 11:00, check every 5 min after 10:00, and drop the 'no tea by 09:00' alert."
 
-Code then runs those rules cheaply and reliably. So the system is **not a fixed rule set**: the LLM keeps re-programming its own attention. Two things it **can't** change: the **locked safety triggers** and a **minimum heartbeat**. Every trigger keeps its reason, so "Why are you watching the plug in the mornings?" has an answer ("Porquê?").
+Code then runs those rules cheaply and reliably, so the LLM keeps re-programming its own attention. Two things it **can't** change: the **locked safety triggers** and a **minimum heartbeat**. Every trigger keeps its reason, so "Why are you watching the plug in the mornings?" has an answer ("Porquê?").
 
 ## 4. The loop (v1)
 ```python
@@ -44,12 +44,13 @@ while True:
         triggers.apply_updates(out.trigger_updates)
 
     prev_state = state
-    sleep_until_next_tick()                      # ~20 s
+    sleep_until_next_tick()                      # 20 s
 ```
-- Several reasons in one tick wake the agent **once**; unlocked triggers have a **cooldown** (~2 min) so a flickering value doesn't spam the LLM.
+- Several reasons in one tick wake the agent **once**; unlocked triggers have a **cooldown** (2 min) so a flickering value doesn't spam the LLM.
 - A failed poll is recorded as a **gap**, never as "everything went to zero".
 - **Triggers match a device type** (`contactSensor`, `smokeSensor`, `plug`…), so a re-paired sensor with a new id still fires. A hard rule targets a type too (`"target": "bulb"`) and is resolved to the first device of that type that is **fresh**; if none is, the action is logged as `skipped`, never sent to a stale id.
-- If no fresh `smokeSensor` is reporting, the loop logs one WARNING (`safety trigger can't fire`) and one INFO when it comes back.
+- A device is **stale** when its `lastCommunicationTime` is older than `LOOP_STALE_MINUTES` (60). If no fresh `smokeSensor` is reporting, the loop logs one WARNING (`safety trigger can't fire`) and one INFO when it comes back.
+- Fields that change without meaning anything (camera `sdFormatState`, `ptzStop`, …) are skipped in `normalize.py`.
 - Every live snapshot is also appended to a **JSONL recording**: it feeds replay, the simulator and the "Rosa" weeks.
 
 ### Layout
@@ -59,21 +60,26 @@ source/
   model.py      Reading, Event, WakeReason
   normalize.py  get_home JSON → flat readings
   diff.py       readings → events
-  store.py      SQLite: snapshots, events, devices, days, agent and rule runs
+  store.py      SQLite: snapshots, events, devices, days, rule runs, agent runs
   clock.py      home time: local days in Europe/Lisbon, never the machine's zone
   ingest.py     JSONL snapshots → history at full speed, for the learners (no agent, no rules)
-  triggers.py   load, match (by device type), apply updates
+  triggers.py   seed triggers, match (by device type), apply updates
   guard.py      write allow-list, plug-on rule, read-back verification
   actions.py    hard-rule actions: resolve the target type, then guarded_write
   context.py    builds what the agent reads
   agent.py      StubAgent · LangGraphAgent (LLM + MCP tools)
   loop.py       the loop above
-  learn/rest.py each signal's rest, from observed time (starting-plan part 3)
+  ask.py        ask the agent once, on the live house
+  show.py       read the stored history
+  simulate.py   the simulator: households as get_home snapshots (docs/simulator.md)
+  pipeline.py   simulate + ingest + learn, one day at a time
+  learn/rest.py        each signal's rest, from observed time (starting-plan part 3)
+  learn/happenings.py  each departure from rest, stored in `happenings` (part 4)
 ```
 
 ### Running and testing it
 ```
-cp .env.example .env            # add CGH_API_KEY (same key as the connected-home MCP config)
+cp .env.example .env            # fill in the values it lists (see README, "Run")
 
 # 1. No kit needed: replay the demo morning (08:00–08:30, door, kettle, lamp, camera goes silent)
 uv run python -m source --replay tests/fixtures/morning.jsonl
@@ -81,13 +87,18 @@ LOOP_STALE_MINUTES=1 uv run python -m source --replay tests/fixtures/morning.jso
 
 # 2. Live
 uv run python -m source --ticks 3 --poll 5     # quick check
-uv run python -m source                        # run until Ctrl-C
+uv run python -m source                        # run until Ctrl-C (LangGraph agent: can change the lamp/plug)
+uv run python -m source --stub                 # stub agent: no LLM, no writes
 uv run python -m source -v                     # DEBUG on the console too
+uv run python -m source.ask "make the lamp blue"   # ask the agent once
 
-# 3. Tests
+# 3. Simulated days: simulate, ingest, find rest and happenings (docs/simulator.md)
+uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/ --replace
+
+# 4. Tests (about a minute: some run simulated months)
 uv run python -m unittest discover -s tests -t . -v
 ```
-The first live run needs the `mcp-remote` sign-in that Claude Code already did (`~/.mcp-auth`); without it a browser window opens once. Regenerate the demo with `uv run python tests/fixtures/make_morning.py`.
+The first live run needs the `mcp-remote` sign-in that Claude Code already did (`~/.mcp-auth`); without it a browser window opens once. Regenerate the demo with `uv run python tests/fixtures/make_morning.py`. All settings are in [`.env.example`](../.env.example).
 
 ### Logs and history
 Live runs write to `data/`, replays to `data/replay/` (both gitignored):
@@ -189,58 +200,46 @@ It shares the loop's `mcp-remote` session (`McpSource.session()`), so there is o
 
 Config: `OPENROUTER_API_KEY`, `AGENT_MODEL` (any OpenRouter slug with tool calling, default `anthropic/claude-sonnet-4.5`), `AGENT_MAX_STEPS` (default 12).
 
-Later:
-- Route per wake reason (heartbeat, safety, stale device) with different prompts and tools.
-- The action ledger (§7) records each write with its expected effects.
-
 ## 5. Data shapes (fix these now, they're costly to change later)
 **Event**
 ```
 {id, ts, device, capability, old, new, kind: initial|change|gone|stale|returned|gap, source: "unknown"}
 ```
-`source` stays `unknown` in v1; attribution (§7) later fills `alfred | scenario:<id> | human`.
+`source` stays `unknown` in v1; attribution (§6) later fills `alfred | scenario:<id> | human`.
 
-**Trigger**
+**Trigger** (the `Trigger` dataclass in `source/triggers.py`)
 ```
-{id, kind: change|threshold|stale|interval, condition: {...}, reason,
- created_by: seed|agent|human, locked, expires_at, enabled,
- actions: [{tool, args}], wake_agent}
+{id, kind: interval|change|delta|stale, reason, condition: {...}, locked, cooldown_s,
+ created_by: seed|agent|human, expires_at, enabled, actions: [{tool, target, args}], wake_agent}
 ```
-**Hard rules.** A trigger's `actions` are tool calls the loop runs itself, with no LLM ([`source/actions.py`](../source/actions.py)). Only `update_device_capabilities` is allowed, replays and `--stub` never write, and each run is stored in `rule_runs`. `wake_agent: false` keeps the LLM out completely. Example: door open → lamp blue, door closed → lamp red (`door-open` / `door-closed`, no cooldown).
-| Seed trigger | Locked |
-|---|---|
-| `interval` 15 min (heartbeat) | yes (period editable, with a minimum) |
-| Smoke `sensorState → alarm` | yes |
-| `security.isAlarmed` false → true | yes |
-| Contact sensor changes | no |
-| Plug `instantPower` changes by > 300 W | no |
-| A device silent for > 30 min | no |
+**Hard rules.** A trigger's `actions` are tool calls the loop runs itself, with no LLM ([`source/actions.py`](../source/actions.py)). Only `update_device_capabilities` is allowed, replays and `--stub` never write, and each run is stored in `rule_runs`. `wake_agent: false` keeps the LLM out completely.
 
-**Agent context**
+| Seed trigger | Fires on | Locked | Notes |
+|---|---|---|---|
+| `heartbeat` | Every 15 min | yes | |
+| `smoke` | Smoke sensor `sensorState → alarm` | yes | |
+| `alarm-went-off` | `security.isAlarmed → true` | yes | |
+| `contact` | Contact sensor changes | no | |
+| `plug-power` | Plug `instantPower` changes by ≥ 300 W | no | |
+| `device-silent` | A device goes stale or comes back | no | |
+| `door-open` · `door-closed` | Contact opens · closes | no | Hard rules: lamp blue · lamp red. No LLM, no cooldown |
+| `camera-sound` · `camera-motion` | Camera `soundDetected` · `motionDetected` non-empty | no | Fire only if detection works through the MCP, which is unconfirmed ([`mcp-capabilities.md`](mcp-capabilities.md#devices)) |
+
+**Agent context** ([`source/context.py`](../source/context.py))
 ```
-{now, reasons[], state (trimmed), events_since_last_run[], timeline_today[], baselines: {}}
+{now, reasons[], rules_just_ran[], state (trimmed), events_since_last_run[], timeline_today[], baselines: {}}
 ```
 **Agent output**: `{notes, trigger_updates[], actions[]}`. `actions` are the executed write calls and their results (empty for the stub and for replays), logged with the run.
 
-## 6. What the real data tells us (`get_home`, 17 Nov 2026)
-- **The kit came back on 17 Nov (~10:00 UTC).** Until then every `lastCommunicationTime` was from 13–14 Nov, and the loop's first live run correctly reported all six devices as stale. At 11:01 only the **smoke sensor** was still stale (since 14 Nov), and the loop reported exactly that. Opening the door showed up as contact `sensorState: normal → alarm` within ~10 s.
-- **Re-pairing changed device IDs** (contact and temperature sensors). Triggers and rules now find devices by `type` and skip stale ones (PR #10); the smoke sensor is still not reporting.
-- **`lastCommunicationTime` isn't an event by itself**, but it decides whether a device is stale. The plug's was ~7 h older than the others', so "relay on, 0 A" only means something if the reading is **newer than our command**.
-- **Camera `motionDetected` / `soundDetected` were empty strings.** They look short-lived, so a 20 s poll may miss them. Log them whenever they're non-empty to learn how long they stay set; don't build routines on them until then.
-- **`security.isAlarmed: true` with `alarmType: FIRE_SMOKE`** is a stale "has gone off" flag, not "armed". Trigger on the **change**, not the level.
-- **Skip noisy fields** in the diff (e.g. camera `sdFormatState`, `ptzStop`).
-- **Client:** Cloudflare blocked a plain Python HTTP client before, so the poller starts the same `mcp-remote` stdio proxy as Claude Code (official `mcp` SDK). It reuses that OAuth sign-in from `~/.mcp-auth`; this works.
-
-## 7. How the future pillars plug in
+## 6. What plugs in next
 | Later | Plugs into | Notes |
 |---|---|---|
-| Guardrails, approval, per-reason routing | `agent.run(ctx)` | See §4 LangGraph |
-| **Closed-loop verification** (act → sense → confirm) | A step after `diff`, before `triggers` | **Action ledger**: each command stored with its expected effects and deadlines. A deterministic **expectation checker** runs every tick; failures become events that wake the agent, which explains the cause. See [`synapse.md`](synapse.md) §6 |
-| **Who made each change** | Inside `diff`, fills `event.source` | The MCP never says who changed something. Match against our action ledger (Alfred), our copy of active scenario definitions (scenario runs on Altice's server), otherwise human |
-| **Override learning** | Event pattern + `state_at(t)` | "Human reversed an Alfred/scenario action within N min" is just an attributed event. Comparing overridden vs accepted cases needs **full snapshots stored**, so we can rebuild the room at any moment |
-| **Self-authoring / self-pruning scenarios** | Reads `store`, writes triggers + a scenario registry | Scenarios can't be edited or deleted: "rewrite" = deactivate v1 + create v2 (`SY · <name> · v<n>`). The trigger format may not allow multi-condition rules, so the **local rule engine is the main runtime** and a rule is compiled to an MCP scenario only when it fits |
-| **Learned sensors** (the current focus) | Read `store` once per simulated or real day | Plain code: rest finder → happening extractor → grouper → habit learner, then the LLM names each pattern. Writes `sensors` and `sensor_readings`. See [`starting-plan.md`](starting-plan.md) |
-| Security readiness check | Expectation checker | All inputs exist in `get_home` (hub cellular signal, camera `sdRecording`/`sdAvailable`, tamper flags). Arming is tier 4 and never done on the kit, so demo it in the simulator |
-| Simulator | Another `source` | Writes snapshots in the `get_home` shape, read through `ReplaySource`. Every time comes from the data, never the real clock |
+| **Learned sensors** (the current focus) | `on_day_end` in [`source/pipeline.py`](../source/pipeline.py), once per simulated or real day | Plain code. Built: rest finder → happening extractor (above). Next: grouper → habit learner (`source.learn.run`, which the pipeline calls once it exists), then the LLM names each pattern. Writes `sensors` and `sensor_readings`. See [`starting-plan.md`](starting-plan.md) |
 
-**Order:** the loop is built. **Learned sensors come next** and lean on the simulator, because they need days of history. The other rows are from the earlier concept and are parked until the sensors work.
+**Parked** from the earlier concept until the sensors work (design in [`synapse.md`](synapse.md)):
+- **Approval and per-reason routing** inside `agent.run(ctx)`: different prompts and tools per wake reason.
+- **Closed-loop verification** (§6 there): an action ledger stores each command with its expected effects; a checker runs every tick and failures wake the agent.
+- **Who made each change**: fill `event.source` by matching against the action ledger and our copy of active scenarios, otherwise human.
+- **Override learning**: "a human reversed an action within N min", which needs full snapshots stored to rebuild the room at any moment.
+- **Self-authoring scenarios**: scenarios can't be edited or deleted, so "rewrite" = deactivate v1 + create v2 (`SY · <name> · v<n>`); the local rule engine stays the main runtime.
+- **Security readiness check**: all inputs exist in `get_home` (hub cellular signal, camera `sdRecording`, tamper flags); demo arming only in the simulator.
