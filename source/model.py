@@ -10,6 +10,7 @@ class Reading:
     capability: str  # e.g. "instantPower"
     value: Any
     comm_ts: int | None  # device's lastCommunicationTime (ms), None for home-level values
+    device_type: str = ""  # e.g. "contactSensor"; ids change on re-pairing, types don't
 
 
 # (device_id, capability) -> Reading
