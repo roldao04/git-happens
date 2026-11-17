@@ -177,5 +177,33 @@ class LevelRestTest(unittest.TestCase):
         self.assertEqual(find_rest(events, end)[PLUG].kind, "state")
 
 
+TEMP = ("t1", "temperatureValue")
+HALF_H = H // 2
+
+
+class SlowRestTest(unittest.TestCase):
+    def test_temperature_rest_is_its_normal_drift(self):
+        wiggle = [(20.0, HALF_H), (20.1, HALF_H)] * 20
+        events, end = series(TEMP, 0, wiggle + [(22.1, HALF_H), (20.1, 2 * H)])
+        rest = find_rest(events, end)[TEMP]
+        self.assertEqual(rest.kind, "slow")
+        self.assertAlmostEqual(rest.rate_per_h, 0.2)
+        self.assertTrue(rest.rate_at_rest(0.1, HALF_H))
+        self.assertTrue(rest.rate_at_rest(0.0, 2 * H))
+        self.assertFalse(rest.rate_at_rest(2.0, HALF_H))
+        self.assertGreater(rest.share, 0.9)
+
+    def test_rate_never_measured_across_a_gap(self):
+        events = [init(0, TEMP, 20.0), gap(1 * H, 2 * H), chg(2 * H, TEMP, 20.0, 25.0),
+                  chg(2 * H + HALF_H, TEMP, 25.0, 25.1)]
+        rest = find_rest(events, 3 * H)[TEMP]
+        self.assertAlmostEqual(rest.rate_per_h, 0.2)
+
+    def test_slow_signal_has_no_level_check(self):
+        events, end = series(TEMP, 0, [(20.0, H), (20.1, H)])
+        with self.assertRaises(ValueError):
+            find_rest(events, end)[TEMP].at_rest(20.0)
+
+
 if __name__ == "__main__":
     unittest.main()

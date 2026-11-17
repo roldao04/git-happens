@@ -20,6 +20,8 @@ SKIP = {
     "multiPower", "instantVoltage",  # multiPower repeats `power`; mains voltage is noise
 }
 VALUE_KINDS = {"initial", "change", "gone"}
+SLOW = {"temperatureValue", "humidityValue"}
+HOUR_MS = 3600_000
 
 
 @dataclass(frozen=True)
@@ -99,9 +101,19 @@ class Rest:
     observed_ms: int
 
     def at_rest(self, v: Any) -> bool:
+        if self.kind == "slow":
+            raise ValueError(f"{self.signal} is slow: check its rate with rate_at_rest")
         if self.kind == "state":
             return v == self.value
         return _is_number(v) and abs(v - self.value) <= self.wobble
+
+    def rate_at_rest(self, dv: float, dt_ms: int) -> bool:
+        """A slow signal is at rest while it moves no faster than it normally does."""
+        if self.kind != "slow" or self.rate_per_h is None or self.rate_wobble is None:
+            raise ValueError(f"{self.signal} is not slow: check its value with at_rest")
+        if dt_ms <= 0:
+            raise ValueError(f"dt_ms must be positive, got {dt_ms}")
+        return abs(dv) / dt_ms * HOUR_MS <= self.rate_per_h + self.rate_wobble
 
 
 def find_rest(events: Iterable[Event], observed_until: int) -> dict[SignalId, Rest]:
@@ -113,7 +125,9 @@ def find_rest(events: Iterable[Event], observed_until: int) -> dict[SignalId, Re
         observed = sum(held.values())
         if observed == 0:
             continue
-        if all(_is_number(v) for v in held):
+        if sig[1] in SLOW and all(_is_number(v) for v in held):
+            out[sig] = _slow(sig, stretches, held, observed)
+        elif all(_is_number(v) for v in held):
             out[sig] = _level(sig, stretches[0].signal, held, observed)
         else:
             value = _longest(held)
@@ -129,6 +143,18 @@ def _level(sig: SignalId, signal: str, held: dict[Any, int], observed: int) -> R
     wobble = max(step, max(abs(v - value) for v in group))
     at_rest = sum(ms for v, ms in held.items() if abs(v - value) <= wobble)
     return Rest(sig, signal, "level", value, wobble, step, None, None, at_rest / observed, observed)
+
+
+def _slow(sig: SignalId, stretches: list[Stretch], held: dict[Any, int], observed: int) -> Rest:
+    step = _resolution(held)
+    rates = [(abs(b.value - a.value) / (b.start - a.start) * HOUR_MS, b.start - a.start)
+             for a, b in zip(stretches, stretches[1:]) if a.end == b.start]
+    rate = _weighted_median(rates) if rates else 0.0
+    wobble = max(step, _weighted_median([(abs(r - rate), ms) for r, ms in rates]) if rates else 0.0)
+    calm = sum(ms for r, ms in rates if r <= rate + wobble)
+    share = calm / sum(ms for _, ms in rates) if rates else 1.0
+    return Rest(sig, stretches[0].signal, "slow", _weighted_median(list(held.items())), 0.0, step,
+                rate, wobble, share, observed)
 
 
 def _is_number(v: Any) -> bool:
