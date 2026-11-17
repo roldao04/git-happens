@@ -94,6 +94,19 @@ class Store:
             for _id, ts, dev_id, dev, cap, kind, old, new, source in rows
         ]
 
+    def events_before(self, ts_ms: int) -> list[Event]:
+        rows = self.db.execute(
+            "SELECT id, ts, device_id, device, capability, kind, old, new, source"
+            " FROM events WHERE ts < ? ORDER BY ts, id", (ts_ms,)
+        ).fetchall()
+        return [
+            Event(ts, dev_id, dev, cap, kind, json.loads(old), json.loads(new), source, id=_id)
+            for _id, ts, dev_id, dev, cap, kind, old, new, source in rows
+        ]
+
+    def last_snapshot_before(self, ts_ms: int) -> int | None:
+        return self.db.execute("SELECT MAX(ts) FROM snapshots WHERE ts < ?", (ts_ms,)).fetchone()[0]
+
     def log_agent_run(self, ts: int, reasons: list[dict], context: dict, output: dict | None) -> None:
         self.db.execute(
             "INSERT INTO agent_runs (ts, reasons, context, output) VALUES (?, ?, ?, ?)",
