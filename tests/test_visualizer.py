@@ -11,8 +11,8 @@ from datetime import date, datetime
 from http.server import ThreadingHTTPServer
 
 from source.simulate import REAL_HOME, TZ, generate, houses
-from source.simulate_web import (MAX_DAYS, REAL_MAX_DAYS, VIEW_PAGE, WATCHED, Handler, _day_request, compact,
-                                 day_view)
+from source.simulate_web import (MAX_DAYS, MAX_LEARN_DAYS, REAL_MAX_DAYS, VIEW_PAGE, WATCHED, Handler,
+                                 _day_request, _device_types, compact, day_view, learned_view)
 
 START = date(2026, 9, 1)
 
@@ -90,6 +90,53 @@ class DayViewTest(unittest.TestCase):
                 _day_request(bad)
 
 
+class LearnedViewTest(unittest.TestCase):
+    """What Alfred learned by a day, for the panel: 14 days of rosa learn the morning tea and the night's quiet."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.view = learned_view("rosa", 14)
+
+    def test_knows_the_morning_tea_and_the_night(self):
+        parts = [" → ".join(s["parts"]) for s in self.view["sensors"]]
+        self.assertTrue(any(p.startswith("bulb-") and "plug-" in p for p in parts), parts)  # lamp → kettle
+        self.assertTrue(any(p.startswith("home-") and "quiet" in p for p in parts), parts)
+        tea = next(s for s in self.view["sensors"] if "plug-" in " ".join(s["parts"]))
+        self.assertEqual(tea["devices"], ["bulb", "plug"])
+
+    def test_statuses_follow_the_day_and_only_change_when_one_does(self):
+        st = self.view["statuses"]
+        known = {s["id"] for s in self.view["sensors"] if s["tonight"] != "learned" and s["status"] == "active"}
+        self.assertEqual(set(st["ids"]), known)
+        frames = st["frames"]
+        self.assertTrue(frames)
+        self.assertEqual([ts for ts, _ in frames], sorted(ts for ts, _ in frames))
+        self.assertTrue(all(a[1] != b[1] for a, b in zip(frames, frames[1:])))
+        statuses = {status for _, row in frames for status, _ in row}
+        self.assertTrue(statuses & {"done", "now"}, statuses)
+        self.assertLessEqual(statuses, {"done", "now", "expected", "late", "not_today", "unknown"})
+
+    def test_readings_are_that_days_and_name_known_sensors(self):
+        ids = {s["id"] for s in self.view["sensors"]}
+        day_start = int(datetime(2026, 9, 14, tzinfo=TZ).timestamp() * 1000)
+        for sid, a, b in self.view["readings"]:
+            self.assertIn(sid, ids)
+            self.assertTrue(a < day_start + 86_400_000 and (b or a) >= day_start)
+
+    def test_nothing_learned_on_the_first_day(self):
+        view = learned_view("rosa", 1)
+        self.assertEqual((view["sensors"], view["statuses"]["frames"][0][1]), ([], []))
+
+    def test_device_types_from_parts(self):
+        self.assertEqual(_device_types(["bulb-A (power on)", "end of home-C (quiet after bulb until bulb)",
+                                        "contactSensor-AB (sensorState alarm)", "bulb-B (power on)"]),
+                         ["bulb", "contactSensor"])
+
+    def test_too_many_days_is_a_plain_error(self):
+        with self.assertRaises(ValueError):
+            learned_view("rosa", MAX_LEARN_DAYS + 1)
+
+
 class RoutesTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -130,6 +177,12 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("unknown household", json.loads(body)["error"])
         self.assertEqual(self._get("/day/more")[0], 404)
+
+    def test_serves_what_was_learned(self):
+        status, kind, body = self._get("/learned?household=rosa&day=2")
+        self.assertEqual((status, kind), (200, "application/json"))
+        self.assertEqual(json.loads(body)["date"], "2026-09-02")
+        self.assertEqual(self._get("/learned?household=nobody")[0], 400)
 
     def test_refuses_other_hosts_and_sites(self):
         self.assertEqual(self._get("/day", Host="evil.example")[0], 403)
