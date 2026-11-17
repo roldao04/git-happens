@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connected Home console</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --line: #dfe2e8; --text: #1b1f27; --muted: #667085;
+    --accent: #0a6cff; --accent-text: #ffffff; --ok: #12805c; --warn: #b54708; --bad: #c4320a;
+    --chip: #eef1f5; --code: #f1f3f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101319; --panel: #181c24; --line: #2a303b; --text: #e8eaf0; --muted: #98a2b3;
+      --accent: #4c94ff; --accent-text: #0b1220; --ok: #4cc79a; --warn: #f5a524; --bad: #ff7a59;
+      --chip: #222834; --code: #12151b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 16px; margin: 0; flex: 1; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 10px; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { border: 1px solid var(--line); background: var(--chip); border-radius: 7px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.on { background: var(--ok); color: var(--panel); border-color: var(--ok); }
+  button:disabled { opacity: .5; cursor: default; }
+  select, input[type=text], input[type=number], textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; width: 100%; }
+  textarea { font: 12px/1.4 ui-monospace, monospace; min-height: 90px; resize: vertical; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 99px; background: var(--chip); font-size: 12px; white-space: nowrap; }
+  .pill.ok { color: var(--ok); } .pill.warn { color: var(--warn); } .pill.bad { color: var(--bad); }
+  .muted { color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; align-items: start; }
+  .card { border: 1px solid var(--line); border-radius: 9px; padding: 12px; display: grid; gap: 8px; align-content: start; }
+  .card h3 { margin: 0; font-size: 15px; }
+  .card .type { font-size: 12px; color: var(--muted); }
+  .facts { display: flex; flex-wrap: wrap; gap: 5px; }
+  .ctl { display: grid; grid-template-columns: 76px 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
+  .ctl input[type=range] { width: 100%; }
+  .ctl input[type=color] { width: 44px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 16px; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+  label.f { display: grid; gap: 3px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  label.f .req { color: var(--bad); }
+  pre { margin: 0; background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 12px/1.45 ui-monospace, monospace; overflow: auto; max-height: 420px; white-space: pre-wrap; word-break: break-word; }
+  .desc { font-size: 12px; color: var(--muted); white-space: pre-wrap; max-height: 110px; overflow: auto; margin: 8px 0; }
+  #log { display: grid; gap: 4px; font-size: 12px; max-height: 180px; overflow: auto; }
+  #log div { display: flex; gap: 8px; } #log time { color: var(--muted); flex: none; }
+  .err { color: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Connected Home console</h1>
+  <span id="conn" class="pill">connecting…</span>
+  <button id="refresh">Refresh</button>
+</header>
+<main>
+  <section>
+    <h2>Security</h2>
+    <div class="row">
+      <span id="secState" class="pill">—</span>
+      <span id="secAlarm" class="pill">—</span>
+      <span style="flex:1"></span>
+      <button data-sec="disarm">Disarm</button>
+      <button data-sec="stay">Arm stay</button>
+      <button data-sec="away">Arm away</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Devices</h2>
+    <div id="devices" class="grid"><span class="muted">Loading…</span></div>
+  </section>
+
+  <section>
+    <h2>Scenarios</h2>
+    <div id="scenarios" class="grid"><span class="muted">Loading…</span></div>
+  </section>
+
+  <section>
+    <h2>Tool console</h2>
+    <div class="two">
+      <div>
+        <select id="tool"></select>
+        <div id="toolDesc" class="desc"></div>
+        <form id="toolForm"></form>
+        <button id="run" class="primary">Run tool</button>
+      </div>
+      <pre id="out">Pick a tool and run it. The raw response appears here.</pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>Activity</h2>
+    <div id="log"><span class="muted">Nothing yet.</span></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...kids) => {
+  const n = Object.assign(document.createElement(tag), props);
+  for (const k of kids) n.append(k);
+  return n;
+};
+let tools = [];
+// Tools that change something: the page asks before running them from the console.
+const isWrite = (name) => /^(patch|post|update)_/.test(name);
+
+function log(text, bad) {
+  const box = $('log');
+  if (box.firstElementChild?.tagName === 'SPAN') box.textContent = '';
+  box.prepend(el('div', { className: bad ? 'err' : '' }, el('time', { textContent: new Date().toLocaleTimeString() }), text));
+}
+
+async function call(name, args = {}) {
+  const res = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, arguments: args }) });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  if (body.isError) throw new Error(typeof body.data === 'string' ? body.data : JSON.stringify(body.data));
+  return body.data;
+}
+
+// Runs a change, reports it in the activity log, then reloads the live state.
+async function act(label, name, args) {
+  try {
+    await call(name, args);
+    log(label);
+  } catch (e) {
+    log(`${label} failed: ${e.message}`, true);
+  }
+  await load();
+}
+
+const cap = (d, type) => (d.capabilities || []).find((c) => c.type === type);
+const ago = (ms) => {
+  if (!ms) return 'never';
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  if (m < 1440) return `${Math.round(m / 60)} h ago`;
+  return `${Math.round(m / 1440)} d ago`;
+};
+const hex = (r, g, b) => '#' + [r, g, b].map((v) => Number(v).toString(16).padStart(2, '0')).join('');
+
+function facts(d) {
+  const out = [];
+  const add = (text, cls = '') => out.push(el('span', { className: 'pill ' + cls, textContent: text }));
+  const t = cap(d, 'temperatureValue'), h = cap(d, 'humidityValue');
+  if (t) add(`${t.value} °C`);
+  if (h) add(`${h.value}% humidity`);
+  const bl = cap(d, 'batteryLevel'), bs = cap(d, 'batteryStatus');
+  if (bl) add(`battery ${bl.value}%`, bl.value <= 15 ? 'bad' : bl.value <= 40 ? 'warn' : '');
+  if (bs) add(`battery ${bs.value}`, bs.value === 'low' ? 'bad' : '');
+  const s = cap(d, 'sensorState');
+  if (s) add(s.value === 'alarm' ? 'triggered' : 'normal', s.value === 'alarm' ? 'bad' : 'ok');
+  const tam = cap(d, 'tamperState');
+  if (tam?.value === 'alarm') add('tamper alert', 'bad');
+  const sig = cap(d, 'signalStrength');
+  if (sig) add(`signal ${sig.value}`, sig.value === 'low' ? 'warn' : '');
+  const net = cap(d, 'networkMode');
+  if (net) add(net.value);
+  const cell = cap(d, 'cellularConnectionState');
+  if (cell?.value === 'abnormal') add('cellular abnormal', 'warn');
+  const p = cap(d, 'instantPower'), today = cap(d, 'todayConsumption');
+  if (p) add(`${p.value} W`);
+  if (today) add(`${today.value} kWh today`);
+  const rec = cap(d, 'sdRecording');
+  if (rec) add(rec.value ? 'recording' : 'not recording');
+  return out;
+}
+
+function deviceCard(d) {
+  const card = el('div', { className: 'card' },
+    el('div', {}, el('h3', { textContent: d.name }), el('div', { className: 'type', textContent: `${d.type} · ${d.roomName || 'no room'} · seen ${ago(d.lastCommunicationTime)}` })),
+    el('div', { className: 'facts' }, ...facts(d)));
+  const update = (label, body) => act(`${d.name}: ${label}`, 'update_device_capabilities', { deviceId: d.id, body });
+
+  const power = cap(d, 'power');
+  if (power) {
+    const isOn = power.value === 'on';
+    const b = el('button', { className: isOn ? 'on' : '', textContent: isOn ? 'On — turn off' : 'Off — turn on' });
+    b.onclick = () => { b.disabled = true; update(isOn ? 'turned off' : 'turned on', { type: 'power', value: isOn ? 'off' : 'on' }); };
+    card.append(b);
+  }
+  const br = cap(d, 'brightness');
+  if (br) {
+    const val = el('span', { textContent: br.value + '%' });
+    const r = el('input', { type: 'range', min: br.min ?? 0, max: br.max ?? 100, value: br.value });
+    r.oninput = () => (val.textContent = r.value + '%');
+    r.onchange = () => update(`brightness ${r.value}%`, { type: 'brightness', value: Number(r.value) });
+    card.append(el('div', { className: 'ctl' }, 'Brightness', r, val));
+  }
+  const col = cap(d, 'color_rgb');
+  if (col) {
+    const c = el('input', { type: 'color', value: hex(col.redValue ?? 255, col.greenValue ?? 255, col.blueValue ?? 255) });
+    c.onchange = () => {
+      const [redValue, greenValue, blueValue] = [1, 3, 5].map((i) => parseInt(c.value.slice(i, i + 2), 16));
+      update(`colour ${c.value}`, { type: 'color_rgb', redValue, greenValue, blueValue });
+    };
+    card.append(el('div', { className: 'ctl' }, 'Colour', c, ''));
+  }
+  const inspect = el('button', { textContent: 'Details' });
+  inspect.onclick = () => runTool('get_device_details', { deviceId: d.id });
+  card.append(inspect);
+  return card;
+}
+
+function scenarioCard(s) {
+  const id = s.id ?? s.scenarioId;
+  const active = !!s.isActive;
+  const run = el('button', { textContent: 'Run now' });
+  run.onclick = () => confirm(`Run scenario "${s.name}" now?`) && act(`Scenario "${s.name}" executed`, 'post_execute_scenario', { scenarioId: id });
+  const toggle = el('button', { textContent: active ? 'Deactivate' : 'Activate' });
+  toggle.onclick = () => act(`Scenario "${s.name}" ${active ? 'deactivated' : 'activated'}`, 'patch_scenario_activation', { scenarioId: id, isActive: !active });
+  const inspect = el('button', { textContent: 'Details' });
+  inspect.onclick = () => runTool('get_scenario', { scenarioId: id });
+  return el('div', { className: 'card' },
+    el('h3', { textContent: s.name || id }),
+    el('div', { className: 'facts' }, el('span', { className: 'pill ' + (active ? 'ok' : ''), textContent: active ? 'active' : 'inactive' })),
+    el('div', { className: 'row' }, run, toggle, inspect));
+}
+
+async function load() {
+  $('conn').textContent = 'loading…';
+  $('conn').className = 'pill';
+  const [sec, dev, sce] = await Promise.allSettled([call('get_home_security_status'), call('get_home_devices'), call('get_home_scenarios')]);
+  const failed = [sec, dev, sce].find((r) => r.status === 'rejected');
+
+  if (sec.status === 'fulfilled') {
+    const s = sec.value;
+    const armed = s.status && s.status !== 'DISARMED';
+    $('secState').textContent = s.status || 'unknown';
+    $('secState').className = 'pill ' + (armed ? 'ok' : 'warn');
+    $('secAlarm').textContent = s.isAlarmed ? 'alarm flag set' : 'no alarm';
+    $('secAlarm').className = 'pill ' + (s.isAlarmed ? 'bad' : 'ok');
+  }
+  if (dev.status === 'fulfilled') {
+    const list = dev.value.devices || [];
+    $('devices').replaceChildren(...(list.length ? list.map(deviceCard) : [el('span', { className: 'muted', textContent: 'No devices in this home.' })]));
+  } else {
+    $('devices').replaceChildren(el('span', { className: 'err', textContent: 'Could not load devices: ' + dev.reason.message }));
+  }
+  if (sce.status === 'fulfilled') {
+    const list = sce.value.scenarios || [];
+    $('scenarios').replaceChildren(...(list.length ? list.map(scenarioCard) : [el('span', { className: 'muted', textContent: 'No scenarios yet. Create one with post_new_scenario in the tool console below.' })]));
+  } else {
+    $('scenarios').replaceChildren(el('span', { className: 'err', textContent: 'Could not load scenarios: ' + sce.reason.message }));
+  }
+  $('conn').textContent = failed ? 'error' : 'connected';
+  $('conn').className = 'pill ' + (failed ? 'bad' : 'ok');
+  if (failed) log(failed.reason.message, true);
+}
+
+// ---- Tool console: a form generated from each tool's input schema ----
+function renderForm() {
+  const t = tools.find((x) => x.name === $('tool').value);
+  if (!t) return;
+  $('toolDesc').textContent = (t.description || '').trim();
+  const form = $('toolForm');
+  form.textContent = '';
+  const props = t.inputSchema?.properties || {};
+  const required = new Set(t.inputSchema?.required || []);
+  for (const [key, schema] of Object.entries(props)) {
+    let input;
+    if (schema.enum) {
+      input = el('select', {}, el('option', { value: '', textContent: '—' }), ...schema.enum.map((v) => el('option', { value: v, textContent: v })));
+    } else if (schema.type === 'boolean') {
+      input = el('select', {}, ...['', 'true', 'false'].map((v) => el('option', { value: v, textContent: v || '—' })));
+    } else if (schema.type === 'integer' || schema.type === 'number') {
+      input = el('input', { type: 'number', step: schema.type === 'integer' ? 1 : 'any' });
+    } else if (schema.type === 'string') {
+      input = el('input', { type: 'text' });
+    } else {
+      input = el('textarea', { placeholder: 'JSON' });
+    }
+    input.dataset.key = key;
+    input.dataset.kind = schema.enum ? 'string' : schema.type || 'json';
+    const title = el('span', { textContent: key + ' ' });
+    if (required.has(key)) title.append(el('span', { className: 'req', textContent: '*' }));
+    if (schema.description) title.append(el('span', { textContent: ' — ' + schema.description.slice(0, 110) }));
+    form.append(el('label', { className: 'f' }, title, input));
+  }
+}
+
+function formArgs() {
+  const args = {};
+  for (const input of $('toolForm').querySelectorAll('[data-key]')) {
+    const raw = input.value.trim();
+    if (raw === '') continue;
+    const kind = input.dataset.kind;
+    if (kind === 'string') args[input.dataset.key] = raw;
+    else if (kind === 'boolean') args[input.dataset.key] = raw === 'true';
+    else if (kind === 'integer' || kind === 'number') args[input.dataset.key] = Number(raw);
+    else {
+      try { args[input.dataset.key] = JSON.parse(raw); }
+      catch { throw new Error(`"${input.dataset.key}" is not valid JSON`); }
+    }
+  }
+  return args;
+}
+
+async function runTool(name, args) {
+  $('tool').value = name;
+  renderForm();
+  for (const [k, v] of Object.entries(args || {})) {
+    const input = $('toolForm').querySelector(`[data-key="${k}"]`);
+    if (input) input.value = typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
+  }
+  $('out').textContent = `Running ${name}…`;
+  $('out').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  try {
+    const data = await call(name, args);
+    $('out').textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    log(`${name} ok`);
+    return true;
+  } catch (e) {
+    $('out').textContent = 'Error: ' + e.message;
+    log(`${name} failed: ${e.message}`, true);
+    return false;
+  }
+}
+
+$('tool').onchange = renderForm;
+$('run').onclick = async () => {
+  const name = $('tool').value;
+  let args;
+  try { args = formArgs(); } catch (e) { $('out').textContent = 'Error: ' + e.message; return; }
+  if (isWrite(name) && !confirm(`${name} changes your home. Run it?`)) return;
+  $('run').disabled = true;
+  const ok = await runTool(name, args);
+  $('run').disabled = false;
+  if (ok && isWrite(name)) load();
+};
+$('refresh').onclick = load;
+for (const b of document.querySelectorAll('[data-sec]')) {
+  b.onclick = () => {
+    const mode = b.dataset.sec;
+    if (!confirm(`Set the alarm to "${mode}"?`)) return;
+    act(`Alarm set to ${mode}`, 'patch_home_security_status', { body: { status: mode, armDelay: [], alarmDelay: [] } });
+  };
+}
+
+(async () => {
+  try {
+    const res = await fetch('/api/tools');
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error);
+    tools = body.tools.sort((a, b) => a.name.localeCompare(b.name));
+    $('tool').replaceChildren(...tools.map((t) => el('option', { value: t.name, textContent: t.name })));
+    renderForm();
+    await load();
+  } catch (e) {
+    $('conn').textContent = 'not connected';
+    $('conn').className = 'pill bad';
+    log('Could not reach the MCP server: ' + e.message, true);
+  }
+})();
+</script>
+</body>
+</html>
