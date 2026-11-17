@@ -1,0 +1,1083 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred house visualizer</title>
+<!-- The only outside file: three.js r128, pinned and checked against its hash. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
+        integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu" crossorigin="anonymous"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #eef0f3; --ground: #e2e5ea; --panel: #ffffff; --line: #dfe2e8; --text: #1b1f27; --muted: #667085;
+    --accent: #0a6cff; --accent-text: #ffffff; --accent-soft: #eaf2ff; --bad: #c4320a; --chip: #eef1f5;
+    --lamp: #e2a100; --door: #0a6cff; --plug: #d9480f; --temp: #12805c; --shadow: 0 6px 24px rgba(20, 28, 45, .12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0f1217; --ground: #171b22; --panel: #181c24; --line: #2a303b; --text: #e7eaf0; --muted: #98a2b3;
+      --accent: #5b9dff; --accent-text: #0b1220; --accent-soft: #1c2a44; --bad: #ff8a65; --chip: #222833;
+      --lamp: #ffcf4d; --door: #5b9dff; --plug: #ff8a4c; --temp: #4cc9a0; --shadow: 0 6px 24px rgba(0, 0, 0, .45);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0f1217; --ground: #171b22; --panel: #181c24; --line: #2a303b; --text: #e7eaf0; --muted: #98a2b3;
+    --accent: #5b9dff; --accent-text: #0b1220; --accent-soft: #1c2a44; --bad: #ff8a65; --chip: #222833;
+    --lamp: #ffcf4d; --door: #5b9dff; --plug: #ff8a4c; --temp: #4cc9a0; --shadow: 0 6px 24px rgba(0, 0, 0, .45);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; overflow: hidden; }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  #scene:active { cursor: grabbing; }
+  .float { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  #panel { top: 16px; left: 16px; width: 304px; max-height: calc(100vh - 204px); overflow-y: auto; padding: 14px; display: grid; gap: 12px; }
+  #bar { left: 16px; right: 16px; bottom: 16px; padding: 10px 14px 12px; display: grid; gap: 6px; }
+  #tools { top: 16px; right: 16px; padding: 4px; display: flex; gap: 2px; }
+  h1 { font-size: 15px; margin: 0; }
+  h2 { font-size: 11px; margin: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  p { margin: 0; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .spread { justify-content: space-between; }
+  .num { font-variant-numeric: tabular-nums; }
+  select, input[type=number], button { font: inherit; color: inherit; }
+  select, input[type=number] { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-height: 34px; }
+  select { flex: 1; min-width: 0; }
+  input[type=number] { width: 62px; }
+  button { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; min-width: 34px; min-height: 34px; padding: 0 8px;
+           cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  button:hover { background: var(--chip); }
+  button.quiet { border-color: transparent; }
+  button.main { background: var(--accent); color: var(--accent-text); border-color: var(--accent); min-width: 40px; }
+  button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  svg { width: 16px; height: 16px; fill: currentColor; flex: none; }
+  #clock { font-size: 30px; font-weight: 600; letter-spacing: -.01em; line-height: 1.1; }
+  #status { min-height: 1.45em; }
+  #status.bad { color: var(--bad); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  #devices li button { width: 100%; justify-content: flex-start; text-align: left; border-color: transparent; padding: 6px 8px; gap: 10px; }
+  #devices .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex: none; border: 1px solid rgba(0, 0, 0, .12); }
+  #devices .name { font-weight: 600; }
+  #devices .what { display: grid; flex: 1; min-width: 0; }
+  #devices small, #truth small { color: var(--muted); font-size: 12px; }
+  #truth li button { width: 100%; justify-content: flex-start; border-color: transparent; padding: 3px 8px; min-height: 28px; gap: 10px; }
+  #lanes { width: 100%; height: 86px; display: block; cursor: ew-resize; touch-action: none; }
+  /* The slider sits under the lanes: its thumb is 14px wide, so its travel starts 7px in, like the lanes' plot. */
+  #scrub { -webkit-appearance: none; appearance: none; display: block; width: calc(100% - 44px); margin: 0 0 0 44px; height: 16px; background: transparent; }
+  #scrub::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line); }
+  #scrub::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+  #scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--accent); border: 0; }
+  #scrub::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 0; }
+  #keys { font-size: 12px; }
+  kbd { font: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; background: var(--chip); }
+  .hide { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  [hidden] { display: none !important; }
+  @media (max-width: 720px) {
+    #panel { right: 16px; width: auto; max-height: 38vh; }
+    #tools { top: auto; bottom: 190px; }
+    #keys { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="The house in 3D. Drag to turn it, scroll to zoom."></canvas>
+
+<aside id="panel" class="float" aria-label="Readings">
+  <div class="row spread">
+    <h1>House visualizer</h1>
+    <a href="/">Simulator</a>
+  </div>
+  <div class="row">
+    <label class="hide" for="household">Household</label>
+    <select id="household">
+      <optgroup label="Households">
+        <option value="rosa">rosa</option>
+        <option value="couple">couple</option>
+        <option value="students">students</option>
+        <option value="home-a">home-a (a real kitchen)</option>
+      </optgroup>
+      <optgroup label="Made-up houses (the form's zip)" id="made-up"></optgroup>
+    </select>
+    <button id="open" type="button" title="Open a .jsonl file from a downloaded zip">Open file</button>
+    <input id="file" type="file" accept=".jsonl,.json,.txt" hidden>
+  </div>
+  <div class="row">
+    <button id="day-prev" type="button" aria-label="Previous day"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5 5 8l5.5 5.5 1-1L7 8l4.5-4.5z"/></svg></button>
+    <label for="day">Day</label>
+    <input id="day" type="number" min="1" max="365" value="1">
+    <button id="day-next" type="button" aria-label="Next day"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5.5 2.5-1 1L9 8l-4.5 4.5 1 1L11 8z"/></svg></button>
+    <span id="date" class="muted num"></span>
+  </div>
+  <div>
+    <div id="clock" class="num">--:--:--</div>
+    <p id="status" class="muted" role="status"></p>
+  </div>
+  <div>
+    <h2>Devices</h2>
+    <ul id="devices"></ul>
+  </div>
+  <div id="truth-box" hidden>
+    <h2 title="What the simulator planted that day. For people, never for the learners.">Planted that day</h2>
+    <ul id="truth"></ul>
+  </div>
+</aside>
+
+<div id="tools" class="float">
+  <button id="labels" class="quiet" type="button" aria-pressed="true">Labels</button>
+  <button id="reset" class="quiet" type="button">Reset view</button>
+  <button id="theme" class="quiet" type="button">Dark</button>
+</div>
+
+<section id="bar" class="float" aria-label="Time">
+  <div class="row" style="flex-wrap: wrap">
+    <button id="prev" type="button" title="Previous change (Left arrow)" aria-label="Previous change"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h2v10H3zm10 0v10L6 8z"/></svg></button>
+    <button id="play" class="main" type="button" title="Play or pause (Space)" aria-label="Play"><svg viewBox="0 0 16 16" aria-hidden="true"><path id="play-icon" d="M4 2.5v11l9-5.5z"/></svg></button>
+    <button id="next" type="button" title="Next change (Right arrow)" aria-label="Next change"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11 3h2v10h-2zM3 3v10l7-5z"/></svg></button>
+    <label class="hide" for="speed">Speed</label>
+    <select id="speed" style="flex: none">
+      <option value="10">10 s per second</option>
+      <option value="60">1 min per second</option>
+      <option value="300" selected>5 min per second</option>
+      <option value="900">15 min per second</option>
+      <option value="3600">1 h per second</option>
+    </select>
+    <span id="keys" class="muted" style="margin-left: auto"><kbd>←</kbd> <kbd>→</kbd> previous / next change · <kbd>Shift</kbd> 5 min · <kbd>Space</kbd> play</span>
+  </div>
+  <canvas id="lanes" aria-hidden="true"></canvas>
+  <label class="hide" for="scrub">Time of day</label>
+  <input id="scrub" type="range" min="0" max="86400" step="1" value="0">
+</section>
+
+<script>
+'use strict';
+const TZ = 'Europe/Lisbon';  // the home's wall clock, as in source/simulate.py
+const $ = (id) => document.getElementById(id);
+
+// --- the data ----------------------------------------------------------------------------------------
+// The capabilities the view draws, per device type: the same table as WATCHED in source/simulate_web.py.
+const WATCHED = {
+  temperatureSensor: ['temperatureValue', 'humidityValue'],
+  contactSensor: ['sensorState'],
+  bulb: ['power', 'brightness', 'color_rgb'],
+  plug: ['power', 'instantPower', 'todayConsumption'],
+  smokeSensor: ['sensorState'],
+  gateway: ['alarmState'],
+};
+// A step to "the next change" stops at these; temperature, humidity and the kWh counter drift all day.
+const EVENTS = ['sensorState', 'power', 'brightness', 'color_rgb', 'instantPower', 'alarmState', 'status', 'isAlarmed'];
+const MAIN = { bulb: 'power', contactSensor: 'sensorState', plug: 'instantPower', smokeSensor: 'sensorState', gateway: 'alarmState' };
+const GAP_MS = 15 * 60000;  // longer than this without a snapshot is an outage
+
+const clockFmt = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+const partsFmt = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+                                                    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+const dateFmt = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+const clock = (ms) => clockFmt.format(ms);
+
+function localParts(ts) {
+  const p = {};
+  for (const { type, value } of partsFmt.formatToParts(ts)) p[type] = value;
+  return { date: `${p.year}-${p.month}-${p.day}`, seconds: p.hour * 3600 + p.minute * 60 + +p.second };
+}
+
+// One day, ready to draw: times[i] is a snapshot's time and states[i] its devices' values (one object per
+// device, then one for the home's security). An unchanged device keeps the same object from one snapshot to the next.
+function finish(day) {
+  day.changes = [];
+  for (let i = 1; i < day.states.length; i++) {
+    const was = day.states[i - 1], now = day.states[i];
+    if (now.some((s, d) => s !== was[d] && EVENTS.some((k) => s[k] !== was[d][k]))) day.changes.push(i);
+  }
+  return day;
+}
+
+// What GET /day sends: the first frame whole, then only what changed.
+function fromServer(view) {
+  const day = { label: view.household, date: view.date, start: view.start, end: view.end, devices: view.devices,
+                truth: view.truth || [], times: [], states: [], maxDays: view.max_days };
+  let state = [];
+  for (const [ts, changes] of view.frames) {
+    state = state.slice();
+    for (const d in changes) state[d] = { ...state[d], ...changes[d] };
+    day.times.push(ts);
+    day.states.push(state);
+  }
+  return finish(day);
+}
+
+// A get_home snapshot -> the small state, with the devices in the order of the file's first snapshot.
+function compact(home, devices, last) {
+  const byId = new Map(home.devices.map((d) => [d.id, d]));
+  const state = devices.map((d) => {
+    const out = {}, keep = WATCHED[d.type] || [];
+    for (const c of (byId.get(d.id) || {}).capabilities || []) if (keep.includes(c.type)) out[c.type] = c.value;
+    return out;
+  });
+  const security = home.security || {};
+  state.push({ status: security.status, isAlarmed: security.isAlarmed });
+  if (last) state.forEach((s, d) => { if (JSON.stringify(s) === JSON.stringify(last[d])) state[d] = last[d]; });
+  return state;
+}
+
+// A .jsonl file of snapshots, read as a stream (a long file is hundreds of MB) and cut into local days.
+async function readFile(file, progress) {
+  const days = new Map();
+  let devices = null, last = null, cur = null, bad = 0, read = 0, rest = '';
+  const take = (line) => {
+    if (!line.trim()) return;
+    let row;
+    try { row = JSON.parse(line); } catch { bad++; return; }
+    if (!row || typeof row.ts !== 'number' || !row.home || !Array.isArray(row.home.devices)) { bad++; return; }
+    devices = devices || row.home.devices.map((d) => ({ id: d.id, name: d.name, type: d.type, room: d.roomName }));
+    if (!cur || row.ts < cur.start || row.ts >= cur.end) {
+      const local = localParts(row.ts), start = row.ts - row.ts % 1000 - local.seconds * 1000;
+      cur = days.get(local.date);
+      if (!cur) days.set(local.date, cur = { label: file.name, date: local.date, start, end: start + 86400000, devices, truth: [], times: [], states: [] });
+      cur.end = Math.max(cur.end, row.ts + 1);  // the 25-hour day when the clocks go back
+    }
+    last = compact(row.home, devices, last);
+    cur.times.push(row.ts);
+    cur.states.push(last);
+  };
+  const reader = file.stream().pipeThrough(new TextDecoderStream()).getReader();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const lines = (rest + value).split('\n');
+    rest = lines.pop();
+    lines.forEach(take);
+    read += value.length;
+    progress(Math.min(1, read / file.size));
+  }
+  take(rest);
+  const list = [...days.values()].sort((a, b) => a.start - b.start).map(finish);
+  if (!list.length) throw new Error(`No snapshots in ${file.name}: each line should be {"ts": …, "home": {…}}.`);
+  return { days: list, bad };
+}
+
+// The snapshot in force at time t: the latest one at or before it.
+function indexAt(day, t) {
+  let lo = 0, hi = day.times.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (day.times[mid] <= t) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+
+// What a device says, in words: for the panel and for the labels in the house.
+function reading(type, s, security) {
+  const on = (text, color) => ({ text, on: true, color });
+  const off = (text) => ({ text, on: false });
+  if (type === 'bulb') return s.power === 'on' ? on(`On · ${s.brightness ?? 100} %`, `rgb(${s.color_rgb || '255,214,102'})`) : off('Off');
+  if (type === 'contactSensor') return s.sensorState === 'alarm' ? on('Open', 'var(--door)') : off('Closed');
+  if (type === 'plug') {
+    const kwh = s.todayConsumption != null ? ` · ${Number(s.todayConsumption).toFixed(3)} kWh today` : '';
+    const watts = `${Number(s.instantPower || 0).toLocaleString('en')} W`;
+    return s.instantPower > 0 ? { ...on(watts + kwh, 'var(--plug)'), short: watts } : { ...off(watts + kwh), short: watts };
+  }
+  if (type === 'temperatureSensor') {
+    const t = s.temperatureValue != null ? `${Number(s.temperatureValue).toFixed(1)} °C` : '–';
+    return { text: `${t} · ${s.humidityValue != null ? Math.round(s.humidityValue) + ' %' : '–'}`, short: t, on: true, color: tempColor(s.temperatureValue) };
+  }
+  if (type === 'smokeSensor') return s.sensorState === 'alarm' ? on('Smoke!', 'var(--bad)') : off('No smoke');
+  if (type === 'gateway') {
+    if (security.isAlarmed || s.alarmState === 'alarm') return on('Alarm', 'var(--bad)');
+    const status = String(security.status || 'unknown').toLowerCase();
+    return status === 'disarmed' ? off('Disarmed') : on(`Armed (${status})`, 'var(--accent)');
+  }
+  return off('Reports, never changes');
+}
+
+// 15 °C is blue, 20.5 °C grey, 26 °C orange.
+function tempColor(t) {
+  if (t == null) return '#9aa3b2';
+  const k = Math.max(-1, Math.min(1, (t - 20.5) / 5.5)), a = [154, 163, 178], b = k < 0 ? [47, 128, 237] : [240, 124, 32];
+  return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * Math.abs(k))).join(',')})`;
+}
+
+// --- the house ---------------------------------------------------------------------------------------
+// One room, as the kit has one ("Hack 1"). Metres; y is up; the front wall, with the door, faces +z.
+// Walls between the camera and the room fade, so the inside always shows. Devices are found by type.
+function houseScene(THREE, canvas) {
+  const W = 6, D = 4.6, H = 2.5, T = 0.12, RIDGE = H + 1.2, DOOR = [-1.6, -0.7, 2.05];
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+
+  const mat = (color, extra) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0, flatShading: true, ...extra });
+  const add = (geometry, material, x, y, z, parent) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    (parent || scene).add(mesh);
+    return mesh;
+  };
+  const box = (w, h, d, material, x, y, z, parent) => add(new THREE.BoxGeometry(w, h, d), material, x, y, z, parent);
+  const led = (r, x, y, z, parent) => add(new THREE.SphereGeometry(r, 8, 6), new THREE.MeshBasicMaterial({ color: 0x8a94a3 }), x, y, z, parent);
+
+  // Light: a sky that never goes fully dark, and a sun that crosses from 07:00 to 20:00.
+  const sky = new THREE.HemisphereLight(0xffffff, 0x8d8a85, 0.8);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.bias = -0.0006;
+  Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7, near: 1, far: 30 });
+  scene.add(sky, sun);
+
+  // Ground: the page's colour far off, then a lawn, the house on a stone plinth, and stepping stones to the door.
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(8.5, 48), new THREE.MeshBasicMaterial({ color: 0xe2e5ea }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.11;
+  scene.add(ground);
+  add(new THREE.CylinderGeometry(7.1, 7.3, 0.08, 40), mat(0x8fb072), 0, -0.07, 0).castShadow = false;
+  box(W + T + 0.3, 0.1, D + T + 0.3, mat(0xa49d93), 0, -0.055, 0).castShadow = false;
+  const stone = mat(0xbdb6ab);
+  box(1.1, 0.1, 0.36, stone, -1.15, -0.04, D / 2 + 0.38).castShadow = false;  // the doorstep
+  [[-1.1, 3.05], [-1.3, 3.6], [-1.05, 4.15], [-1.25, 4.7]].forEach(([x, z]) => box(0.55, 0.03, 0.32, stone, x, -0.02, z).castShadow = false);
+  const leaf = mat(0x7fa66a), leafDark = mat(0x6a9259), bark = mat(0x8a6a4f);
+  const tree = (x, z, s) => {
+    add(new THREE.CylinderGeometry(0.06 * s, 0.09 * s, 0.7 * s, 6), bark, x, 0.35 * s, z);
+    add(new THREE.IcosahedronGeometry(0.62 * s, 0), leaf, x, 1.05 * s, z);
+    add(new THREE.IcosahedronGeometry(0.42 * s, 0), leafDark, x + 0.25 * s, 1.45 * s, z - 0.1 * s);
+  };
+  const bush = (x, z, r) => add(new THREE.IcosahedronGeometry(r, 0), leafDark, x, r * 0.7, z);
+  tree(-4.7, -3.3, 1.25); tree(4.9, -2.7, 1); tree(-5.3, 1.9, 0.85);
+  bush(3.7, 3.0, 0.32); bush(4.25, 2.55, 0.24); bush(-3.75, -0.7, 0.3); bush(1.9, -3.15, 0.28); bush(-2.4, 3.2, 0.26);
+
+  // Floor: planks, drawn once on a canvas.
+  const planks = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    const ctx = c.getContext('2d'), tones = ['#d8c1a0', '#d0b792', '#dcc7a7', '#cdb08a'];
+    for (let row = 0; row < 16; row++) {
+      for (let k = -1, x = -((row * 97) % 256); x < 512; k++, x += 256) {
+        ctx.fillStyle = tones[(row * 3 + k + 4) % 4];
+        ctx.fillRect(x, row * 32, 256, 32);
+        ctx.fillStyle = 'rgba(80,55,30,.18)';
+        ctx.fillRect(x, row * 32, 2, 32);
+      }
+      ctx.fillRect(0, row * 32, 512, 2);
+    }
+    const texture = new THREE.CanvasTexture(c);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(W / 2.9, D / 2.9);
+    texture.anisotropy = 4;
+    return texture;
+  })();
+  box(W + T, 0.1, D + T, mat(0xffffff, { map: planks, flatShading: false }), 0, -0.05, 0).castShadow = false;
+  box(1.9, 0.012, 1.5, mat(0xc9b8a6), 1.2, 0.006, 0.6).castShadow = false;  // a rug
+  box(1.6, 0.013, 1.2, mat(0xa8b6c4), 1.2, 0.007, 0.6).castShadow = false;
+
+  // Walls fade when the camera looks through them; each wall's paint, cut top and skirting fade together.
+  const walls = [];
+  const wall = (nx, nz, pieces) => {
+    const w = { group: new THREE.Group(), materials: [], normal: new THREE.Vector3(nx, 0, nz), at: new THREE.Vector3(nx * W / 2, 0, nz * D / 2), glass: null };
+    w.paint = (color) => { const m = mat(color, { transparent: true }); w.materials.push(m); return m; };
+    const plaster = w.paint(0xf3efe8), cap = w.paint(0x7a6f66);
+    w.trim = w.paint(0xfbfaf7);
+    for (const [pw, h, d, x, y, z] of pieces) {
+      box(pw, h, d, plaster, x, y, z, w.group).castShadow = false;
+      if (y + h / 2 > H - 0.001) box(pw + 0.004, 0.035, d + 0.004, cap, x, H + 0.017, z, w.group).castShadow = false;  // the cut, dollhouse-style
+    }
+    scene.add(w.group);
+    walls.push(w);
+    return w;
+  };
+  const glassFor = (w) => (w.glass = new THREE.MeshBasicMaterial({ color: 0x9cc3e6, transparent: true, opacity: 0.55 }));
+  const sideWindow = (w, x, z) => {  // in the left or right wall: 1.5 m wide, from 1 m to 1.9 m
+    box(T + 0.02, 0.9, 1.5, glassFor(w), x, 1.45, z, w.group).castShadow = false;
+    for (const [h, d, y, dz] of [[0.06, 1.62, 1.93, 0], [0.05, 1.72, 0.98, 0], [0.96, 0.06, 1.45, -0.78], [0.96, 0.06, 1.45, 0.78], [0.9, 0.035, 1.45, 0]])
+      box(T + (y < 1 ? 0.14 : 0.04), h, d, w.trim, x, y, z + dz, w.group).castShadow = false;
+  };
+  const [dx0, dx1, dh] = DOOR, edge = (W + T) / 2;
+  const front = wall(0, 1, [[dx0 + edge, H, T, (dx0 - edge) / 2, H / 2, D / 2], [edge - dx1, H, T, (dx1 + edge) / 2, H / 2, D / 2],
+                            [dx1 - dx0, H - dh, T, (dx0 + dx1) / 2, (H + dh) / 2, D / 2]]);
+  const back = wall(0, -1, [[W + T, H, T, 0, H / 2, -D / 2]]);
+  const left = wall(-1, 0, [[T, H, D - T, -W / 2, H / 2, 0]]);
+  const right = wall(1, 0, [[T, H, D - T, W / 2, H / 2, 0]]);
+  sideWindow(right, W / 2, 0.3);
+  sideWindow(left, -W / 2, -1.1);
+  for (const [x, w] of [[dx0 - 0.0225, 0.045], [dx1 + 0.0225, 0.045]]) box(w, dh + 0.04, T + 0.04, front.trim, x, (dh + 0.04) / 2, D / 2, front.group).castShadow = false;
+  box(dx1 - dx0 + 0.09, 0.045, T + 0.04, front.trim, (dx0 + dx1) / 2, dh + 0.0225, D / 2, front.group).castShadow = false;
+  const skirt = 0.08, inX = W / 2 - T / 2 - 0.01, inZ = D / 2 - T / 2 - 0.01;  // skirting along the inside of each wall
+  box(W - T, skirt, 0.02, back.trim, 0, skirt / 2, -inZ, back.group).castShadow = false;
+  box(0.02, skirt, D - T, left.trim, -inX, skirt / 2, 0, left.group).castShadow = false;
+  box(0.02, skirt, D - T, right.trim, inX, skirt / 2, 0, right.group).castShadow = false;
+  box(dx0 + W / 2 - T / 2, skirt, 0.02, front.trim, (dx0 - W / 2 + T / 2) / 2, skirt / 2, inZ, front.group).castShadow = false;
+  box(W / 2 - T / 2 - dx1, skirt, 0.02, front.trim, (dx1 + W / 2 - T / 2) / 2, skirt / 2, inZ, front.group).castShadow = false;
+
+  // The roof: solid when you look from about eye level, lifted away (faded) when you look down into the house.
+  const roofMaterials = [], roofPaint = (color, extra) => { const m = mat(color, { transparent: true, ...extra }); roofMaterials.push(m); return m; };
+  const tiles = roofPaint(0xb4644a), ridgeTiles = roofPaint(0x8f4c38), gable = roofPaint(0xf3efe8, { side: THREE.DoubleSide });
+  const fall = RIDGE - H, slopeLen = Math.hypot(fall, D / 2), slope = Math.atan2(fall, D / 2), over = 0.35;
+  for (const s of [1, -1]) {
+    const t = (slopeLen + over) / 2;
+    const slab = box(W + 0.5, 0.08, slopeLen + over, tiles, 0, RIDGE - fall * t / slopeLen + 0.06, s * (D / 2) * t / slopeLen);
+    slab.rotation.x = s * slope;
+    slab.castShadow = false;
+  }
+  box(W + 0.56, 0.1, 0.16, ridgeTiles, 0, RIDGE + 0.09, 0).castShadow = false;
+  for (const x of [-W / 2, W / 2]) {
+    const g = new THREE.Mesh(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([
+      x, H, -D / 2, x, H, D / 2, x, RIDGE, 0], 3)), gable);
+    g.geometry.computeVertexNormals();
+    scene.add(g);
+  }
+  let roofOpacity = 0.08;
+
+  const beam = mat(0xb9a58a);
+  box(0.1, 0.12, D - T, beam, 0.2, H - 0.06, 0);
+  box(0.1, 0.12, D - T, beam, -1.7, H - 0.06, 0);
+
+  // Furniture: a kitchen counter along the back wall, a dining table with chairs, a sofa by the window, a plant.
+  const backZ = -D / 2 + T / 2, metal = mat(0x6b7280);
+  box(2.6, 0.86, 0.6, mat(0x7d8fa3), 1.4, 0.43, backZ + 0.3);
+  box(2.66, 0.04, 0.64, mat(0xeceff3), 1.4, 0.88, backZ + 0.31);
+  box(2.6, 0.07, 0.56, mat(0x3f4652), 1.4, 0.035, backZ + 0.28).castShadow = false;  // the toe kick
+  for (const x of [0.43, 1.08, 1.73, 2.38]) box(0.6, 0.002, 0.004, mat(0x6a7b8f), x + 0.3, 0.45, backZ + 0.601).castShadow = false;
+  for (const x of [0.4, 1.05, 1.7, 2.35]) box(0.14, 0.018, 0.02, metal, x, 0.78, backZ + 0.615);
+  box(0.46, 0.012, 0.36, mat(0x9ca3af, { roughness: 0.35, metalness: 0.4 }), 1.0, 0.9, backZ + 0.32).castShadow = false;  // the sink
+  box(0.025, 0.2, 0.025, metal, 1.0, 1.0, backZ + 0.1);
+  box(0.025, 0.025, 0.14, metal, 1.0, 1.09, backZ + 0.16);
+
+  const wood = mat(0xc49a6c), woodDark = mat(0x9c7350);
+  box(1.3, 0.05, 0.8, wood, -1.6, 0.74, -1.1);
+  for (const [x, z] of [[-2.18, -1.43], [-1.02, -1.43], [-2.18, -0.77], [-1.02, -0.77]]) box(0.05, 0.72, 0.05, wood, x, 0.36, z);
+  const chair = (x, z, s) => {  // s = 1 faces -z, -1 faces +z
+    box(0.42, 0.05, 0.42, woodDark, x, 0.45, z);
+    for (const [ox, oz] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]]) box(0.035, 0.45, 0.035, woodDark, x + ox, 0.225, z + oz);
+    box(0.42, 0.42, 0.04, woodDark, x, 0.69, z + s * 0.19);
+  };
+  chair(-1.95, -0.45, 1); chair(-1.25, -0.45, 1); chair(-1.6, -1.75, -1);
+
+  const fabric = mat(0x5f7f99), cushion = mat(0x7394ae);
+  box(0.85, 0.32, 1.9, fabric, 2.45, 0.22, 0.6);
+  box(0.2, 0.5, 1.9, fabric, 2.78, 0.6, 0.6);
+  for (const s of [-1, 1]) box(0.85, 0.22, 0.16, fabric, 2.45, 0.49, 0.6 + s * 0.87);
+  for (const s of [-1, 1]) box(0.62, 0.1, 0.8, cushion, 2.36, 0.43, 0.6 + s * 0.41);
+  for (const [x, z] of [[2.08, -0.28], [2.08, 1.48], [2.82, -0.28], [2.82, 1.48]]) box(0.05, 0.06, 0.05, woodDark, x, 0.03, z);
+  box(0.9, 0.05, 0.5, wood, 1.15, 0.4, 0.6);
+  for (const [x, z] of [[0.75, 0.4], [1.55, 0.4], [0.75, 0.8], [1.55, 0.8]]) box(0.04, 0.38, 0.04, wood, x, 0.19, z);
+
+  add(new THREE.CylinderGeometry(0.17, 0.13, 0.34, 10), mat(0xc0704f), -2.62, 0.17, 1.9);
+  add(new THREE.IcosahedronGeometry(0.3, 0), leaf, -2.62, 0.6, 1.9);
+  add(new THREE.IcosahedronGeometry(0.2, 0), leafDark, -2.52, 0.85, 1.82);
+
+  // The devices. Each has a group to click, an anchor for its label, and its own moving parts.
+  const parts = {}, anchors = {}, pick = [];
+  const device = (type, x, y, z) => {
+    const group = new THREE.Group();
+    group.userData.type = type;
+    scene.add(group);
+    pick.push(group);
+    anchors[type] = new THREE.Vector3(x, y, z);
+    return group;
+  };
+
+  { // Light: a pendant under the middle beam.
+    const g = device('bulb', 0.2, 2.02, 0.2);
+    add(new THREE.CylinderGeometry(0.012, 0.012, 0.52, 6), mat(0x3b4252), 0.2, H - 0.38, 0.2, g);
+    add(new THREE.ConeGeometry(0.27, 0.2, 10, 1, true), mat(0x3b4252, { side: THREE.DoubleSide }), 0.2, 1.9, 0.2, g);
+    const bulb = add(new THREE.IcosahedronGeometry(0.1, 1), mat(0xf4f1ea, { emissive: 0x000000 }), 0.2, 1.8, 0.2, g);
+    bulb.castShadow = false;
+    const light = new THREE.PointLight(0xffffff, 0, 9, 2);
+    light.position.set(0.2, 1.75, 0.2);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), transparent: true, opacity: 0, depthWrite: false }));
+    glow.position.set(0.2, 1.8, 0.2);
+    scene.add(light, glow);
+    parts.bulb = { bulb, light, glow, level: 0, target: 0, color: new THREE.Color(0xffffff) };
+  }
+  { // Contact sensor: on the frame of the front door, which swings in when it says "alarm".
+    const g = device('contactSensor', dx1 + 0.07, 2.02, D / 2 - T / 2 - 0.03);
+    const hinge = new THREE.Group();
+    hinge.position.set(dx0, 0, D / 2);
+    g.add(hinge);
+    box(dx1 - dx0 - 0.02, dh - 0.03, 0.05, mat(0xb98a5e), (dx1 - dx0) / 2, dh / 2, 0, hinge);
+    add(new THREE.SphereGeometry(0.035, 8, 6), mat(0x3b4252), dx1 - dx0 - 0.1, 1, -0.05, hinge);
+    add(new THREE.SphereGeometry(0.035, 8, 6), mat(0x3b4252), dx1 - dx0 - 0.1, 1, 0.05, hinge);  // and outside
+    for (const y of [0.55, 1.45]) box(dx1 - dx0 - 0.22, 0.6, 0.012, mat(0xa77a50), (dx1 - dx0) / 2, y, 0.03, hinge).castShadow = false;  // panels
+    box(0.03, 0.09, 0.025, mat(0xffffff), dx1 - dx0 - 0.04, 1.9, -0.04, hinge);  // the magnet, on the door
+    box(0.05, 0.12, 0.03, mat(0xffffff), dx1 + 0.07, 1.9, D / 2 - T / 2 - 0.015, g);
+    parts.contactSensor = { hinge, led: led(0.016, dx1 + 0.07, 1.93, D / 2 - T / 2 - 0.035, g), angle: 0, target: 0, hold: 0 };
+  }
+  { // Plug: a socket above the counter, the appliance on it, a ring and a bar that grow with the watts.
+    const x = 1.95, g = device('plug', x, 1.52, backZ + 0.12);
+    box(0.13, 0.13, 0.04, mat(0xffffff), x, 1.22, backZ + 0.02, g);
+    add(new THREE.CylinderGeometry(0.09, 0.11, 0.22, 10), mat(0xc9ced6), x, 1.01, backZ + 0.3, g);  // a kettle, whatever the appliance
+    box(0.03, 0.14, 0.03, mat(0x3b4252), x + 0.14, 1.02, backZ + 0.3, g);
+    add(new THREE.CylinderGeometry(0.03, 0.03, 0.03, 8), mat(0x3b4252), x, 1.135, backZ + 0.3, g);
+    const ring = add(new THREE.TorusGeometry(0.18, 0.02, 6, 28), new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0 }), x, 0.915, backZ + 0.3, g);
+    ring.rotation.x = Math.PI / 2;
+    ring.castShadow = false;
+    box(0.045, 0.5, 0.02, mat(0xd5d9e0), x + 0.2, 1.4, backZ + 0.01, g).castShadow = false;  // the bar's track
+    const bar = box(0.045, 0.5, 0.03, new THREE.MeshBasicMaterial({ color: 0xff7a1a }), x + 0.2, 1.15, backZ + 0.015, g);
+    bar.geometry.translate(0, 0.25, 0);  // grows up from its foot
+    bar.castShadow = false;
+    parts.plug = { ring, bar, led: led(0.016, x + 0.04, 1.26, backZ + 0.045, g), watts: 0, level: 0 };
+  }
+  { // Temperature sensor: on the left wall, with a window tinted by the temperature.
+    const x = -W / 2 + T / 2, g = device('temperatureSensor', x + 0.08, 1.62, 1.1);
+    box(0.03, 0.17, 0.11, mat(0xffffff), x + 0.015, 1.45, 1.1, g);
+    parts.temperatureSensor = { face: box(0.012, 0.1, 0.07, new THREE.MeshBasicMaterial({ color: 0x9aa3b2 }), x + 0.034, 1.46, 1.1, g) };
+  }
+  { // Smoke sensor: under the other beam.
+    const g = device('smokeSensor', -1.7, 2.2, -0.3);
+    const body = add(new THREE.CylinderGeometry(0.13, 0.13, 0.05, 14), mat(0xffffff, { emissive: 0x000000 }), -1.7, H - 0.145, -0.3, g);
+    const light = new THREE.PointLight(0xff2a1a, 0, 6, 2);
+    light.position.set(-1.7, H - 0.3, -0.3);
+    scene.add(light);
+    parts.smokeSensor = { body, light, led: led(0.016, -1.7, H - 0.175, -0.24, g), alarm: false };
+  }
+  { // Security hub: on the counter, with a strip that shows the alarm's status.
+    const g = device('gateway', 0.55, 1.08, backZ + 0.3);
+    box(0.26, 0.06, 0.18, mat(0x2f3540), 0.55, 0.93, backZ + 0.3, g);
+    parts.gateway = { strip: box(0.2, 0.014, 0.01, new THREE.MeshBasicMaterial({ color: 0x8a94a3 }), 0.55, 0.935, backZ + 0.392, g), alarm: false };
+  }
+  { // Camera: high on the back wall. It reports, and nothing about it changes.
+    const g = device('camera', -2.5, 2.34, backZ + 0.14);
+    box(0.05, 0.05, 0.08, mat(0x3b4252), -2.5, 2.16, backZ + 0.04, g);
+    add(new THREE.SphereGeometry(0.075, 10, 8), mat(0xffffff), -2.5, 2.14, backZ + 0.13, g);
+    add(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0x11151c }), -2.5, 2.12, backZ + 0.19, g);
+  }
+
+  function glowTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const ctx = c.getContext('2d'), grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(255,255,255,.9)');
+    grad.addColorStop(0.3, 'rgba(255,255,255,.35)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  }
+
+  // Labels: a pill of text over each device, drawn on a small canvas and redrawn only when it changes.
+  let colors = { panel: '#ffffff', text: '#1b1f27', muted: '#667085', line: '#dfe2e8', accent: '#0a6cff' };
+  let showLabels = true, selected = null;
+  const labels = {};
+  for (const type in anchors) {
+    const c = document.createElement('canvas'), texture = new THREE.CanvasTexture(c);
+    texture.minFilter = THREE.LinearFilter;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true, sizeAttenuation: false }));
+    sprite.center.set(0.5, 0);
+    sprite.position.copy(anchors[type]);
+    sprite.renderOrder = 20;
+    sprite.userData = { type, label: true };
+    sprite.visible = false;
+    scene.add(sprite);
+    pick.push(sprite);
+    labels[type] = { c, texture, sprite, key: '', name: '', value: '', dot: null };
+  }
+  function drawLabel(type) {
+    const l = labels[type], key = [l.name, l.value, l.dot, selected === type, colors.panel].join('|');
+    if (key === l.key) return;
+    l.key = key;
+    const ctx = l.c.getContext('2d'), h = 60, bold = '600 27px system-ui, sans-serif', plain = '400 27px system-ui, sans-serif';
+    ctx.font = bold;
+    const nameW = ctx.measureText(l.name).width;
+    ctx.font = plain;
+    const w = Math.ceil(nameW + ctx.measureText(l.value).width + 78);
+    l.c.width = w;
+    l.c.height = h;
+    ctx.beginPath();
+    const r = h / 2 - 3;
+    ctx.moveTo(3 + r, 3); ctx.arcTo(w - 3, 3, w - 3, h - 3, r); ctx.arcTo(w - 3, h - 3, 3, h - 3, r); ctx.arcTo(3, h - 3, 3, 3, r); ctx.arcTo(3, 3, w - 3, 3, r);
+    ctx.fillStyle = colors.panel;
+    ctx.fill();
+    ctx.lineWidth = selected === type ? 5 : 2;
+    ctx.strokeStyle = selected === type ? colors.accent : colors.line;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(28, h / 2, 8, 0, 7);
+    ctx.fillStyle = l.dot || colors.line;
+    ctx.fill();
+    ctx.textBaseline = 'middle';
+    ctx.font = bold;
+    ctx.fillStyle = colors.text;
+    ctx.fillText(l.name, 46, h / 2 + 2);
+    ctx.font = plain;
+    ctx.fillStyle = colors.muted;
+    ctx.fillText(l.value, 46 + nameW + 10, h / 2 + 2);
+    l.texture.needsUpdate = true;
+    l.sprite.scale.set(0.019 * w / h, 0.019, 1);  // the same size on screen however far the camera is
+  }
+
+  // The camera turns around the middle of the room: drag to turn, wheel or pinch to zoom.
+  const HOME = { az: 0.66, tilt: 1.02, dist: 12.5 };
+  const view = { ...HOME }, target = new THREE.Vector3(0, 1.15, 0), pointers = new Map();
+  let moved = 0, pinch = 0, onPick = null;
+  const place = () => {
+    const s = Math.sin(view.tilt) * view.dist;
+    camera.position.set(target.x + s * Math.sin(view.az), target.y + Math.cos(view.tilt) * view.dist, target.z + s * Math.cos(view.az));
+    camera.lookAt(target);
+  };
+  const spread = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  canvas.addEventListener('pointerdown', (e) => {
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* a pointer that is already gone */ }
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    moved = 0;
+    if (pointers.size === 2) pinch = spread();
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    if (pointers.size === 2) {
+      const now = spread();
+      view.dist = Math.max(7, Math.min(24, view.dist * pinch / Math.max(now, 1)));
+      pinch = now;
+    } else {
+      view.az -= dx * 0.008;
+      view.tilt = Math.max(0.12, Math.min(1.5, view.tilt - dy * 0.006));
+    }
+  });
+  const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
+  const release = (e) => {
+    if (pointers.delete(e.pointerId) && moved < 5 && e.type === 'pointerup' && onPick) {  // a click, not a drag
+      const box = canvas.getBoundingClientRect();
+      mouse.set((e.clientX - box.left) / box.width * 2 - 1, -(e.clientY - box.top) / box.height * 2 + 1);
+      raycaster.setFromCamera(mouse, camera);
+      let hit = raycaster.intersectObjects(pick.filter((o) => o.visible), true)[0];
+      hit = hit && hit.object;
+      while (hit && !hit.userData.type) hit = hit.parent;
+      onPick(hit ? hit.userData.type : null);
+    }
+  };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    view.dist = Math.max(7, Math.min(24, view.dist * Math.exp(e.deltaY * 0.0012)));
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => Object.assign(view, HOME));
+
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    // The panel covers the left and the time bar the bottom: on a wide window, look a little past the house.
+    camera.setViewOffset(w, h, w > 900 ? -150 : 0, w > 900 ? 60 : 110, w, h);
+    camera.updateProjectionMatrix();
+  }
+
+  const tmp = new THREE.Vector3(), lerp = (a, b, k) => a + (b - a) * Math.min(1, k);
+  let last = performance.now(), frame = 0, beat = 0;
+  function tick(now) {
+    frame = requestAnimationFrame(tick);
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    beat += dt;
+    place();
+    for (const w of walls) {  // fade the walls the camera looks through
+      const hidden = w.normal.dot(tmp.copy(camera.position).sub(w.at)) > 0;
+      const opacity = lerp(w.materials[0].opacity, hidden ? 0.07 : 1, dt * 9);
+      for (const m of w.materials) { m.opacity = opacity; m.depthWrite = opacity > 0.9; }
+      if (w.glass) w.glass.opacity = 0.2 + 0.35 * opacity;
+    }
+    roofOpacity = lerp(roofOpacity, view.tilt > 1.28 ? 1 : 0.06, dt * 7);  // the roof comes back near eye level
+    for (const m of roofMaterials) { m.opacity = roofOpacity; m.depthWrite = roofOpacity > 0.9; }
+    const door = parts.contactSensor;
+    door.hold = Math.max(0, door.hold - dt);
+    door.angle = lerp(door.angle, door.target || door.hold > 0 ? 1.35 : 0, dt * 7);
+    door.hinge.rotation.y = door.angle;
+    const lamp = parts.bulb;
+    lamp.level = lerp(lamp.level, lamp.target, dt * 8);
+    lamp.light.intensity = 1.1 * lamp.level;
+    lamp.light.color.copy(lamp.color);
+    lamp.bulb.material.emissive.copy(lamp.color).multiplyScalar(lamp.level);
+    lamp.glow.material.opacity = 0.85 * lamp.level;
+    lamp.glow.material.color.copy(lamp.color);
+    lamp.glow.scale.setScalar(0.5 + 1.1 * lamp.level);
+    const plug = parts.plug;
+    plug.level = lerp(plug.level, plug.watts > 0 ? Math.log10(1 + plug.watts) / Math.log10(3001) : 0, dt * 8);
+    plug.bar.scale.y = Math.max(0.001, Math.min(1, plug.level));
+    plug.bar.visible = plug.level > 0.01;
+    const pulse = 0.5 + 0.5 * Math.sin(beat * (3 + 9 * plug.level));  // faster with more watts
+    plug.ring.material.opacity = plug.level > 0.01 ? 0.35 + 0.65 * pulse : 0;
+    plug.ring.scale.setScalar(1 + 0.12 * pulse * plug.level);
+    const smoke = parts.smokeSensor, flash = 0.5 + 0.5 * Math.sin(beat * 10);
+    smoke.light.intensity = smoke.alarm ? 1.5 * flash : 0;
+    smoke.body.material.emissive.setRGB(smoke.alarm ? flash : 0, 0, 0);
+    if (parts.gateway.alarm) parts.gateway.strip.material.color.setRGB(0.4 + 0.6 * flash, 0.1, 0.05);
+    renderer.render(scene, camera);
+  }
+
+  return {
+    resize,
+    start() { resize(); place(); cancelAnimationFrame(frame); last = performance.now(); frame = requestAnimationFrame(tick); },
+    stop() { cancelAnimationFrame(frame); },
+    resetView() { Object.assign(view, HOME); },
+    turn(az, tilt) { view.az += az; view.tilt = Math.max(0.12, Math.min(1.5, view.tilt + tilt)); },
+    onPick(fn) { onPick = fn; },
+    select(type) { selected = type; for (const t in labels) drawLabel(t); },
+    setLabels(on) { showLabels = on; for (const t in labels) labels[t].sprite.visible = on && !!labels[t].name; },
+    // The page's colours, as CSS strings: the ground and the labels follow the theme, the house does not.
+    setColors(next) {
+      colors = next;
+      ground.material.color.set(next.ground);
+      for (const t in labels) drawLabel(t);
+    },
+    // The door also swings for a moment when an opening fell between two frames of a fast playback.
+    flashDoor() { parts.contactSensor.hold = 0.45; },
+    // devices: [{type, name}], state: one object per device then the security one, hour: local time of day.
+    setState(devices, state, hour, words) {
+      const security = state[devices.length] || {}, seen = {};
+      devices.forEach((d, i) => {
+        if (seen[d.type] || !anchors[d.type]) return;  // one of each type is drawn
+        seen[d.type] = true;
+        const s = state[i] || {}, l = labels[d.type], said = words(d.type, s, security);
+        l.name = d.name;
+        l.value = said.short || said.text;
+        l.dot = said.on ? said.css : null;
+        l.sprite.visible = showLabels;
+        drawLabel(d.type);
+        if (d.type === 'bulb') {
+          parts.bulb.target = s.power === 'on' ? 0.25 + 0.75 * (s.brightness ?? 100) / 100 : 0;
+          const [r, g, b] = String(s.color_rgb || '255,214,102').split(',').map(Number);
+          // Pure white reads as a cold lamp: warm it a little, as a real bulb at home would look.
+          parts.bulb.color.setRGB(r / 255, (r === 255 && g === 255 && b === 255 ? 0.87 : g / 255), (r === 255 && g === 255 && b === 255 ? 0.62 : b / 255));
+        }
+        if (d.type === 'contactSensor') {
+          parts.contactSensor.target = s.sensorState === 'alarm' ? 1 : 0;
+          parts.contactSensor.led.material.color.set(s.sensorState === 'alarm' ? 0x2f80ed : 0x37b26c);
+        }
+        if (d.type === 'plug') {
+          parts.plug.watts = Number(s.instantPower) || 0;
+          parts.plug.led.material.color.set(s.power === 'off' ? 0x8a94a3 : parts.plug.watts > 0 ? 0xff7a1a : 0x37b26c);
+        }
+        if (d.type === 'temperatureSensor') parts.temperatureSensor.face.material.color.set(said.css);
+        if (d.type === 'smokeSensor') {
+          parts.smokeSensor.alarm = s.sensorState === 'alarm';
+          parts.smokeSensor.led.material.color.set(parts.smokeSensor.alarm ? 0xff2a1a : 0x37b26c);
+        }
+        if (d.type === 'gateway') {
+          parts.gateway.alarm = !!security.isAlarmed || s.alarmState === 'alarm';
+          const armed = security.status && security.status !== 'DISARMED';
+          if (!parts.gateway.alarm) parts.gateway.strip.material.color.set(armed ? 0x2f80ed : 0x8a94a3);
+        }
+      });
+      const day = Math.max(0, Math.sin((hour - 7) / 13 * Math.PI)) * (hour > 7 && hour < 20 ? 1 : 0), a = (hour - 7) / 13 * Math.PI;
+      sun.position.set(-8 * Math.cos(a), 1 + 9 * day, 4.5);
+      sun.intensity = 0.62 * day;
+      sun.color.setRGB(1, 0.78 + 0.22 * day, 0.6 + 0.4 * day);
+      sky.intensity = 0.4 + 0.24 * day;
+      sky.color.setRGB(0.62 + 0.38 * day, 0.7 + 0.3 * day, 1);
+    },
+  };
+}
+
+// The lanes over the slider: when the light was on, the door open, the plug drawing, and the temperature.
+function drawLanes(canvas, day, t, css) {
+  const ratio = Math.min(window.devicePixelRatio || 1, 2), w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * ratio)) canvas.width = Math.round(w * ratio);
+  if (canvas.height !== Math.round(h * ratio)) canvas.height = Math.round(h * ratio);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const x0 = 51, x1 = w - 7, lane = 15, gap = 3, X = (ms) => x0 + (x1 - x0) * (ms - day.start) / (day.end - day.start);
+  const find = (type) => day.devices.findIndex((d) => d.type === type);
+  const rows = [['Light', find('bulb'), css.lamp], ['Door', find('contactSensor'), css.door], ['Plug', find('plug'), css.plug], ['Temp', find('temperatureSensor'), css.temp]];
+  const n = day.times.length, until = (i) => (i + 1 < n ? day.times[i + 1] : day.end);
+  let top = 0, temps = [];
+  if (rows[3][1] >= 0) temps = day.states.map((s) => s[rows[3][1]].temperatureValue).filter((v) => v != null);
+  const maxW = rows[2][1] >= 0 ? Math.max(1, ...day.states.map((s) => Number(s[rows[2][1]].instantPower) || 0)) : 1;
+  const lo = Math.min(...temps), hi = Math.max(...temps);
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  rows.forEach(([name, d, color], r) => {
+    top = r * (lane + gap);
+    ctx.fillStyle = css.chip;
+    ctx.fillRect(x0, top, x1 - x0, lane);
+    ctx.fillStyle = css.muted;
+    ctx.fillText(name, 0, top + lane / 2 + 1);
+    if (d < 0) return;
+    ctx.fillStyle = ctx.strokeStyle = color;
+    if (r === 3) {  // a line from the day's lowest to its highest
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const v = day.states[i][d].temperatureValue;
+        if (v == null) continue;
+        const y = top + lane - 2 - (lane - 4) * (hi > lo ? (v - lo) / (hi - lo) : 0.5);
+        i ? ctx.lineTo(X(day.times[i]), y) : ctx.moveTo(X(day.times[i]), y);
+      }
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      return;
+    }
+    // A run of snapshots with the same value is one bar. It stops where an outage starts.
+    const value = (s) => (r === 0 ? (s.power === 'on' ? s.brightness ?? 100 : 0) : r === 1 ? +(s.sensorState === 'alarm') : Number(s.instantPower) || 0);
+    for (let i = 0; i < n;) {
+      const v = value(day.states[i][d]);
+      let j = i;
+      while (j + 1 < n && until(j) - day.times[j] <= GAP_MS && value(day.states[j + 1][d]) === v) j++;
+      const a = X(day.times[i]), b = X(Math.min(until(j), day.times[j] + GAP_MS)), tall = r === 2 ? Math.max(2, lane * Math.sqrt(v / maxW)) : lane;
+      ctx.globalAlpha = r === 0 ? 0.35 + 0.65 * v / 100 : 1;
+      if (v > 0) ctx.fillRect(a, top + lane - tall, Math.max(1.5, b - a), tall);
+      i = j + 1;
+    }
+    ctx.globalAlpha = 1;
+  });
+  const bottom = top + lane;
+  ctx.fillStyle = css.bg;  // an outage: no snapshots, so nothing is known
+  for (let i = 0; i < n; i++) if (until(i) - day.times[i] > GAP_MS) ctx.fillRect(X(day.times[i] + GAP_MS), 0, X(until(i)) - X(day.times[i] + GAP_MS), bottom);
+  ctx.fillStyle = css.muted;
+  ctx.textBaseline = 'alphabetic';
+  for (let hour = 0; hour <= 24; hour += w < 600 ? 6 : 3) {
+    const x = x0 + (x1 - x0) * hour / 24;
+    ctx.textAlign = hour === 0 ? 'left' : hour === 24 ? 'right' : 'center';
+    ctx.fillText(String(hour).padStart(2, '0') + ':00', x, h - 2);
+    ctx.globalAlpha = 0.35;
+    ctx.fillRect(Math.round(x), 0, 1, bottom);
+    ctx.globalAlpha = 1;
+  }
+  ctx.textAlign = 'left';
+  ctx.fillStyle = css.accent;
+  ctx.fillRect(Math.round(X(t)) - 1, 0, 2, bottom + 3);
+  return { x0, x1 };
+}
+
+// --- the page ----------------------------------------------------------------------------------------
+const view = { day: null, t: 0, index: -1, playing: false, selected: null, fileDays: null, plot: { x0: 51, x1: 100 } };
+const status = $('status');
+const say = (text, bad) => { status.textContent = text; status.className = bad ? 'bad' : 'muted'; };
+const house = window.THREE ? houseScene(window.THREE, $('scene')) : null;
+let css = {};
+
+function readColors() {
+  const style = getComputedStyle(document.documentElement);
+  for (const k of ['bg', 'ground', 'panel', 'line', 'text', 'muted', 'accent', 'chip', 'lamp', 'door', 'plug', 'temp', 'bad']) css[k] = style.getPropertyValue('--' + k).trim();
+  if (house) house.setColors(css);
+  $('theme').textContent = style.colorScheme.includes('dark') ? 'Light' : 'Dark';
+}
+// reading() names some colours as CSS variables; the canvases need the real value.
+const real = (color) => (color && color.startsWith('var(') ? css[color.slice(6, -1)] : color);
+const words = (type, s, security) => { const said = reading(type, s, security); said.css = real(said.color); return said; };
+
+// Everything on screen follows view.t: the house, the panel, the lanes and the slider.
+function render(force) {
+  const day = view.day;
+  if (!day) return;
+  const i = indexAt(day, view.t), state = day.states[i];
+  $('clock').textContent = clock(view.t);
+  $('scrub').value = Math.round((view.t - day.start) / 1000);
+  view.plot = drawLanes($('lanes'), day, view.t, css);
+  if (house) house.setState(day.devices, state, (view.t - day.start) / 3600000, words);
+  if (i === view.index && !force) return;
+  view.index = i;
+  const late = view.t - day.times[i] > GAP_MS || view.t < day.times[0];
+  say(late ? `No snapshot here: an outage. Last one at ${clock(day.times[i])}.` : `Snapshot ${i + 1} of ${day.times.length}, taken at ${clock(day.times[i])}`, late);
+  const security = state[day.devices.length] || {};
+  day.devices.forEach((d, n) => {
+    const row = $('devices').children[n], said = words(d.type, state[n], security);
+    row.querySelector('.dot').style.background = said.on ? said.css : '';
+    let since = '';
+    if (MAIN[d.type]) {  // when it last changed, looking back through the day
+      let j = i;
+      while (j > 0 && day.states[j - 1][n][MAIN[d.type]] === state[n][MAIN[d.type]]) j--;
+      since = j > 0 ? ` · since ${clock(day.times[j])}` : '';
+    }
+    row.querySelector('small').textContent = said.text + since;
+  });
+}
+
+function seek(t) {
+  if (!view.day) return;
+  view.t = Math.max(view.day.start, Math.min(view.day.end - 1000, t));
+  render();
+}
+
+function play(on) {
+  view.playing = on && !!view.day;
+  if (view.playing && view.t >= view.day.end - 1000) view.t = view.day.start;
+  $('play-icon').setAttribute('d', view.playing ? 'M3.5 2.5h3v11h-3zm6 0h3v11h-3z' : 'M4 2.5v11l9-5.5z');
+  $('play').setAttribute('aria-label', view.playing ? 'Pause' : 'Play');
+}
+
+// The next or previous snapshot where something happened (not just the temperature drifting).
+function step(direction) {
+  const day = view.day;
+  if (!day) return;
+  play(false);
+  const at = direction > 0 ? day.changes.find((i) => day.times[i] > view.t) : [...day.changes].reverse().find((i) => day.times[i] < view.t);
+  if (at != null) seek(day.times[at]);
+  else say(direction > 0 ? 'No later change that day.' : 'No earlier change that day.');
+}
+
+function select(type) {
+  view.selected = view.selected === type ? null : type;
+  if (house) house.select(view.selected);
+  [...$('devices').children].forEach((row, n) => row.firstChild.setAttribute('aria-pressed', String(view.day.devices[n].type === view.selected)));
+}
+
+function show(day, keepTime) {
+  const offset = view.day && keepTime ? view.t - view.day.start : null;
+  view.day = day;
+  view.index = -1;
+  $('date').textContent = dateFmt.format(day.start + 12 * 3600000);
+  $('scrub').max = Math.round((day.end - day.start) / 1000) - 1;
+  $('devices').replaceChildren(...day.devices.map((d) => {
+    const li = document.createElement('li'), button = document.createElement('button');
+    button.type = 'button';
+    button.innerHTML = '<span class="dot"></span><span class="what"><span class="name"></span><small></small></span>';
+    button.querySelector('.name').textContent = d.name || d.type;
+    button.setAttribute('aria-pressed', String(d.type === view.selected));
+    button.addEventListener('click', () => select(d.type));
+    li.append(button);
+    return li;
+  }));
+  $('truth-box').hidden = !day.truth.length;
+  $('truth').replaceChildren(...day.truth.map((item) => {
+    const li = document.createElement('li'), button = document.createElement('button'), at = Date.parse(item.start + 'Z');
+    // The answer key's times are local wall-clock strings: show them as written, and jump to that second of the day.
+    const seconds = item.start.slice(0, 10) === day.date ? (at % 86400000) / 1000 : 0;
+    button.type = 'button';
+    button.innerHTML = '<span class="num"></span><span></span>';
+    button.firstChild.textContent = item.start.slice(0, 10) === day.date ? item.start.slice(11, 16) : 'before';
+    const more = [item.appliance, item.watts && `${item.watts} W`, item.end && `until ${item.end.slice(11, 16)}`, item.source].filter(Boolean).join(', ');
+    button.lastChild.textContent = item.what + (more ? ` (${more})` : '');
+    button.addEventListener('click', () => { play(false); seek(day.start + seconds * 1000); });
+    li.append(button);
+    return li;
+  }));
+  // Start where the day starts to move: just before its first change, or at the time already showing.
+  const first = day.changes.length ? day.times[day.changes[0]] - 60000 : day.start;
+  seek(offset != null ? day.start + offset : first);
+  render(true);
+}
+
+async function load(household, n, keepTime) {
+  play(false);
+  say('Loading…');
+  try {
+    const res = await fetch(`/day?household=${encodeURIComponent(household)}&day=${n}`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `Failed (${res.status})`);
+    view.fileDays = null;
+    $('day').max = body.max_days;
+    $('day').value = n;
+    show(fromServer(body), keepTime);
+    history.replaceState(null, '', `?household=${encodeURIComponent(household)}&day=${n}`);
+  } catch (err) {
+    say(err instanceof TypeError ? 'Could not reach the simulator. Start it (uv run python -m source.simulate --serve), or open a .jsonl file.' : err.message, true);
+  }
+}
+
+// The day picker works on the open file's days when there is one, else it asks the simulator.
+function go(n, keepTime) {
+  n = Math.max(1, Math.min(Number($('day').max) || 1, Math.round(n) || 1));
+  $('day').value = n;
+  if (view.fileDays) return show(view.fileDays[n - 1], keepTime);
+  load($('household').value, n, keepTime);
+}
+
+$('household').addEventListener('change', () => { if ($('household').value !== 'file') { view.fileDays = null; go(Number($('day').value), true); } });
+$('day').addEventListener('change', () => go(Number($('day').value), true));
+$('day-prev').addEventListener('click', () => go(Number($('day').value) - 1, true));
+$('day-next').addEventListener('click', () => go(Number($('day').value) + 1, true));
+$('open').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', async () => {
+  const file = $('file').files[0];
+  if (!file) return;
+  play(false);
+  try {
+    const { days, bad } = await readFile(file, (done) => say(`Reading ${file.name}… ${Math.round(done * 100)} %`));
+    view.fileDays = days;
+    let option = $('household').querySelector('option[value=file]');
+    if (!option) $('household').prepend(option = new Option('', 'file'));
+    option.textContent = `File: ${file.name}`;
+    $('household').value = 'file';
+    $('day').max = days.length;
+    go(1);
+    if (bad) say(`${bad} line${bad > 1 ? 's' : ''} of ${file.name} could not be read and ${bad > 1 ? 'were' : 'was'} skipped.`, true);
+  } catch (err) {
+    say(err.message, true);
+  }
+  $('file').value = '';
+});
+
+$('play').addEventListener('click', () => play(!view.playing));
+$('prev').addEventListener('click', () => step(-1));
+$('next').addEventListener('click', () => step(1));
+$('scrub').addEventListener('input', () => { play(false); seek(view.day ? view.day.start + $('scrub').value * 1000 : 0); });
+$('labels').addEventListener('click', () => {
+  const on = $('labels').getAttribute('aria-pressed') !== 'true';
+  $('labels').setAttribute('aria-pressed', String(on));
+  if (house) house.setLabels(on);
+});
+$('reset').addEventListener('click', () => house && house.resetView());
+$('theme').addEventListener('click', () => {
+  const next = getComputedStyle(document.documentElement).colorScheme.includes('dark') ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('alfred-visualizer-theme', next); } catch { /* private window: the choice lasts until reload */ }
+  readColors();
+  render(true);
+});
+
+// Dragging on the lanes moves the time, like the slider under them.
+const lanes = $('lanes');
+const laneTime = (e) => {
+  const box = lanes.getBoundingClientRect(), k = (e.clientX - box.left - view.plot.x0) / (view.plot.x1 - view.plot.x0);
+  seek(view.day.start + Math.max(0, Math.min(1, k)) * (view.day.end - view.day.start));
+};
+lanes.addEventListener('pointerdown', (e) => { if (view.day) { lanes.setPointerCapture(e.pointerId); play(false); laneTime(e); } });
+lanes.addEventListener('pointermove', (e) => { if (view.day && lanes.hasPointerCapture(e.pointerId)) laneTime(e); });
+
+// Arrows step through the day's changes; with Shift, five minutes at a time. Typing in a field is left alone.
+window.addEventListener('keydown', (e) => {
+  const on = (selector) => e.target instanceof Element && e.target.matches(selector);
+  if (e.metaKey || e.ctrlKey || e.altKey || on('select, input[type=number]')) return;
+  const arrow = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+  if (arrow) {
+    e.preventDefault();
+    if (e.shiftKey) { play(false); seek(view.t + arrow * 300000); } else step(arrow);
+  } else if (e.key === ' ' && !on('button')) {
+    e.preventDefault();
+    play(!view.playing);
+  } else if (e.key === 'Home') { e.preventDefault(); play(false); seek(view.day ? view.day.start : 0); }
+  else if (e.key === 'End') { e.preventDefault(); play(false); seek(view.day ? view.day.end : 0); }
+});
+
+// Playback: the day's clock runs `speed` times faster than the wall's.
+let before = performance.now();
+function advance(now) {
+  requestAnimationFrame(advance);
+  const dt = Math.min(0.25, (now - before) / 1000);
+  before = now;
+  if (!view.playing || !view.day) return;
+  const day = view.day, from = view.index, t = view.t + dt * Number($('speed').value) * 1000;
+  if (t >= day.end - 1000) play(false);
+  seek(t);
+  const door = day.devices.findIndex((d) => d.type === 'contactSensor');  // an opening shorter than one frame still shows
+  for (let i = from + 1; i < view.index && door >= 0; i++) if (day.states[i][door].sensorState === 'alarm') { house && house.flashDoor(); break; }
+}
+
+window.addEventListener('resize', () => { if (house) house.resize(); render(true); });
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); render(true); });
+
+try { const saved = localStorage.getItem('alfred-visualizer-theme'); if (saved) document.documentElement.dataset.theme = saved; } catch { /* no storage */ }
+for (let n = 1; n <= 20; n++) $('made-up').append(new Option(`house-${n}`, `house-${n}`));
+readColors();
+if (house) { house.onPick((type) => type && select(type)); house.start(); }
+else say('The 3D library did not load (it comes from cdnjs.cloudflare.com): the panel and the timeline still work.', true);
+requestAnimationFrame(advance);
+const asked = new URLSearchParams(location.search);
+if ([...$('household').options].some((o) => o.value === asked.get('household'))) $('household').value = asked.get('household');
+go(Number(asked.get('day')) || 1);
+</script>
+</body>
+</html>

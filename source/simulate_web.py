@@ -4,6 +4,8 @@
 
 GET  /           the page (console/simulator.html)
 POST /generate   kind (simulated | real), days, houses -> a zip with one JSONL file per house
+GET  /visualizer the 3D view of one day (console/visualizer.html)
+GET  /day        household, day[, seed, start] -> that day's snapshots, cut down to what the view draws
 
 "simulated" gives made-up homes (`simulate.houses`), each different. "real" replays the one recorded house
 (home-a). The same choices always give the same zip; for a specific named household, use the command line
@@ -14,12 +16,15 @@ import tempfile
 import time
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from datetime import date, timedelta
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
-from .simulate import REAL_HOME, generate, home_a_max_days, houses
+from .simulate import DEFAULT_START, PRESETS, REAL_HOME, _at, generate, home_a_max_days, houses
 
-PAGE = Path(__file__).resolve().parent.parent / "console" / "simulator.html"
+CONSOLE = Path(__file__).resolve().parent.parent / "console"
+PAGE = CONSOLE / "simulator.html"
+VIEW_PAGE = CONSOLE / "visualizer.html"
 MAX_DAYS, MAX_HOUSES, MAX_HOUSE_DAYS = 365, 20, 1000  # 1,000 house-days is about a minute and 1.7 GB unzipped
 MAX_BODY = 10_000
 REAL_MAX_DAYS = home_a_max_days()  # from the default first day
@@ -65,6 +70,93 @@ def _zip_name(kind: str, days: int, count: int) -> str:
     return f"alfred-real-house-{days}d.zip" if kind == "real" else f"alfred-{count}-houses-{days}d.zip"
 
 
+# --- one day for the 3D view -----------------------------------------------------------------------
+
+# The capabilities the view draws, per device type. The rest of a snapshot (about 5 KB) is left out.
+# console/visualizer.html has the same table, for files it reads itself.
+WATCHED = {
+    "temperatureSensor": ("temperatureValue", "humidityValue"),
+    "contactSensor": ("sensorState",),
+    "bulb": ("power", "brightness", "color_rgb"),
+    "plug": ("power", "instantPower", "todayConsumption"),
+    "smokeSensor": ("sensorState",),
+    "gateway": ("alarmState",),
+}
+VIEW_HOUSEHOLDS = (*PRESETS, REAL_HOME)
+
+
+def compact(home: dict) -> list[dict]:
+    """A get_home snapshot -> one small dict per device, in order, then one for the home's security."""
+    out = []
+    for dev in home.get("devices", []):
+        keep = WATCHED.get(dev.get("type"), ())
+        out.append({c["type"]: c.get("value") for c in dev.get("capabilities", []) if c.get("type") in keep})
+    security = home.get("security") or {}
+    out.append({"status": security.get("status"), "isAlarmed": security.get("isAlarmed")})
+    return out
+
+
+def _household(name: str):
+    """A name from the page -> what `generate` takes: a preset, the real house, or house-N of the form's zip."""
+    if name in VIEW_HOUSEHOLDS:
+        return name
+    if name.startswith("house-") and name[6:].isdigit() and 1 <= int(name[6:]) <= MAX_HOUSES:
+        return houses(int(name[6:]))[-1]
+    raise ValueError(f"unknown household {name!r}: use {', '.join(VIEW_HOUSEHOLDS)} or house-1 to house-{MAX_HOUSES}")
+
+
+def _day_request(query: dict[str, str]) -> tuple[str, int, int, date]:
+    """Query fields -> (household, day, seed, start). Raises ValueError with a plain message."""
+    name = query.get("household", "rosa")
+    _household(name)
+    try:
+        day, seed = int(query.get("day", "1")), int(query.get("seed", "1"))
+    except ValueError:
+        raise ValueError("day and seed must be whole numbers") from None
+    try:
+        start = date.fromisoformat(query["start"]) if "start" in query else DEFAULT_START
+    except ValueError:
+        raise ValueError("start must be a date, YYYY-MM-DD") from None
+    most = home_a_max_days(start) if name == REAL_HOME else MAX_DAYS
+    if not 1 <= day <= most:
+        raise ValueError(f"day must be between 1 and {most}" + (" for the real house" if name == REAL_HOME else ""))
+    return name, day, seed, start
+
+
+def day_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START) -> dict:
+    """Day `day` (from 1) of the file `generate` writes for this household, cut down for the 3D view.
+
+    `frames` is one [ts, changes] per snapshot. The first carries every device's state; the others only
+    what changed since the one before: {device index: {capability: value}}. The index after the last
+    device is the home's security. A frame with no changes still says the home reported then.
+    """
+    lines, truth = generate(_household(name), day, start=start, seed=seed)
+    first = start + timedelta(days=day - 1)
+    day_start, day_end = _at(first, 0), _at(first + timedelta(days=1), 0)
+    devices, frames, last = [], [], None
+    for line in lines:
+        if int(line[6:line.index(",")]) < day_start:  # a line starts {"ts":<ms>, — skip earlier days unparsed
+            continue
+        row = json.loads(line)
+        state = compact(row["home"])
+        if last is None:
+            devices = [{"id": d.get("id"), "name": d.get("name"), "type": d.get("type"), "room": d.get("roomName")}
+                       for d in row["home"]["devices"]]
+            changes = dict(enumerate(state))
+        else:
+            changes = {n: {k: v for k, v in now.items() if was.get(k) != v}
+                       for n, (was, now) in enumerate(zip(last, state))}
+            changes = {n: c for n, c in changes.items() if c}
+        frames.append([row["ts"], changes])
+        last = state
+    iso = first.isoformat()
+    return {"household": name, "day": day, "date": iso, "start": day_start, "end": day_end, "seed": seed,
+            "max_days": home_a_max_days(start) if name == REAL_HOME else MAX_DAYS,
+            "devices": devices, "frames": frames,
+            # The answer key for that day: what the simulator planted. For people, never for the learners.
+            "truth": [t for t in truth if t["start"][:10] <= iso <= t.get("end", t["start"])[:10]]}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "AlfredSimulator"
 
@@ -95,6 +187,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             page = PAGE.read_text(encoding="utf-8").replace("__REAL_MAX_DAYS__", str(REAL_MAX_DAYS))
             return self._send(200, page.encode(), "text/html; charset=utf-8")
+        url = urlsplit(self.path)
+        if url.path == "/visualizer":
+            return self._send(200, VIEW_PAGE.read_bytes(), "text/html; charset=utf-8")
+        if url.path == "/day":
+            try:
+                view = day_view(*_day_request({k: v[-1] for k, v in parse_qs(url.query).items()}))
+            except ValueError as exc:
+                return self._error(400, str(exc))
+            return self._send(200, json.dumps(view, separators=(",", ":")).encode(), "application/json")
         self._error(404, "Not found")
 
     def do_POST(self) -> None:

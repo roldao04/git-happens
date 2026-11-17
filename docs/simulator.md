@@ -1,7 +1,7 @@
 # The simulator
 
 Part 1 of [`starting-plan.md`](starting-plan.md): it writes a household's days as `get_home` snapshots, so the learners have weeks of history that the kit can't give us.
-Code: [`source/simulate.py`](../source/simulate.py) · form: [`source/simulate_web.py`](../source/simulate_web.py) + [`console/simulator.html`](../console/simulator.html) · tests: [`tests/test_simulate.py`](../tests/test_simulate.py).
+Code: [`source/simulate.py`](../source/simulate.py) · form and 3D view: [`source/simulate_web.py`](../source/simulate_web.py) + [`console/simulator.html`](../console/simulator.html), [`console/visualizer.html`](../console/visualizer.html) · tests: [`tests/test_simulate.py`](../tests/test_simulate.py).
 
 ## Run it
 **The form** offers two kinds of home and downloads a zip with one `.jsonl` per house:
@@ -25,6 +25,18 @@ uv run python -m source.simulate --list            # the named households and th
 - `--truth file.json` also writes an answer key for a named household: what was planted and when. Off unless asked for; never feed it to the learners.
 - `--config file.json` overrides settings of `--household` (the keys are the fields of `Household`).
 - `--start`, `--seed`, `--interval`: first day (default 2026-09-01), random seed (another seed gives other houses), seconds between snapshots when nothing changes (default 300).
+
+## Look at a day in 3D
+The same server shows one day of a household in a small house you can turn, at `/visualizer`:
+```
+uv run python -m source.simulate --serve           # http://localhost:4781/visualizer?household=rosa&day=3
+```
+- **Pick** a household (`rosa`, `couple`, `students`, `home-a`, or `house-1` … `house-20` of the form's zip) and a day, counted from 2026-09-01. Or **open a `.jsonl` file** from a zip: it is read in the browser and cut into local days.
+- **Time**: drag the slider or the lanes above it (light, door, plug, temperature), or play at 10 s to 1 h per second. `←` `→` go to the previous or next change, with `Shift` five minutes, `Space` plays. The house shows the latest snapshot at or before that time; a stretch with no snapshots (an outage) is blank in the lanes.
+- **The house** is one room, as the kit has: the lamp glows with its colour and brightness, the door swings when the contact sensor says `alarm`, the plug's ring and bar grow with the watts, the thermometer is tinted by the temperature, the smoke sensor and the hub turn red on an alarm. Drag to turn, scroll to zoom, click a device or its row to mark it.
+- The panel also lists **what was planted that day** (the answer key), for households the server generates.
+- `GET /day?household=rosa&day=3` (also `seed`, `start`) is what the page reads: the day's snapshots with only the values it draws, each one as the changes since the one before. About 10 KB instead of 1.7 MB.
+- three.js r128 comes from cdnjs, so the house needs a network connection; the panel and the lanes work without.
 
 ## What it writes
 One line per snapshot, the format `ReplaySource` and ingest read:
