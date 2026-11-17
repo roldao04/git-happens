@@ -12,6 +12,7 @@ Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimag
 | [`docs/learned-sensors-plan.md`](docs/learned-sensors-plan.md) | Earlier build plan (sensors as SQL queries), superseded by the starting plan | For background only |
 | [`docs/synapse.md`](docs/synapse.md) | Earlier concept under the old name (rules, verification, memories); not yet rewritten around Alfred | For background only |
 | [`docs/simulator.md`](docs/simulator.md) | **The simulator:** how to generate a household's history, the presets, the real house | Before generating data |
+| [`docs/learners.md`](docs/learners.md) | **The learners:** how the grouper and habit learner find sensors, and how to run them | Before touching `source/learn/` |
 | [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how the learners plug in | Before writing the poller or agent |
 | [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; device IDs | Before writing code |
 | [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules | Before the pitch or report |
@@ -65,9 +66,10 @@ deliverables/           report, executive summary, slides (+ organiser templates
 assets/                 logo and images
 tools/                  connected_home_auth.py (OAuth helper used by .mcp.json)
 source/                 event loop: poll the MCP, diff, store, triggers, agent (LangGraph + stub), logs, show
+  learn/                learners: kinds, links, habits, sensor storage (docs/learners.md)
 tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)). `source/learn/` rest and happenings, `source/pipeline.py` (simulate 14 days). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): `source/learn/` (kinds, habits, namer) · sensor storage · the dashboard in `console/`.
+Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): the namer · the dashboard in `console/`.
 
 ## Conventions
 - **Never commit secrets:** `.mcp.json`, `.env` and tokens stay local (see `.gitignore`).
