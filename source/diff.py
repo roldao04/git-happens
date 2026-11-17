@@ -20,6 +20,9 @@ def diff(prev: State | None, cur: State, now_ms: int, stale_ms: int,
             events.append(Event(now_ms, r.device_id, r.device, r.capability, "change", old.value, r.value))
         elif old is None:
             events.append(Event(now_ms, r.device_id, r.device, r.capability, "change", None, r.value))
+    for signal, old in prev.items():
+        if signal not in cur:
+            events.append(Event(now_ms, old.device_id, old.device, old.capability, "gone", old.value, None))
 
     prev_seen, cur_seen = device_last_seen(prev), device_last_seen(cur)
     for dev_id, (name, comm) in cur_seen.items():
