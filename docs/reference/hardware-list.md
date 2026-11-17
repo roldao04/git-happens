@@ -42,5 +42,6 @@ The 7 physical devices behind the Altice `connected-home` MCP, and how each one 
 ## Open items
 | Item | Why it matters |
 |---|---|
-| Tell Altice Labs that the gateway's SFR registration was reset and it's now in a personal app account | It needs to be back on their platform |
-| **Hypothesis:** that re-pairing is why the MCP shows every device offline since 13–14 Nov | Confirm with Altice Labs. Until it's fixed, the MCP returns only the last known state and commands fail |
+| ~~Gateway's SFR registration reset; devices offline in the MCP since 13–14 Nov~~ | **Resolved 17 Nov:** the kit is back on the platform and reporting. Re-pairing gave the contact and temperature sensors new IDs ([`../mcp-capabilities.md`](../mcp-capabilities.md)) |
+| The smoke sensor hasn't reported since 14 Nov 03:03 UTC | Smoke can't be detected through the MCP until it's re-paired to the gateway. Ask the organisers; don't factory-reset it ourselves |
+| Camera motion detection is off and can't be enabled through the MCP | Asked the organisers whether their SmartHome app can enable it, and whether a scenario can trigger on `motionDetected` |

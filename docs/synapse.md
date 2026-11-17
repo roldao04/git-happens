@@ -233,7 +233,7 @@ The house also **talks back to learn**. It asks only when an answer unlocks mean
 | Read devices and state | `get_home`, `get_home_devices` | ✅ |
 | Notice changes / history | none | ❌ → poll every 30–60 s, our own history |
 | Rooms and names for things | `get_home_rooms` is empty; no rename tool | ❌ → the semantic layer holds places and names |
-| Act on the lamp and plug | `update_device_capabilities` | ⚠ write failed while the kit is offline → simulator |
+| Act on the lamp and plug | `update_device_capabilities` | ⚠ only `power`, `temperature`, `brightness`, `color_rgb`; kit live since 17 Nov, lamp/plug writes not re-tested yet → simulator as fallback |
 | Create / switch on scenarios | `post_new_scenario`, `patch_scenario_activation` | ⚠ format untested → ask mentors, one inactive test |
 | Edit / delete scenarios | none | ❌ → registry with versions |
 | Speak to Rosa | none (no camera speaker) | ❌ → text-to-speech on her tablet |
