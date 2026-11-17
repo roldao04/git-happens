@@ -29,13 +29,14 @@ Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimag
 
 ## Run the event loop
 ```
-cp .env.example .env     # add the team API key as CGH_API_KEY
+cp .env.example .env     # add the team API key as CGH_API_KEY, and OPENROUTER_API_KEY for the LLM agent
 uv run python -m source --replay tests/fixtures/morning.jsonl   # demo morning, no kit needed
-uv run python -m source                                         # live
+uv run python -m source                                         # live: LangGraph agent (can change the lamp/plug)
+uv run python -m source --stub                                  # live, stub agent: no LLM, no writes
 uv run python -m source.show events                             # what it saw
 tail -f data/logs/loop.log                                      # logs
 ```
-Details: [`docs/event-loop.md`](docs/event-loop.md).
+Without `OPENROUTER_API_KEY` (or with `--stub`) the stub agent runs. Replays give the LLM no tools. Details: [`docs/event-loop.md`](docs/event-loop.md).
 
 ## Repo structure
 ```
@@ -50,10 +51,10 @@ docs/
 deliverables/           report, executive summary, slides (+ organiser templates)
 assets/                 logo and images
 tools/                  connected_home_auth.py (OAuth helper used by .mcp.json)
-source/                 event loop: poll the MCP, diff, store, triggers, agent (stub), logs, show
+source/                 event loop: poll the MCP, diff, store, triggers, agent (LangGraph + stub), logs, show
 tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Planned: more of `source/` (semantic layer, rules, verifier, memory, real agent, MCP server) · `simulator/` (digital twin + replayed "Rosa" weeks) · `apps/` (Ana's app, Rosa's tablet).
+Planned: more of `source/` (semantic layer, rules, verifier, memory, MCP server) · `simulator/` (digital twin + replayed "Rosa" weeks) · `apps/` (Ana's app, Rosa's tablet).
 
 ## Conventions
 - **Never commit secrets:** `.mcp.json`, `.env` and tokens stay local (see `.gitignore`).
