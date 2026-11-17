@@ -44,7 +44,7 @@ def check_write(args: dict, devices: dict[str, str], *, allow_plug_on: bool) -> 
     dev_id, body = args["deviceId"], args["body"]
     dev_type = devices.get(dev_id)
     if dev_type not in WRITE_TYPES:
-        return f"blocked: device {dev_id!r} can't be changed (only the lamp and the plug)"
+        return f"blocked: device {dev_id!r} can't be changed (only the lamp and the plug, while they report)"
     if not isinstance(body, dict) or body.get("type") not in WRITE_TYPES[dev_type]:
         return f"blocked: a {dev_type} only accepts {sorted(WRITE_TYPES[dev_type])}"
     fields, valid = BODIES[body["type"]]
@@ -62,7 +62,10 @@ def verify(body: dict, before_ts: int | None, details) -> bool:
     ts = details.get("lastCommunicationTime")
     if not isinstance(ts, (int, float)) or ts <= before_ts:
         return False
-    cap = next((c for c in details.get("capabilities", []) if c.get("type") == body["type"]), None)
+    caps = details.get("capabilities")
+    if not isinstance(caps, list):
+        return False
+    cap = next((c for c in caps if isinstance(c, dict) and c.get("type") == body["type"]), None)
     if cap is None:
         return False
     if body["type"] == "color_rgb":

@@ -94,6 +94,11 @@ class VerifyTest(unittest.TestCase):
         self.assertFalse(verify({"type": "power", "value": "off"}, 1000, None))
         self.assertFalse(verify({"type": "power", "value": "off"}, 1000, {"lastCommunicationTime": 2000}))
 
+    def test_malformed_capabilities_not_confirmed(self):
+        off = {"type": "power", "value": "off"}
+        self.assertFalse(verify(off, 1000, {"lastCommunicationTime": 2000, "capabilities": None}))
+        self.assertFalse(verify(off, 1000, {"lastCommunicationTime": 2000, "capabilities": ["power"]}))
+
 
 if __name__ == "__main__":
     unittest.main()

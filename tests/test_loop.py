@@ -7,6 +7,7 @@ import copy
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from source.loop import run
@@ -212,6 +213,22 @@ class LoopTest(unittest.TestCase):
         with self.assertLogs("source.loop", level="WARNING") as logs:
             self._replay(frames)
         self.assertEqual(sum("smokeSensor" in line for line in logs.output), 1)
+
+    def test_rule_action_crash_does_not_stop_loop(self):
+        home = copy.deepcopy(FIXTURE)
+        home["devices"].append({"id": DOOR, "name": "Door", "type": "contactSensor",
+                                "capabilities": [{"type": "sensorState", "value": "normal"}]})
+        frames = []
+        for i, state in enumerate(["normal", "alarm", "normal"]):
+            ts = T0 + i * STEP
+            _fresh(home, ts)
+            _set(home, DOOR, "sensorState", state)
+            frames.append({"ts": ts, "home": copy.deepcopy(home)})
+        with mock.patch("source.loop.run_actions", side_effect=RuntimeError("boom")):
+            with self.assertLogs("source.loop", "INFO") as logs:
+                self._replay(frames)
+        self.assertTrue(any(m.startswith("INFO:source.loop:tick 3 ") for m in logs.output))
+        self.assertTrue(any(m.startswith("ERROR:") and "door-open" in m for m in logs.output))
 
     def test_rule_skipped_when_target_stale(self):
         class RecordingActuator:

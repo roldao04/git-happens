@@ -80,13 +80,17 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
         fired = triggers.match(events, now, types)
         for r in fired:  # hard rules first: code runs their actions, no LLM
             t = triggers.triggers[r.trigger_id]
-            if t.actions:
+            if not t.actions:
+                continue
+            try:
                 ready, skipped = resolve_targets(t.actions, fresh)
                 for a in skipped:
                     log.warning("rule   %s skipped: %s", r.trigger_id, a["result"],
                                 extra={"data": {"trigger_id": r.trigger_id, "action": a}})
                 done = await run_actions(actuator, r.trigger_id, ready, types, readback_delay_s=readback_delay_s)
                 store.log_rule_run(now, r.trigger_id, skipped + done)
+            except Exception:  # a broken rule must never stop the loop (or the smoke trigger)
+                log.exception("rule   %s actions failed", r.trigger_id, extra={"data": {"trigger_id": r.trigger_id}})
         reasons = [r for r in fired if triggers.triggers[r.trigger_id].wake_agent]
         rules = [r.trigger_id for r in fired if r not in reasons]
         log.info("tick %d @ %s: %d readings, %d events, %s%s (%.1fs)",
