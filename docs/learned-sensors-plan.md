@@ -1,5 +1,7 @@
 # Learned sensors: build plan
 
+> **Superseded by [`starting-plan.md`](starting-plan.md).** This version has sensors as SQL queries, some written by us and some by the LLM. The current approach finds patterns with plain code and uses the LLM only to name them.
+
 The plan for the new direction: **a home that builds its own sensors from its history.**
 This replaces the rules, verification and memories focus in [`synapse.md`](synapse.md), which still has to be rewritten (step 4.3). The event loop in [`event-loop.md`](event-loop.md) stays as it is and feeds everything here.
 

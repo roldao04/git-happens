@@ -1,7 +1,7 @@
 # The event loop: polling, triggers and when the agent wakes
 
-How SYNAPSE notices what happens in the home and decides when the LLM should think about it.
-This is the "event bridge + history" block from [`synapse.md`](synapse.md) §9, designed so it can grow into verification (§6), routine learning and self-authored scenarios without rework.
+How Alfred notices what happens in the home and decides when the LLM should think about it.
+It is the history that the learners in [`starting-plan.md`](starting-plan.md) read from. It began as the "event bridge + history" block of the earlier concept ([`synapse.md`](synapse.md) §9), which is where the § references to verification and scenarios below point.
 Status: **v1 built** in [`source/`](../source/) (branch `feat/house-mcp-polling-loop`): poll, normalize, diff, store, seed triggers, stub agent, plus the **LangGraph agent** (reads the home, can set the lamp and plug, verifies by reading back). Not yet: agent-editable triggers, guardrails/approval for writes, action ledger, attribution.
 
 ## 1. Why poll, and why not call the LLM on every poll
@@ -14,10 +14,10 @@ Status: **v1 built** in [`source/`](../source/) (branch `feat/house-mcp-polling-
 |---|---|---|---|
 | Every poll (~20 s) | Code | Raw snapshot | Diff into events, safety rules, check expectations |
 | Every 10–15 min (heartbeat) **plus** important events | LLM | Recent events + current state + baselines | "Is right now normal? Act, ask or wait?" |
-| Nightly | LLM | Day and week summaries vs baselines | Spot changes in behaviour, update baselines, propose or retire rules, rewrite its own triggers |
+| Once a day | Code (the learners), then the LLM for names only | The stored history: happenings vs rest and the usual day | Find habits, events and drift, and write them as learned sensors ([`starting-plan.md`](starting-plan.md)) |
 
-- **The heartbeat always runs**, even when nothing changed. That is how SYNAPSE notices *absence* ("no tea by 10:00", "no activity for 4 h"), which a change-only loop never sees.
-- **Behaviour change is a slow signal.** "Rosa's tea moved from 08:10 to 09:40 over a week" only shows in summarised history, so learning happens in the nightly run, not in the 20 s loop.
+- **The heartbeat always runs**, even when nothing changed. That is how Alfred notices *absence* ("no tea by 10:00", "no activity for 4 h"), which a change-only loop never sees.
+- **Behaviour change is a slow signal.** "Rosa's tea moved from 08:10 to 09:40 over a week" only shows in summarised history, so learning happens in the daily run, not in the 20 s loop.
 
 ## 3. The LLM decides what to watch; code does the watching
 Wake rules (**triggers**) are **rows in the database, not code**. The agent can add, change and expire them, each with a reason and an expiry, e.g.:
@@ -134,7 +134,7 @@ Later:
 ```
 {id, ts, device, capability, old, new, kind: change|stale|returned, source: "unknown"}
 ```
-`source` stays `unknown` in v1; attribution (§7) later fills `synapse | scenario:<id> | human`.
+`source` stays `unknown` in v1; attribution (§7) later fills `alfred | scenario:<id> | human`.
 
 **Trigger**
 ```
@@ -172,11 +172,11 @@ Later:
 |---|---|---|
 | Guardrails, approval, per-reason routing | `agent.run(ctx)` | See §4 LangGraph |
 | **Closed-loop verification** (act → sense → confirm) | A step after `diff`, before `triggers` | **Action ledger**: each command stored with its expected effects and deadlines. A deterministic **expectation checker** runs every tick; failures become events that wake the agent, which explains the cause. See [`synapse.md`](synapse.md) §6 |
-| **Who made each change** | Inside `diff`, fills `event.source` | The MCP never says who changed something. Match against our action ledger (SYNAPSE), our copy of active scenario definitions (scenario runs on Altice's server), otherwise human |
-| **Override learning** | Event pattern + `state_at(t)` | "Human reversed a SYNAPSE/scenario action within N min" is just an attributed event. Comparing overridden vs accepted cases needs **full snapshots stored**, so we can rebuild the room at any moment |
+| **Who made each change** | Inside `diff`, fills `event.source` | The MCP never says who changed something. Match against our action ledger (Alfred), our copy of active scenario definitions (scenario runs on Altice's server), otherwise human |
+| **Override learning** | Event pattern + `state_at(t)` | "Human reversed an Alfred/scenario action within N min" is just an attributed event. Comparing overridden vs accepted cases needs **full snapshots stored**, so we can rebuild the room at any moment |
 | **Self-authoring / self-pruning scenarios** | Reads `store`, writes triggers + a scenario registry | Scenarios can't be edited or deleted: "rewrite" = deactivate v1 + create v2 (`SY · <name> · v<n>`). The trigger format may not allow multi-condition rules, so the **local rule engine is the main runtime** and a rule is compiled to an MCP scenario only when it fits |
-| Nightly review | A second `interval` trigger (24 h) | Different context builder: day/week summaries vs baselines |
+| **Learned sensors** (the current focus) | Read `store` once per simulated or real day | Plain code: rest finder → happening extractor → grouper → habit learner, then the LLM names each pattern. Writes `sensors` and `sensor_readings`. See [`starting-plan.md`](starting-plan.md) |
 | Security readiness check | Expectation checker | All inputs exist in `get_home` (hub cellular signal, camera `sdRecording`/`sdAvailable`, tamper flags). Arming is tier 4 and never done on the kit, so demo it in the simulator |
-| Simulator | Another `source` | |
+| Simulator | Another `source` | Writes snapshots in the `get_home` shape, read through `ReplaySource`. Every time comes from the data, never the real clock |
 
-**Order:** the loop first, with attribution, snapshot storage, the action ledger and the expectation checker designed in from the start. Closed-loop verification next (works on live data, deterministic, good demo). Routine learning and self-authored scenarios last (they need days of history, so they lean on the simulator).
+**Order:** the loop is built. **Learned sensors come next** and lean on the simulator, because they need days of history. The other rows are from the earlier concept and are parked until the sensors work.
