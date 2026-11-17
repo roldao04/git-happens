@@ -1,8 +1,15 @@
 """Rest finder: each signal's resting state or level, learned from time held (starting-plan part 3)."""
+import tempfile
 import unittest
+from datetime import date
+from pathlib import Path
 
-from source.learn.rest import find_rest, observed_stretches
+from source.clock import day_bounds
+from source.ingest import ingest, read_jsonl
+from source.learn.rest import find_rest, observed_stretches, rest_from_store
 from source.model import Event
+from source.store import Store
+from tests.test_ingest import DAY_MS, MORNING, at, plug
 
 H = 3600_000
 DOOR = ("c1", "sensorState")
@@ -203,6 +210,42 @@ class SlowRestTest(unittest.TestCase):
         events, end = series(TEMP, 0, [(20.0, H), (20.1, H)])
         with self.assertRaises(ValueError):
             find_rest(events, end)[TEMP].at_rest(20.0)
+
+
+class FromStoreTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.store = Store(Path(tmp.name), record=False)
+        self.addCleanup(self.store.close)
+
+    def test_events_and_snapshots_before_a_time(self):
+        ingest([plug(at(2026, 9, 1, 8), 0), plug(at(2026, 9, 1, 9), 5)], self.store, stale_ms=DAY_MS)
+        self.assertEqual({e.ts for e in self.store.events_before(at(2026, 9, 1, 9))}, {at(2026, 9, 1, 8)})
+        self.assertEqual(self.store.last_snapshot_before(at(2026, 9, 1, 9)), at(2026, 9, 1, 8))
+        self.assertIsNone(self.store.last_snapshot_before(at(2026, 9, 1, 8)))
+
+    def test_rest_from_the_ingested_morning(self):
+        ingest(read_jsonl(MORNING), self.store, stale_ms=H)
+        last = list(read_jsonl(MORNING))[-1][0]
+        rests = rest_from_store(self.store, last + 1)
+        door = rests[(self.store.devices_of_type("contactSensor")[0], "sensorState")]
+        power = rests[(self.store.devices_of_type("plug")[0], "instantPower")]
+        self.assertEqual((door.kind, door.value), ("state", "normal"))
+        self.assertLess(door.share, 1)  # the door did open
+        self.assertEqual((power.kind, power.value), ("level", 0))
+        self.assertLess(power.share, 1)  # the kettle did run
+        self.assertFalse(power.at_rest(2140))
+        self.assertFalse({"todayConsumption", "instantVoltage"} & {cap for _, cap in rests})
+
+    def test_a_day_without_data_adds_no_time(self):
+        ingest([plug(at(2026, 9, 1, 8), 0), plug(at(2026, 9, 1, 9), 0)], self.store, stale_ms=DAY_MS,
+               gap_ms=DAY_MS)
+        rest = rest_from_store(self.store, day_bounds(date(2026, 9, 2))[1])[PLUG]
+        self.assertEqual(rest.observed_ms, 1 * H)
+
+    def test_nothing_stored_yet(self):
+        self.assertEqual(rest_from_store(self.store, at(2026, 9, 1, 8)), {})
 
 
 if __name__ == "__main__":

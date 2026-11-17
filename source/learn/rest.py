@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from ..model import Event
+from ..store import Store
 
 SignalId = tuple[str, str]  # (device_id, capability)
 Span = tuple[int, int]  # [start, end) in ms
@@ -134,6 +135,14 @@ def find_rest(events: Iterable[Event], observed_until: int) -> dict[SignalId, Re
             out[sig] = Rest(sig, stretches[0].signal, "state", value, 0.0, 0.0, None, None,
                             held[value] / observed, observed)
     return out
+
+
+def rest_from_store(store: Store, until_ms: int) -> dict[SignalId, Rest]:
+    """Rest from everything stored before until_ms, observed up to the last snapshot before it."""
+    last = store.last_snapshot_before(until_ms)
+    if last is None:
+        return {}
+    return find_rest(store.events_before(until_ms), last)
 
 
 def _level(sig: SignalId, signal: str, held: dict[Any, int], observed: int) -> Rest:
