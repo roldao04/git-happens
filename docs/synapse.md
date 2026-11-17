@@ -1,5 +1,7 @@
 # SYNAPSE: the semantic layer for the connected home
 
+> **Background only.** The earlier concept under the old name SYNAPSE. The build follows [`starting-plan.md`](starting-plan.md). Rosa is still our persona; rules, verification and memories are parked.
+
 > **From "Plug: 2140 W" to "Rosa is making her morning tea".**
 
 Concept for Altice Labs Desafio #3, checked against the real MCP ([`mcp-capabilities.md`](mcp-capabilities.md)) and the judging criteria ([`altice-hackathon-brief.md`](altice-hackathon-brief.md)). It builds on the [strategy PDF](reference/strategy-ideas.pdf)'s plan (working name there: Casa Atenta).

@@ -3,7 +3,7 @@
 What the `connected-home` MCP lets us **see**, **change**, and what it **can't** do.
 "Now" values were read live on 17 Nov 2026 at 11:09 UTC.
 
-> ✅ The kit is **live** since 17 Nov ~10:00 UTC: every device except the **smoke sensor** reports fresh `lastCommunicationTime` values. The smoke sensor's last report is still 14 Nov 03:03 UTC. Opening the door showed up as `sensorState: alarm` within ~10 s (17 Nov 11:09). Re-pairing gave the contact and temperature sensors **new IDs**, so look devices up by `type` and skip stale ones instead of hard-coding IDs.
+> **Kit status:** live since 17 Nov ~10:00 UTC, except the **smoke sensor** (last report 14 Nov 03:03 UTC).
 
 ## Connecting
 - Server: `https://cognitive-home.futurelabsinnovations.com` (HTTP), configured in `.mcp.json` at the repo root
@@ -47,8 +47,8 @@ What the `connected-home` MCP lets us **see**, **change**, and what it **can't**
 
 **Camera**
 - Change: nothing through the MCP. Its settings are app-only: motion/sound alerts and sensitivity, night vision, SD recording and mode, LED, image flip, on-screen time, format SD, pan/tilt, streaming. Setting `motionAlarmSwitch` was rejected (17 Nov): `validating /properties/body: oneOf: did not validate against any of [4 anonymous schemas]`
-- See: those settings, recording and SD card status, motion/sound detected. **No video, snapshots or audio**
-- Now: recording on, SD storage reads `0|0|0`; **motion and sound detection off** (`motionAlarmSwitch: false`), so `motionDetected` stays empty. Asked the organisers whether it can be enabled in their app: don't build on camera motion until they answer
+- See: those settings, recording and SD card status, motion/sound detected. **No video, snapshots or audio through the MCP**; live video comes from the camera's local **RTSP stream** instead
+- Now: recording on, SD storage reads `0|0|0`. On 17 Nov motion and sound detection were off (`motionAlarmSwitch: false`), so `motionDetected` stayed empty; whether it works through the MCP now is **unconfirmed**. The `camera-sound` / `camera-motion` triggers ([`event-loop.md`](event-loop.md) §5) fire only if it does
 
 **Security hub**
 - Change: nothing through the MCP (restart, factory reset, cellular backup and network mode are app-only)
@@ -70,7 +70,7 @@ What the `connected-home` MCP lets us **see**, **change**, and what it **can't**
 ## Alarm
 - Change: Disarm, Stay (people at home) or Away, plus entry/exit delays (now Away 30 s, Stay 0 s). Confirm with the user first
 - See: current mode, whether the alarm has gone off, alarm history
-- Now: disarmed. One smoke alarm from 5 Nov (almost certainly a test) is still flagged, and no tool can clear it
+- Now: disarmed. One smoke alarm from 5 Nov (almost certainly a test) is still flagged (`isAlarmed: true`, `alarmType: FIRE_SMOKE`), and no tool can clear it. So trigger on the **change** of `isAlarmed`, never on its value
 
 ## Scenarios (automations)
 - Started by a device state (e.g. door opens) or a schedule (e.g. daily at 12:00)
@@ -87,7 +87,7 @@ What the `connected-home` MCP lets us **see**, **change**, and what it **can't**
 - Camera `motionDetected` / `soundDetected` read as empty strings; they look short-lived, so polling may miss them
 - `lastCommunicationTime` differs per device, and quiet sensors (e.g. the contact) can go 15+ min without reporting: check it before trusting a value, in code rather than in the LLM prompt
 - Device IDs change when a device is re-paired: find devices by `type`, never by a hard-coded ID
-- No camera video, snapshots or audio, and no speaker
+- No camera video, snapshots or audio through the MCP (video: the local RTSP stream, see Camera), and no speaker
 - No history apart from alarm history and the plug's today/yesterday energy
 - No rooms (and no way to create them); no energy tariff set
 - In `get_home_status_brief`, `alarmArmed` actually means "the alarm went off", not "armed"
