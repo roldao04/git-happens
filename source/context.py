@@ -36,5 +36,7 @@ def build_context(now_ms: int, reasons: list[WakeReason], state: State, store: S
         "state": devices,
         "events_since_last_run": [line(e) for e in since_last][-200:],
         "timeline_today": [line(e) for e in today][-500:],
-        "baselines": {},  # filled by the nightly review, later
+        # Later (kept out for now: no AI on the learners' side yet): the learned habits and today's
+        # status, from source.learn.today.baselines(store.db, source.learn.to_local(now_ms)).
+        "baselines": {},
     }

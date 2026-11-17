@@ -6,6 +6,20 @@
 Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimagined").
 
 ## Docs
+| Doc | What it's for | Read when |
+|---|---|---|
+| [`docs/starting-plan.md`](docs/starting-plan.md) | **The starting plan:** how Alfred learns its own sensors, the parts to build, the shapes to agree, who builds what | First |
+| [`docs/learned-sensors-plan.md`](docs/learned-sensors-plan.md) | Earlier build plan (sensors as SQL queries), superseded by the starting plan | For background only |
+| [`docs/synapse.md`](docs/synapse.md) | Earlier concept under the old name (rules, verification, memories); not yet rewritten around Alfred | For background only |
+| [`docs/simulator.md`](docs/simulator.md) | **The simulator:** how to generate a household's history, the presets, the real house | Before generating data |
+| [`docs/learners.md`](docs/learners.md) | **The learners:** how the grouper and habit learner find sensors, and how to run them | Before touching `source/learn/` |
+| [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how the learners plug in | Before writing the poller or agent |
+| [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; device IDs | Before writing code |
+| [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules | Before the pitch or report |
+| [`deliverables/README.md`](deliverables/README.md) | What we hand in, limits and deadlines | Before each deadline |
+| [`deliverables/templates/`](deliverables/templates/) | Organiser templates: slide deck (`.pptx`), executive summary links | When starting a deliverable |
+| [`docs/reference/hardware-list.md`](docs/reference/hardware-list.md) | Kit hardware: models, radios, how each device reaches the MCP, **safety rules** | Before touching the physical kit |
+| [`docs/reference/`](docs/reference/) | Organiser PDFs and strategy research | When you need the source |
 **Build from these**
 | Doc | What it's for |
 |---|---|
@@ -73,6 +87,10 @@ assets/                 logo and images
 console/                live device page (becomes the dashboard, starting plan part 8)
 tools/                  connected_home_auth.py (OAuth helper used by .mcp.json), extract_smart_home_a.py (builds the real-house data)
 source/                 event loop: poll the MCP, diff, store, triggers, agent (LangGraph + stub), logs, show
+  learn/                learners: kinds, links, habits, sensor storage (docs/learners.md)
+tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
+```
+Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): the namer · the dashboard in `console/`.
   ingest.py, clock.py   JSONL snapshots → history at full speed; Lisbon days
   simulate.py           the simulator (+ simulate_web.py, sim_data/)
   learn/                rest.py, happenings.py (starting plan parts 3 and 4)

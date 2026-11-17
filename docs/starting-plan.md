@@ -7,11 +7,11 @@ This replaces the approach in [`learned-sensors-plan.md`](learned-sensors-plan.m
 Smart homes report devices and values. **Alfred learns what they mean**, and shows it as **learned sensors**: new devices made purely of software, built from the signals of the 7 real ones. Nobody tells Alfred which patterns to look for. A home with different habits gets different sensors from the same code.
 
 ## Goal for today
-- Simulate any number of days and have Alfred learn **one well-defined sensor** from it, with no LLM in the finding.
-- A small dashboard where we can watch that happen.
-- The visual identity defined: colour, typeface, logo.
+- ✅ Simulate any number of days and have Alfred learn **one well-defined sensor** from it, with no LLM in the finding (`source/pipeline.py`).
+- ⬜ A small dashboard where we can watch that happen.
+- ⬜ The visual identity defined: colour, typeface, logo.
 
-The target: from 14 simulated days, Alfred finds the morning pattern and the nightly quiet on its own.
+The target: from 14 simulated days, Alfred finds the morning pattern and the nightly quiet on its own. ✅ **Met:** on 14 days of `rosa`, the morning tea (lamp → kettle, 07:48, 9 of 12 days) is learned on day 6, the night's quiet (from 23:05, 10 of 12 nights) on day 11, and its end (08:01, waking up) on day 14.
 
 ## How Alfred learns
 
@@ -35,7 +35,7 @@ A learner is ordinary code that reads the stored history and writes sensors. It 
 
 | Learner | Looks for | Example | When |
 |---|---|---|---|
-| **Habit learner** | Activity that recurs at a consistent time, and quiet stretches that recur | *Morning tea*, *Asleep*, *Awake* | Today |
+| **Habit learner** | Activity that recurs at a consistent time, and quiet stretches that recur | *Morning tea*, *Asleep*, *Awake* | ✅ Done |
 | **Event learner** | Hours that differ from the usual day in several ways, grouped by resemblance. The calendar is a hint, never a requirement | *Dinner with friends* | Next |
 | **Drift learner** | A learned habit whose shape slowly changes | *Kettle getting slower* | Next |
 
@@ -46,48 +46,48 @@ The habit learner comes first because it produces the usual day, which the other
 |---|---|---|---|
 | Snapshots | The whole home at one moment | Every device and value at 08:21 | Exists |
 | Events | Each change between snapshots | Plug: 0 W → 2,140 W | Exists |
-| Rest | Each signal's resting value and normal wobble | Plug: 0 W, ± 3 W | New |
-| Happenings | Departures from rest | Plug burst, 2,140 W, 3 min 10 s | New |
-| Sensors and readings | What Alfred learned, and each time it occurred | Morning tea · around 08:05 · 12 of 14 days | New |
+| Rest | Each signal's resting value and normal wobble | Plug: 0 W, ± 3 W | ✅ Done, computed each day (not stored) |
+| Happenings | Departures from rest | Plug burst, 2,140 W, 3 min 10 s | ✅ Done (`happenings`) |
+| Sensors and readings | What Alfred learned, and each time it occurred | Morning tea · around 08:05 · 12 of 14 days | ✅ Done (`kinds`, `sensors`, `sensor_readings`) |
 | Hourly profiles, the usual day, calendar | Inputs for the event learner | Saturday 21:00: 0 to 1 door openings | Later |
 
 ## The parts
-| # | Part | File | Takes in | Produces |
-|---|---|---|---|---|
-| 1 | Simulator | `source/simulate.py` | Number of days, a household config | Snapshots |
-| 2 | Ingest | existing loop + `ReplaySource` | Snapshots | Events |
-| 3 | Rest finder | `source/learn/rest.py` | Events | Each signal's rest |
-| 4 | Happening extractor | `source/learn/happenings.py` | Events + rest | Happenings |
-| 5 | Grouper | `source/learn/kinds.py` | Happenings | Kinds and combinations |
-| 6 | Habit learner | `source/learn/habits.py` | Kinds over many days | Sensors and readings |
-| 7 | Namer | `source/learn/namer.py` | A sensor's facts | A name and explanation |
-| 8 | Dashboard | `console/` | Sensors, readings, device states | What we see |
+| # | Part | File | Takes in | Produces | Status |
+|---|---|---|---|---|---|
+| 1 | Simulator | `source/simulate.py` | Number of days, a household config | Snapshots | ✅ Done (#17, #18) |
+| 2 | Ingest | `source/ingest.py` | Snapshots | Events | ✅ Done (#14) |
+| 3 | Rest finder | `source/learn/rest.py` | Events | Each signal's rest | ✅ Done (#15) |
+| 4 | Happening extractor | `source/learn/happenings.py` | Events + rest | Happenings | ✅ Done (#18) |
+| 5 | Grouper | `source/learn/kinds.py` | Happenings | Kinds and combinations | ✅ Done (`feat/grouper-habits`, not merged yet) |
+| 6 | Habit learner | `source/learn/habits.py` | Kinds over many days | Sensors and readings | ✅ Done (`feat/grouper-habits`, not merged yet) |
+| 7 | Namer | `source/learn/namer.py` | A sensor's facts | A name and explanation | ⬜ To do |
+| 8 | Dashboard | `console/` | Sensors, readings, device states | What we see | ⬜ To do |
 
-**1. Simulator**
+**1. Simulator** ✅ ([`simulator.md`](simulator.md))
 - Writes a household's days as snapshots in the `get_home` shape: a wake time, a kettle, a bedtime, each with random variation and some days skipped.
 - The household is a small config, so we can simulate a different home and check that Alfred finds different things.
 - Uses the real kit's values (the door says `alarm` for open and `normal` for closed), or code written against it breaks on the real kit.
 
-**2. Ingest**
+**2. Ingest** ✅
 - Reads snapshots and stores each change as an event. It already works.
 - To check: it runs through months at full speed and takes every time from the data, never the real clock.
 
-**3. Rest finder**
+**3. Rest finder** ✅
 - On/off signals such as the door: the most common state.
 - Numeric signals such as plug power: the most common value, plus how much it normally wobbles.
 - Slow signals such as temperature: how fast it normally changes.
 
-**4. Happening extractor**
+**4. Happening extractor** ✅
 - Walks through each signal. A happening starts when the signal leaves rest by more than its normal wobble, and ends when it returns.
 - Records the signal, start, end, duration and size.
 
-**5. Grouper**
+**5. Grouper** ✅ (with a Gaussian mixture instead of the 20% rule: [`learners.md`](learners.md))
 - Within each signal, puts happenings with similar size and duration into the same kind. Start simple: the same kind if both numbers are within about 20%.
 - Links kinds across signals that usually occur within a few minutes of each other.
 
-**6. Habit learner**
+**6. Habit learner** ✅ ([`learners.md`](learners.md))
 - For each kind and combination, measures how many days it occurred on, how tightly its time of day clusters, and whether it favours certain weekdays.
-- Does the same for the long quiet stretch each night.
+- Does the same for the long quiet stretch each night. ✅ Done as quiet stretches grouped as happenings of the home: asleep, away and awake are whichever quiets recur when. The room's temperature and humidity are habits too ([`learners.md`](learners.md)).
 - Anything frequent and consistent enough becomes a sensor, with the date it first passed the test and one reading per occurrence.
 
 **7. Namer**
@@ -98,10 +98,10 @@ The habit learner comes first because it produces the usual day, which the other
 - Shows simulated time advancing, device states changing, and sensor cards appearing on the day they were learned.
 - Reads one JSON response, so it can be built on fake data from the start.
 
-**What ties them together:** one command, for example `simulate 14 days`, which generates the data, feeds it through ingest, and at the end of each simulated day runs parts 3 to 6. That is why sensors appear gradually.
+**What ties them together:** one command, for example `simulate 14 days`, which generates the data, feeds it through ingest, and at the end of each simulated day runs parts 3 to 6. That is why sensors appear gradually. ✅ `uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/`
 
 ## Agree together first
-These are the hand-offs between people. Fix them in the first hour.
+These are the hand-offs between people. Fix them in the first hour. ✅ **Agreed.** The happening is stored as in `source/learn/happenings.py` (`signal` = `plug.instantPower`, times in epoch ms), and the sensor as below plus a few fields ([`learners.md`](learners.md)).
 
 **A happening**
 ```json
@@ -128,7 +128,7 @@ These are the hand-offs between people. Fix them in the first hour.
 **Also to agree**
 - **Simulated time:** no code reads the real clock; time comes from the data.
 - **The dashboard's JSON:** current simulated time, device states, list of sensors.
-- **When a pattern counts as a habit:** a starting point is at least 5 occurrences with a time-of-day spread under 30 minutes.
+- **When a pattern counts as a habit:** a starting point is at least 5 occurrences with a time-of-day spread under 30 minutes. ✅ Now: at least 5 occurrences that beat chance in that home; the spread is reported, not used as a threshold.
 - **Exact names:** `connected_life` and `connectivity` for focus; `habit`, `event` and `drift` for learner.
 
 ## Visual identity
@@ -140,9 +140,9 @@ These are the hand-offs between people. Fix them in the first hour.
 ## Who builds what
 | Person | Today |
 |---|---|
-| 1 | Simulator (part 1). A rough three-day dataset in the first hour matters more than a polished one tonight |
-| 2 | Ingest check, rest finder, happening extractor (parts 2 to 4) |
-| 3 | Grouper and habit learner (parts 5 and 6), starting from a hand-made list of happenings |
+| 1 | ✅ Simulator (part 1). A rough three-day dataset in the first hour matters more than a polished one tonight |
+| 2 | ✅ Ingest check, rest finder, happening extractor (parts 2 to 4) |
+| 3 | ✅ Grouper and habit learner (parts 5 and 6), starting from a hand-made list of happenings |
 | 4 | Dashboard (part 8) on fake data, then the namer (part 7) once sensors exist |
 | 5 | Visual identity, then the approach report, due Wednesday 18 Nov at 19:00 |
 

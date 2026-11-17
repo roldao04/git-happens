@@ -8,6 +8,7 @@ dependencies = [
     "langchain-openai>=1.8.0",
     "langgraph>=1.2.22",
     "mcp>=1.9",
+    "scikit-learn>=1.9.1",
 ]
 
 [project.scripts]
