@@ -146,7 +146,8 @@ Later:
 **Agent output**: `{notes, trigger_updates[], actions[]}`. `actions` are the executed write calls and their results (empty for the stub and for replays), logged with the run.
 
 ## 6. What the real data tells us (`get_home`, 17 Nov 2026)
-- **The kit is still offline**: the MCP answers, but every `lastCommunicationTime` is from 13–14 Nov. The loop's first live run (17 Nov) correctly reported all six devices as stale.
+- **The kit came back on 17 Nov (~10:00 UTC).** Until then every `lastCommunicationTime` was from 13–14 Nov, and the loop's first live run correctly reported all six devices as stale. At 11:01 only the **smoke sensor** was still stale (since 14 Nov), and the loop reported exactly that. Opening the door showed up as contact `sensorState: normal → alarm` within ~10 s.
+- **Re-pairing changed device IDs** (contact and temperature sensors). `triggers.py` still hard-codes the old contact ID, so the `contact` trigger can't fire on live data, and the locked `smoke` trigger points at a sensor that isn't reporting. Fix: find devices by `type` and flag stale ones.
 - **`lastCommunicationTime` isn't an event by itself**, but it decides whether a device is stale. The plug's was ~7 h older than the others', so "relay on, 0 A" only means something if the reading is **newer than our command**.
 - **Camera `motionDetected` / `soundDetected` were empty strings.** They look short-lived, so a 20 s poll may miss them. Log them whenever they're non-empty to learn how long they stay set; don't build routines on them until then.
 - **`security.isAlarmed: true` with `alarmType: FIRE_SMOKE`** is a stale "has gone off" flag, not "armed". Trigger on the **change**, not the level.
