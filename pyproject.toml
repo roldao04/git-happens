@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Event loop and semantic layer for the Altice Connected Home MCP"
 requires-python = ">=3.12"
 dependencies = [
+    "langchain-mcp-adapters>=0.3.2",
+    "langchain-openai>=1.8.0",
+    "langgraph>=1.2.22",
     "mcp>=1.9",
 ]
 

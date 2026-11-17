@@ -65,6 +65,16 @@ class McpSource:
         self._session = await self._stack.enter_async_context(ClientSession(read, write))
         await self._session.initialize()
 
+    async def session(self):
+        """The open MCP ClientSession (connecting first if needed), shared with the agent."""
+        if self._session is None:
+            try:
+                await self._connect()
+            except Exception as exc:
+                await self.close()
+                raise SourceError(f"MCP connect failed: {exc!r}") from exc
+        return self._session
+
     async def fetch(self) -> tuple[int, dict]:
         try:
             if self._session is None:

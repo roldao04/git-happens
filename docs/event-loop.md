@@ -2,7 +2,7 @@
 
 How SYNAPSE notices what happens in the home and decides when the LLM should think about it.
 This is the "event bridge + history" block from [`synapse.md`](synapse.md) §9, designed so it can grow into verification (§6), routine learning and self-authored scenarios without rework.
-Status: **v1 built** in [`source/`](../source/) (branch `feat/house-mcp-polling-loop`): poll, normalize, diff, store, seed triggers, stub agent. Not yet: agent-editable triggers, real agent, action ledger, attribution.
+Status: **v1 built** in [`source/`](../source/) (branch `feat/house-mcp-polling-loop`): poll, normalize, diff, store, seed triggers, stub agent, plus the **LangGraph agent** (reads the home, can set the lamp and plug, verifies by reading back). Not yet: agent-editable triggers, guardrails/approval for writes, action ledger, attribution.
 
 ## 1. Why poll, and why not call the LLM on every poll
 - The MCP has **no live events** ([`mcp-capabilities.md`](mcp-capabilities.md)), so we poll `get_home` (one call returns every device with its values and `lastCommunicationTime`).
@@ -36,7 +36,7 @@ while True:
     reasons = triggers.match(events, now)        # data-driven, includes the heartbeat
     if reasons:
         ctx = build_context(reasons, state, store, since=last_agent_run)
-        out = agent.run(ctx)                     # v1: stub that logs ctx
+        out = agent.run(ctx)                     # LangGraph agent, or the stub
         store.log_agent_run(ctx, out)
         triggers.apply_updates(out.trigger_updates)
 
@@ -57,7 +57,7 @@ source/
   store.py      SQLite: snapshots, events, triggers, agent runs
   triggers.py   load, match, apply updates
   context.py    builds what the agent reads
-  agent.py      stub now, LLM later
+  agent.py      StubAgent · LangGraphAgent (LLM + MCP tools)
   loop.py       the loop above
 ```
 
@@ -93,7 +93,30 @@ Live runs write to `data/`, replays to `data/replay/` (both gitignored):
 Every poll logs one `tick` line (`tick 22 @ 11-18 08:21:00: 52 readings, 2 events, wake: plug-power`), every change an `event` line, every wake-up a `wake` line. Console level: `LOOP_LOG_LEVEL` or `-v`; `-q` for files only. In code, attach data with `log.info("...", extra={"data": {...}})`.
 
 ### LangGraph
-Not used in the loop: poll → diff → store → decide is simpler and easier to debug as plain asyncio. LangGraph goes into **`agent.run(ctx)`** when the real agent arrives (wake → reason → MCP tools → verify, with state kept between runs), keeping the same contract: context dict in, `{notes, trigger_updates, actions}` out. `langchain-mcp-adapters` can expose the house tools to that graph.
+Not used in the loop: poll → diff → store → decide is simpler and easier to debug as plain asyncio. LangGraph lives inside **`agent.run(ctx)`** (`source/agent.py`), with the same contract: context dict in, `{notes, trigger_updates, actions}` out.
+
+Graph: `START → agent ⇄ tools → report → END`. The `agent` node is the LLM; `tools` runs the MCP calls it asks for and loops back until it has nothing left to call (capped by `AGENT_MAX_STEPS`); `report` turns the result into the output dict.
+
+It shares the loop's `mcp-remote` session (`McpSource.session()`), so there is one connection to the MCP. Tools are an allowlist:
+
+| Tool | Kind | Why |
+|---|---|---|
+| `get_home`, `get_device_details`, `get_home_security_status`, `get_home_scenarios` | read | Look at the home |
+| `update_device_capabilities` | write | Set the lamp and plug; the only write |
+| Alarm arming (`patch_home_security_status`) | excluded | The alarm is never armed on the kit |
+| Scenario create/activate/execute, timers | excluded | Scenarios and timers can't be deleted |
+
+- **Writes run inside the loop**, so the LLM sees each result and must **read the device back** before saying it worked (verification level 2, [`synapse.md`](synapse.md) §6).
+- **`actions` are the write calls that actually ran, with their results.** The LLM doesn't write them.
+- **Replay gives the LLM no tools**, so a replay never touches the real kit.
+- **`--stub`**, or no `OPENROUTER_API_KEY`, runs the stub agent (logs the context, does nothing).
+
+Config: `OPENROUTER_API_KEY`, `AGENT_MODEL` (any OpenRouter slug with tool calling, default `anthropic/claude-sonnet-4.5`), `AGENT_MAX_STEPS` (default 12).
+
+Later:
+- Route per wake reason (heartbeat, safety, stale device) with different prompts and tools.
+- **Propose → guard → execute** for guardrails and approval: write tools move out of the tool node into a guard step, reads stay.
+- The action ledger (§7) records each write with its expected effects.
 
 ## 5. Data shapes (fix these now, they're costly to change later)
 **Event**
@@ -120,7 +143,7 @@ Not used in the loop: poll → diff → store → decide is simpler and easier t
 ```
 {now, reasons[], state (trimmed), events_since_last_run[], timeline_today[], baselines: {}}
 ```
-**Agent output**: `{notes, trigger_updates[], actions[]}`. In v1, `actions` are logged, **never executed**.
+**Agent output**: `{notes, trigger_updates[], actions[]}`. `actions` are the executed write calls and their results (empty for the stub and for replays), logged with the run.
 
 ## 6. What the real data tells us (`get_home`, 17 Nov 2026)
 - **The kit is still offline**: the MCP answers, but every `lastCommunicationTime` is from 13–14 Nov. The loop's first live run (17 Nov) correctly reported all six devices as stale.
@@ -133,7 +156,7 @@ Not used in the loop: poll → diff → store → decide is simpler and easier t
 ## 7. How the future pillars plug in
 | Later | Plugs into | Notes |
 |---|---|---|
-| Real LLM agent | `agent.run(ctx)` | |
+| Guardrails, approval, per-reason routing | `agent.run(ctx)` | See §4 LangGraph |
 | **Closed-loop verification** (act → sense → confirm) | A step after `diff`, before `triggers` | **Action ledger**: each command stored with its expected effects and deadlines. A deterministic **expectation checker** runs every tick; failures become events that wake the agent, which explains the cause. See [`synapse.md`](synapse.md) §6 |
 | **Who made each change** | Inside `diff`, fills `event.source` | The MCP never says who changed something. Match against our action ledger (SYNAPSE), our copy of active scenario definitions (scenario runs on Altice's server), otherwise human |
 | **Override learning** | Event pattern + `state_at(t)` | "Human reversed a SYNAPSE/scenario action within N min" is just an attributed event. Comparing overridden vs accepted cases needs **full snapshots stored**, so we can rebuild the room at any moment |

@@ -25,6 +25,9 @@ class Settings:
     stale_minutes: float
     data_dir: Path
     log_level: str
+    openrouter_api_key: str | None
+    agent_model: str
+    agent_max_steps: int
 
 
 def load_settings() -> Settings:
@@ -37,4 +40,7 @@ def load_settings() -> Settings:
         stale_minutes=float(os.environ.get("LOOP_STALE_MINUTES", 60)),
         data_dir=data_dir,
         log_level=os.environ.get("LOOP_LOG_LEVEL", "INFO"),
+        openrouter_api_key=os.environ.get("OPENROUTER_API_KEY") or None,
+        agent_model=os.environ.get("AGENT_MODEL", "anthropic/claude-sonnet-4.5"),
+        agent_max_steps=int(os.environ.get("AGENT_MAX_STEPS", 12)),
     )
