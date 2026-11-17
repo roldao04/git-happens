@@ -5,6 +5,7 @@ any moment can be rebuilt later (needed for override learning, docs/event-loop.m
 """
 import json
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 from .model import Event
@@ -20,6 +21,9 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
 CREATE TABLE IF NOT EXISTS devices (
     device_id TEXT NOT NULL UNIQUE, type TEXT NOT NULL, name TEXT NOT NULL, first_ts INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS days (
+    day TEXT NOT NULL UNIQUE, first_ts INTEGER NOT NULL, last_ts INTEGER NOT NULL, snapshots INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +69,15 @@ class Store:
         """device_id -> (type, name); keeps the first time each id was seen. Commits with the next commit."""
         self.db.executemany("INSERT OR IGNORE INTO devices (device_id, type, name, first_ts) VALUES (?, ?, ?, ?)",
                             [(dev_id, dtype, name, ts) for dev_id, (dtype, name) in devices.items()])
+
+    def save_day(self, day: date, first_ts: int, last_ts: int, snapshots: int) -> None:
+        """A local day that has data. Commits with the next commit."""
+        self.db.execute("INSERT OR REPLACE INTO days (day, first_ts, last_ts, snapshots) VALUES (?, ?, ?, ?)",
+                        (day.isoformat(), first_ts, last_ts, snapshots))
+
+    def days(self) -> list[tuple[date, int, int, int]]:
+        rows = self.db.execute("SELECT day, first_ts, last_ts, snapshots FROM days ORDER BY day").fetchall()
+        return [(date.fromisoformat(d), first, last, n) for d, first, last, n in rows]
 
     def devices_of_type(self, device_type: str) -> list[str]:
         rows = self.db.execute("SELECT device_id FROM devices WHERE type = ? ORDER BY first_ts, device_id",

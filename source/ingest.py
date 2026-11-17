@@ -35,28 +35,35 @@ def read_jsonl(path: Path) -> Iterator[Snapshot]:
                 yield int(row["ts"]), row["home"]
 
 
-def ingest(snaps: Iterable[Snapshot], store: Store, *, stale_ms: int, tz: tzinfo = TZ,
-           on_day_end: Callable[[date], None] | None = None) -> IngestStats:
+def ingest(snaps: Iterable[Snapshot], store: Store, *, stale_ms: int, gap_ms: int = 30 * 60_000,
+           tz: tzinfo = TZ, on_day_end: Callable[[date], None] | None = None) -> IngestStats:
     """Stores each snapshot and its events, one commit per local day.
 
     on_day_end(day) runs once for every date from the first snapshot to the last (empty days too), after that
     day is committed and before anything later is stored, so whatever it runs never sees the future.
+    Snapshots more than gap_ms apart add a "gap" event (old = last snapshot before it, new = first after).
     """
     prev = prev_ts = first_ts = day = None
-    count = events = 0
+    count = events = day_count = 0
+    day_first = 0
     known: set[str] = set()
     for ts, home in snaps:
         if prev_ts is not None and ts < prev_ts:
             raise ValueError(f"snapshots out of order: {ts} after {prev_ts}")
         today = local_day(ts, tz)
         if day is not None and today != day:
+            store.save_day(day, day_first, prev_ts, day_count)
             _end_days(store, day, today, on_day_end)
-        day = today
+        if today != day:
+            day, day_first, day_count = today, ts, 0
+        day_count += 1
         state = normalize(home)
         if prev is None:
             found = _initial(state, ts) + initially_stale(state, ts, stale_ms)
         else:
             found = diff(prev, state, ts, stale_ms, prev_ts)
+            if ts - prev_ts > gap_ms:
+                found.insert(0, Event(ts, "loop", "Loop", "poll", "gap", prev_ts, ts))
         new_devices = {r.device_id: (r.device_type, r.device) for r in state.values() if r.device_id not in known}
         if new_devices:
             store.save_devices(ts, new_devices)
@@ -66,6 +73,7 @@ def ingest(snaps: Iterable[Snapshot], store: Store, *, stale_ms: int, tz: tzinfo
         first_ts = ts if first_ts is None else first_ts
         prev, prev_ts = state, ts
     if day is not None:
+        store.save_day(day, day_first, prev_ts, day_count)
         _end_days(store, day, day + timedelta(days=1), on_day_end)
     return IngestStats(count, events, first_ts, prev_ts)
 

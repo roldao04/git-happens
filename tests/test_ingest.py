@@ -23,6 +23,7 @@ from source.triggers import Triggers, seed_triggers
 
 MORNING = Path(__file__).parent / "fixtures" / "morning.jsonl"
 STALE_MS = 60 * 60_000
+DAY_MS = 24 * 3600_000
 
 
 def _events(store: Store) -> list[tuple]:
@@ -132,7 +133,7 @@ class DayEndTest(unittest.TestCase):
             seen[day] = other.execute("SELECT COUNT(*), MAX(ts) FROM events").fetchone()
             other.close()
 
-        ingest(snaps, self.store, stale_ms=STALE_MS, on_day_end=check)
+        ingest(snaps, self.store, stale_ms=STALE_MS, gap_ms=DAY_MS, on_day_end=check)
         count, latest = seen[date(2026, 9, 1)]
         self.assertEqual(count, 2)  # the plug's initial value and its change
         self.assertLess(latest, day_bounds(date(2026, 9, 1))[1])
@@ -143,7 +144,8 @@ class DayEndTest(unittest.TestCase):
             ingest([plug(at(2026, 9, 2, 8), 0), plug(at(2026, 9, 1, 8), 5)], self.store, stale_ms=STALE_MS)
 
     def test_no_hook_still_commits(self):
-        ingest([plug(at(2026, 9, 1, 8), 0), plug(at(2026, 9, 1, 9), 2100)], self.store, stale_ms=STALE_MS)
+        ingest([plug(at(2026, 9, 1, 8), 0), plug(at(2026, 9, 1, 9), 2100)], self.store, stale_ms=STALE_MS,
+               gap_ms=DAY_MS)
         other = sqlite3.connect(self.dir / "home.sqlite3")
         self.assertEqual(other.execute("SELECT COUNT(*) FROM events").fetchone()[0], 2)
         other.close()
@@ -181,6 +183,32 @@ class InitialAndDevicesTest(unittest.TestCase):
     def test_initial_event_reads_plainly(self):
         self.assertEqual(Event(0, "p1", "Plug", "instantPower", "initial", None, 0).describe(),
                          "Plug.instantPower starts at 0")
+
+
+
+class DaysAndGapsTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.store = Store(Path(tmp.name), record=False)
+        self.addCleanup(self.store.close)
+
+    def test_days_with_data_recorded(self):
+        a, b, c = at(2026, 9, 1, 8), at(2026, 9, 1, 9), at(2026, 9, 3, 8)
+        ingest([plug(a, 0), plug(b, 5), plug(c, 0)], self.store, stale_ms=STALE_MS)
+        self.assertEqual(self.store.days(), [(date(2026, 9, 1), a, b, 2), (date(2026, 9, 3), c, c, 1)])
+
+    def test_day_recorded_before_its_hook(self):
+        seen = []
+        ingest([plug(at(2026, 9, 1, 8), 0)], self.store, stale_ms=STALE_MS,
+               on_day_end=lambda day: seen.append([d[0] for d in self.store.days()]))
+        self.assertEqual(seen, [[date(2026, 9, 1)]])
+
+    def test_gap_when_snapshots_stop(self):
+        a, b, c = at(2026, 9, 1, 8), at(2026, 9, 1, 8, 5), at(2026, 9, 1, 10)
+        ingest([plug(a, 0), plug(b, 0), plug(c, 0)], self.store, stale_ms=STALE_MS * 24, gap_ms=30 * 60_000)
+        gaps = [(e.ts, e.old, e.new) for e in self.store.events_since(-1) if e.kind == "gap"]
+        self.assertEqual(gaps, [(c, b, c)])
 
 
 if __name__ == "__main__":
