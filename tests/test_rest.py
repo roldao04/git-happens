@@ -211,6 +211,14 @@ class SlowRestTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             find_rest(events, end)[TEMP].at_rest(20.0)
 
+    def test_rate_check_only_for_slow_signals_over_positive_time(self):
+        level, end = series(PLUG, 0, [(0, H), (5, H)])
+        with self.assertRaises(ValueError):
+            find_rest(level, end)[PLUG].rate_at_rest(1, H)
+        slow, end = series(TEMP, 0, [(20.0, H), (20.1, H)])
+        with self.assertRaises(ValueError):
+            find_rest(slow, end)[TEMP].rate_at_rest(0.1, 0)
+
 
 class FromStoreTest(unittest.TestCase):
     def setUp(self):
