@@ -1,13 +1,13 @@
 """Rest finder: each signal's resting state or level, learned from time held (starting-plan part 3)."""
 import unittest
 
-from source.learn.rest import observed_stretches
+from source.learn.rest import find_rest, observed_stretches
 from source.model import Event
 
 H = 3600_000
 DOOR = ("c1", "sensorState")
 PLUG = ("p1", "instantPower")
-NAMES = {"c1": "Door", "p1": "Plug", "t1": "Temp"}
+NAMES = {"c1": "Door", "p1": "Plug", "t1": "Temp", "cam": "Camera"}
 
 
 def init(ts, sig, v):
@@ -97,6 +97,32 @@ class StretchesTest(unittest.TestCase):
 
     def test_empty_history(self):
         self.assertEqual(observed_stretches([], 1 * H), {})
+
+
+class StateRestTest(unittest.TestCase):
+    def test_rest_is_the_state_held_longest_not_the_most_frequent(self):
+        events = [init(0, DOOR, "A"), chg(22 * H, DOOR, "A", "B")]
+        prev, t = "B", 22 * H
+        for nxt in ["C", "B"] * 6:  # B ends up with the most events, A with the most time
+            t += 10 * 60_000
+            events.append(chg(t, DOOR, prev, nxt))
+            prev = nxt
+        rest = find_rest(events, 24 * H)[DOOR]
+        self.assertEqual((rest.kind, rest.value, rest.observed_ms), ("state", "A", 24 * H))
+        self.assertAlmostEqual(rest.share, 22 / 24)
+        self.assertTrue(rest.at_rest("A"))
+        self.assertFalse(rest.at_rest("B"))
+
+    def test_bool_is_a_state_not_a_number(self):
+        sig = ("cam", "lightIndicator")
+        rest = find_rest([init(0, sig, True), chg(20 * H, sig, True, False)], 24 * H)[sig]
+        self.assertEqual(rest.kind, "state")
+        self.assertIs(rest.value, True)
+
+    def test_gap_time_does_not_count(self):
+        events = [init(0, DOOR, "alarm"), gap(1 * H, 11 * H), chg(11 * H, DOOR, "alarm", "normal")]
+        rest = find_rest(events, 13 * H)[DOOR]
+        self.assertEqual((rest.value, rest.observed_ms), ("normal", 3 * H))
 
 
 if __name__ == "__main__":

@@ -82,3 +82,43 @@ def _subtract(span: Span, holes: list[Span]) -> list[Span]:
     if start < end:
         pieces.append((start, end))
     return pieces
+
+
+@dataclass(frozen=True)
+class Rest:
+    signal_id: SignalId
+    signal: str
+    kind: str  # state | level | slow
+    value: Any
+    wobble: float
+    step: float
+    rate_per_h: float | None
+    rate_wobble: float | None
+    share: float  # of observed time spent at rest
+    observed_ms: int
+
+    def at_rest(self, v: Any) -> bool:
+        return v == self.value
+
+
+def find_rest(events: Iterable[Event], observed_until: int) -> dict[SignalId, Rest]:
+    out: dict[SignalId, Rest] = {}
+    for sig, stretches in observed_stretches(events, observed_until).items():
+        held: dict[Any, int] = {}
+        for s in stretches:
+            held[s.value] = held.get(s.value, 0) + s.end - s.start
+        observed = sum(held.values())
+        if observed == 0:
+            continue
+        value = _longest(held)
+        out[sig] = Rest(sig, stretches[0].signal, "state", value, 0.0, 0.0, None, None,
+                        held[value] / observed, observed)
+    return out
+
+
+def _longest(held: dict[Any, int]) -> Any:
+    best = None
+    for v, ms in held.items():
+        if best is None or ms > held[best]:
+            best = v
+    return best
