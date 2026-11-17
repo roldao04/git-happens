@@ -23,7 +23,7 @@ class Event:
     device_id: str
     device: str
     capability: str
-    kind: str  # change | stale | returned | gap
+    kind: str  # initial | change | stale | returned | gap
     old: Any = None
     new: Any = None
     # Who caused it. Always "unknown" for now; attribution later fills
@@ -35,6 +35,8 @@ class Event:
         return asdict(self)
 
     def describe(self) -> str:
+        if self.kind == "initial":
+            return f"{self.device}.{self.capability} starts at {self.new!r}"
         if self.kind == "change":
             return f"{self.device}.{self.capability}: {self.old!r} → {self.new!r}"
         if self.kind == "stale":

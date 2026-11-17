@@ -5,6 +5,7 @@ any moment can be rebuilt later (needed for override learning, docs/event-loop.m
 """
 import json
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 from .model import Event
@@ -18,6 +19,12 @@ CREATE TABLE IF NOT EXISTS events (
     old TEXT, new TEXT, source TEXT NOT NULL DEFAULT 'unknown'
 );
 CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
+CREATE TABLE IF NOT EXISTS devices (
+    device_id TEXT NOT NULL UNIQUE, type TEXT NOT NULL, name TEXT NOT NULL, first_ts INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS days (
+    day TEXT NOT NULL UNIQUE, first_ts INTEGER NOT NULL, last_ts INTEGER NOT NULL, snapshots INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts INTEGER NOT NULL, reasons TEXT NOT NULL, context TEXT NOT NULL, output TEXT
@@ -36,14 +43,14 @@ class Store:
         self.db.executescript(SCHEMA)
         self._recording = open(data_dir / "recording.jsonl", "a") if record else None
 
-    def save(self, ts: int, home: dict, events: list[Event]) -> None:
+    def save(self, ts: int, home: dict, events: list[Event], *, commit: bool = True) -> None:
         self.db.execute("INSERT OR REPLACE INTO snapshots VALUES (?, ?)", (ts, json.dumps(home)))
-        self.save_events(events)  # commits
+        self.save_events(events, commit=commit)
         if self._recording:
             self._recording.write(json.dumps({"ts": ts, "home": home}) + "\n")
             self._recording.flush()
 
-    def save_events(self, events: list[Event]) -> None:
+    def save_events(self, events: list[Event], *, commit: bool = True) -> None:
         for e in events:
             cur = self.db.execute(
                 "INSERT INTO events (ts, device_id, device, capability, kind, old, new, source)"
@@ -52,7 +59,30 @@ class Store:
                  json.dumps(e.old), json.dumps(e.new), e.source),
             )
             e.id = cur.lastrowid
+        if commit:
+            self.db.commit()
+
+    def commit(self) -> None:
         self.db.commit()
+
+    def save_devices(self, ts: int, devices: dict[str, tuple[str, str]]) -> None:
+        """device_id -> (type, name); keeps the first time each id was seen. Commits with the next commit."""
+        self.db.executemany("INSERT OR IGNORE INTO devices (device_id, type, name, first_ts) VALUES (?, ?, ?, ?)",
+                            [(dev_id, dtype, name, ts) for dev_id, (dtype, name) in devices.items()])
+
+    def save_day(self, day: date, first_ts: int, last_ts: int, snapshots: int) -> None:
+        """A local day that has data. Commits with the next commit."""
+        self.db.execute("INSERT OR REPLACE INTO days (day, first_ts, last_ts, snapshots) VALUES (?, ?, ?, ?)",
+                        (day.isoformat(), first_ts, last_ts, snapshots))
+
+    def days(self) -> list[tuple[date, int, int, int]]:
+        rows = self.db.execute("SELECT day, first_ts, last_ts, snapshots FROM days ORDER BY day").fetchall()
+        return [(date.fromisoformat(d), first, last, n) for d, first, last, n in rows]
+
+    def devices_of_type(self, device_type: str) -> list[str]:
+        rows = self.db.execute("SELECT device_id FROM devices WHERE type = ? ORDER BY first_ts, device_id",
+                               (device_type,)).fetchall()
+        return [r[0] for r in rows]
 
     def events_since(self, ts_ms: int) -> list[Event]:
         rows = self.db.execute(
