@@ -35,7 +35,7 @@ async def _main(request: str) -> None:
     try:
         now, home = await source.fetch()
         reasons = [WakeReason("person", f"A person asked: {request}")]
-        ctx = build_context(now, reasons, normalize(home), store, None)
+        ctx = build_context(now, reasons, normalize(home), store, None, int(s.stale_minutes * 60_000))
 
         async def tools():
             return await mcp_tools(await source.session())

@@ -8,7 +8,8 @@ One JSON message with the wake context:
 
 - `now`: the current local time.
 - `reasons`: why you were woken (trigger id and a short reason).
-- `state`: the latest value of each device, with `lastSeen`.
+- `state`: each device by its id, with `name`, `type`, its latest values and `lastSeen`.
+  - `fresh: false` (with `staleMinutes`) means the device is not reporting: its values are its last known state, NOT what is true now. Say so; never present them as current.
 - `events_since_last_run`: what changed since you last ran.
 - `timeline_today`: everything that happened today.
 - `baselines`: what is normal for this home. Often empty for now.

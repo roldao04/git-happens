@@ -81,7 +81,7 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
                                  "events": len(events), "wake": [r.trigger_id for r in reasons],
                                  "rules": rules}})
         if reasons:
-            ctx = build_context(now, reasons, state, store, last_run_ms)
+            ctx = build_context(now, reasons, state, store, last_run_ms, stale_ms)
             log.debug("agent context", extra={"data": {"context": ctx}})
             try:
                 out = await agent.run(ctx)
