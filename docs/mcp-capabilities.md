@@ -3,7 +3,7 @@
 What the `connected-home` MCP lets us **see**, **change**, and what it **can't** do.
 "Now" values are the last known state, read on 16 Nov 2026 at 22:40 UTC.
 
-> ⚠ The kit looks **offline**: no device has reported since 14 Nov 03:03 UTC, and a test colour change on the Light failed. Check with the organisers before relying on live data.
+> ⚠ The kit is **offline**: no device has reported since 14 Nov 03:03 UTC (still true on 17 Nov 09:17 UTC), and a test colour change on the Light failed. Check with the organisers before relying on live data. The MCP itself answers fine; it just serves the last known values.
 
 ## Connecting
 - Server: `https://cognitive-home.futurelabsinnovations.com` (HTTP), configured in `.mcp.json` at the repo root
@@ -82,7 +82,9 @@ What the `connected-home` MCP lets us **see**, **change**, and what it **can't**
 - Schedule an action on a device. The format is undocumented, reading timers errors in Claude Code, and timers can't be deleted
 
 ## Not available / gotchas
-- No live events: we have to **poll** (ask repeatedly) to notice changes
+- No live events: we have to **poll** (ask repeatedly) to notice changes (design: [`event-loop.md`](event-loop.md))
+- Camera `motionDetected` / `soundDetected` read as empty strings; they look short-lived, so polling may miss them
+- `lastCommunicationTime` differs per device (the plug's is ~7 h behind the others): check it before trusting a value
 - No camera video, snapshots or audio, and no speaker
 - No history apart from alarm history and the plug's today/yesterday energy
 - No rooms (and no way to create them); no energy tariff set
