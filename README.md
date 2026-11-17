@@ -9,6 +9,7 @@ Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimag
 | Doc | What it's for | Read when |
 |---|---|---|
 | [`docs/synapse.md`](docs/synapse.md) | **The concept:** story, semantic layer, rules, verification, memories, demo, build plan | First |
+| [`docs/learned-sensors-plan.md`](docs/learned-sensors-plan.md) | **The build plan:** learned sensors (defined + LLM-inferred), simulator, demo | Before picking up a task |
 | [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how verification and self-authored rules plug in | Before writing the poller or agent |
 | [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; device IDs | Before writing code |
 | [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules | Before the pitch or report |
