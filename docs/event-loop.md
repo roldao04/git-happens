@@ -139,6 +139,30 @@ uv run python -m source.learn.rest data/sim/rosa/      # --all also lists signal
 ```
 On 90 simulated days the plug rests at 0 ± 1 W (`rosa`, `couple`, the real house `home-a`) or 8 ± 1 W (`students`, whose console idles), the door at `normal`, the light at `off`, and the temperature moves about 0.2 °C per hour. Running the finder at every day end reads the whole history again each time: 0.2 s per day at 90 days, 2 to 9 s over the 90.
 
+### Happenings (starting-plan part 4)
+`save_happenings(store, until_ms)` in `source/learn/happenings.py` appends each departure from rest that ended before `until_ms` to the `happenings` table, which the grouper and habit learner read. `source/pipeline.py` calls it from `on_day_end` with `day_bounds(day)[1]`, then `learn_day(db, day)` from `source/learn/run.py` once that exists.
+
+| Column | Holds |
+|---|---|
+| `signal` | `<device type>.<capability>` (`plug.instantPower`), plus `device_id` and `capability` |
+| `start_ms`, `end_ms`, `duration_s` | From the first stretch away from rest to the return to rest |
+| `size` | `level`: time-weighted median of the values held (robust to ramps and wobble); `slow`: total change, signed; `state`: null |
+| `peak` | `level`: the highest value |
+| `value` | `state`: the non-rest state held longest (`alarm`, `on`) |
+| `cut` | 1 if a gap, stale device or gone signal ended it, at the last observed moment |
+| `kind` | Left null for the grouper |
+
+- Consecutive stretches away from rest are one happening; a slow signal is away while it moves faster than `rate_at_rest` allows.
+- One still away from rest at the end of observed time is not written; a later run writes it once it ends.
+- Append-only: per signal, only happenings that start after its last stored one ends are added, so ids stay stable.
+- None for `instantCurrent` (computed from power) or the bulb's settings (`brightness`, `color_rgb`, `temperature`, `workMode`): `NOT_HAPPENINGS`.
+
+```
+uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/ --replace   # simulate, ingest, learn
+uv run python -m source.learn.happenings data/sim/rosa/       # --signal instantPower, --json
+```
+On 14 days of `rosa`: 12 kettle happenings (one per planted morning use, about 2,100 W for 3 min), door openings (`alarm`), lamp `on` stretches, nothing on those at night. Temperature and humidity give about 140 more: their normal rate (rest) is slower than the daily swing.
+
 ### LangGraph
 Not used in the loop: poll → diff → store → decide is simpler and easier to debug as plain asyncio. LangGraph lives inside **`agent.run(ctx)`** (`source/agent.py`), with the same contract: context dict in, `{notes, trigger_updates, actions}` out.
 
