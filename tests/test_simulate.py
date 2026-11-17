@@ -12,10 +12,12 @@ from datetime import date, datetime
 from pathlib import Path
 
 from source.diff import diff
+from source.ingest import ingest
 from source.normalize import normalize
 from source.simulate import (PRESETS, REAL_HOME, TZ, Household, generate, home_a_max_days, household_from_dict,
                              houses, main)
 from source.simulate_web import REAL_MAX_DAYS, _request, write_zip
+from source.store import Store
 
 LIVE = json.loads((Path(__file__).parent / "fixtures" / "get_home_live.json").read_text())
 START = date(2026, 9, 1)
@@ -185,6 +187,102 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(len(out.read_text().splitlines()), len(_snaps("rosa", days=2)))
             self.assertTrue(json.loads(truth.read_text()))
             self.assertEqual(main(["--days", "2", "--household", "nobody", "--out", str(out)]), 1)
+
+
+def _local_ms(text: str) -> int:
+    return int(datetime.fromisoformat(text).replace(tzinfo=TZ).timestamp() * 1000)
+
+
+ACTIVITY = ("sensorState", "power", "instantPower")
+CLIMATE = ("temperatureValue", "humidityValue")
+
+
+def _changes(lines, caps) -> list[tuple]:
+    snaps = [(row["ts"], row["home"]) for row in map(json.loads, lines)]
+    return [(e.ts, e.device, e.capability, e.new) for e in _events(snaps) if e.capability in caps]
+
+
+def _rosa(days=14, **options):
+    return generate(household_from_dict(asdict(PRESETS["rosa"]) | options), days, start=START)
+
+
+class TestOptionsTest(unittest.TestCase):
+    """holidays, outages and changes: each changes only what it should."""
+
+    def setUp(self):
+        lines, self.truth = _rosa()
+        self.lines = list(lines)
+
+    def test_a_holiday_is_quiet_and_leaves_the_other_days_alone(self):
+        lines, truth = _rosa(holidays=["2026-09-05..2026-09-07"])
+        lines = list(lines)
+        first, end = _local_ms("2026-09-05T00:00"), _local_ms("2026-09-08T06:00")  # with that night's bedtime
+        outside = lambda changes: [c for c in changes if not first <= c[0] < end]
+        self.assertEqual(outside(_changes(lines, ACTIVITY)), outside(_changes(self.lines, ACTIVITY)))
+        self.assertFalse([c for c in _changes(lines, ACTIVITY) if first <= c[0] < _local_ms("2026-09-08T00:00")])
+        self.assertEqual(_changes(lines, CLIMATE), _changes(self.lines, CLIMATE))  # nobody home; the room carries on
+        times = [json.loads(line)["ts"] for line in lines]
+        self.assertLessEqual(max(b - a for a, b in zip(times, times[1:])), 300_000)  # snapshots continue
+        self.assertEqual([t["start"][:10] for t in truth if t["what"] == "away (holiday)"],
+                         ["2026-09-05", "2026-09-06", "2026-09-07"])
+        on_holiday = [t for t in truth if "2026-09-05" <= t["start"][:10] <= "2026-09-07"]
+        self.assertEqual({t["what"] for t in on_holiday}, {"away (holiday)"})
+
+    def test_an_outage_has_no_snapshots_and_ingest_sees_a_gap(self):
+        a, b = _local_ms("2026-09-10T22:00"), _local_ms("2026-09-11T08:00")
+        lines, truth = _rosa(outages=["2026-09-10T22:00..2026-09-11T08:00"])
+        lines = list(lines)
+        times = [json.loads(line)["ts"] for line in lines]
+        self.assertFalse([ts for ts in times if a <= ts < b])
+        self.assertEqual(lines, [line for line in self.lines if not a <= json.loads(line)["ts"] < b])
+        snaps = [(row["ts"], row["home"]) for row in map(json.loads, lines)]
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp), record=False)
+            ingest(snaps, store, stale_ms=STALE_MS)
+            gaps = [(e.old, e.new) for e in store.events_since(-1) if e.kind == "gap"]
+            store.close()
+        self.assertEqual(len(gaps), 1)
+        self.assertTrue(gaps[0][0] < a and gaps[0][1] >= b, gaps)
+        self.assertIn({"what": "outage", "start": "2026-09-10T22:00:00", "end": "2026-09-11T08:00:00"}, truth)
+        self.assertEqual([t for t in truth if t["what"] != "outage"], self.truth)
+
+    def test_a_change_moves_the_habits_from_that_day(self):
+        lines, truth = _rosa(changes=[{"from": "2026-09-08", "wake": "10:00"}])
+        lines = list(lines)
+        cut = _local_ms("2026-09-08T00:00")
+        before = lambda changes: [c for c in changes if c[0] < cut]
+        self.assertEqual(before(_changes(lines, ACTIVITY)), before(_changes(self.lines, ACTIVITY)))
+        self.assertEqual([t for t in truth if t["start"] < "2026-09-08" and t["what"] != "change"],
+                         [t for t in self.truth if t["start"] < "2026-09-08"])
+        wakes = [datetime.fromisoformat(t["start"]) for t in truth if t["what"] == "wake" and t["start"] >= "2026-09-08"]
+        self.assertTrue(wakes and all(9 <= w.hour <= 11 for w in wakes), wakes)
+        self.assertIn({"what": "change", "start": "2026-09-08T00:00:00", "settings": {"wake": "10:00"}}, truth)
+
+    def test_the_same_seed_gives_the_same_output(self):
+        options = {"holidays": ["2026-09-03"], "outages": ["2026-09-02T01:00..2026-09-02T03:00"],
+                   "changes": [{"from": "2026-09-04", "bed": "22:00"}]}
+        first = [list(lines) + [json.dumps(truth)] for lines, truth in [_rosa(5, **options)]]
+        self.assertEqual(first, [list(lines) + [json.dumps(truth)] for lines, truth in [_rosa(5, **options)]])
+
+    def test_defaults_add_nothing(self):
+        self.assertEqual(Household().holidays + Household().outages + Household().changes, [])
+        self.assertEqual(self.lines, list(generate("rosa", 14, start=START)[0]))
+
+    def test_rejects_bad_options(self):
+        for bad in ({"holidays": ["2026-09-31"]}, {"holidays": ["2026-09-07..2026-09-05"]},
+                    {"outages": ["2026-09-10T22:00"]}, {"outages": ["2026-09-11T08:00..2026-09-10T22:00"]},
+                    {"changes": [{"wake": "09:00"}]}, {"changes": [{"from": "2026-10-01"}]},
+                    {"changes": [{"from": "2026-10-01", "name": "x"}]}, {"changes": [{"from": "2026-10-01", "wake": "9h"}]},
+                    {"changes": "wake later"}):
+            with self.assertRaises(ValueError, msg=bad):
+                household_from_dict(bad)
+
+    def test_config_file_carries_the_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config, out, truth = Path(tmp) / "c.json", Path(tmp) / "r.jsonl", Path(tmp) / "t.json"
+            config.write_text(json.dumps({"holidays": ["2026-09-02"]}))
+            self.assertEqual(main(["--days", "3", "--config", str(config), "--out", str(out), "--truth", str(truth)]), 0)
+            self.assertIn("away (holiday)", {t["what"] for t in json.loads(truth.read_text())})
 
 
 class HousesTest(unittest.TestCase):
