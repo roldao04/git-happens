@@ -5,7 +5,7 @@ The 7 physical devices behind the Altice `connected-home` MCP, and how each one 
 ## Devices
 | # | Device | Model | Radio | Connects via | In the MCP as | Notes |
 |---|---|---|---|---|---|---|
-| 1 | IP camera | Nivian **NVS-IPC-IS2** | Wi-Fi 2.4 GHz | Directly | Camera (`camera`) | 1080p, pan/tilt, night vision, mic, speaker, microSD. Through the MCP: settings only, no video |
+| 1 | IP camera | Nivian **NVS-IPC-IS2** | Wi-Fi 2.4 GHz | Directly | Camera (`camera`) | 1080p, pan/tilt, night vision, mic, speaker, microSD. Through the MCP: settings only; live video via its local RTSP stream |
 | 2 | Climate sensor | Nedis ZBSC10WT | **Zigbee 3.0** · CR2450 battery | Security gateway | Temperature sensor (`temperatureSensor`) | Temperature + humidity |
 | 3 | Door/window sensor | Home Sécurité 852524 (SSCS-D3D) | **868 MHz** | Security gateway | Contact sensor (`contactSensor`) | Open/close detection |
 | 4 | Smart plug | Altice F3S401-NF | Wi-Fi 2.4 GHz | Directly | Plug (`plug`) | 16 A relay, countdown, voltage/current/power. **Only a small lamp on it** |
@@ -42,6 +42,5 @@ The 7 physical devices behind the Altice `connected-home` MCP, and how each one 
 ## Open items
 | Item | Why it matters |
 |---|---|
-| ~~Gateway's SFR registration reset; devices offline in the MCP since 13–14 Nov~~ | **Resolved 17 Nov:** the kit is back on the platform and reporting. Re-pairing gave the contact and temperature sensors new IDs ([`../mcp-capabilities.md`](../mcp-capabilities.md)) |
 | The smoke sensor hasn't reported since 14 Nov 03:03 UTC | Smoke can't be detected through the MCP until it's re-paired to the gateway. Ask the organisers; don't factory-reset it ourselves |
-| Camera motion detection is off and can't be enabled through the MCP | Asked the organisers whether their SmartHome app can enable it, and whether a scenario can trigger on `motionDetected` |
+| Camera motion/sound detection through the MCP is unconfirmed (it was off on 17 Nov and can't be enabled through the MCP) | The `camera-sound` / `camera-motion` triggers depend on it. Asked the organisers whether their SmartHome app can enable it, and whether a scenario can trigger on `motionDetected` |
