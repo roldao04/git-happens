@@ -10,4 +10,4 @@
 | Pitch (finalists) | 5 min + 3 min Q&A | Fri 20 Nov | To do |
 
 - The organisers provide **templates for every deliverable**. Save them here and use them.
-- Judging weights are in [`../docs/altice-hackathon-brief.md`](../docs/altice-hackathon-brief.md). The story and demo script are in [`../docs/synapse.md`](../docs/synapse.md).
+- Judging weights are in [`../docs/altice-hackathon-brief.md`](../docs/altice-hackathon-brief.md). The current direction is in [`../docs/starting-plan.md`](../docs/starting-plan.md); the earlier story is in [`../docs/synapse.md`](../docs/synapse.md).

@@ -1,16 +1,17 @@
-# SYNAPSE · team GitHappens
+# Alfred · team GitHappens
 
 <img src="assets/githappens-logo.jpeg" alt="GitHappens logo" width="120">
 
-**The semantic layer for the connected home:** it turns raw device data into meaning, learns routines, proposes rules, verifies what it does and remembers what worked.
+**A home that builds its own sensors:** Alfred learns what the devices' signals mean from the home's own history, and shows that as new sensors you can see, ask about and talk to.
 Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimagined").
 
 ## Docs
 | Doc | What it's for | Read when |
 |---|---|---|
-| [`docs/synapse.md`](docs/synapse.md) | **The concept:** story, semantic layer, rules, verification, memories, demo, build plan | First |
-| [`docs/learned-sensors-plan.md`](docs/learned-sensors-plan.md) | **The build plan:** learned sensors (defined + LLM-inferred), simulator, demo | Before picking up a task |
-| [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how verification and self-authored rules plug in | Before writing the poller or agent |
+| [`docs/starting-plan.md`](docs/starting-plan.md) | **The starting plan:** how Alfred learns its own sensors, the parts to build, the shapes to agree, who builds what | First |
+| [`docs/learned-sensors-plan.md`](docs/learned-sensors-plan.md) | Earlier build plan (sensors as SQL queries), superseded by the starting plan | For background only |
+| [`docs/synapse.md`](docs/synapse.md) | Earlier concept under the old name (rules, verification, memories); not yet rewritten around Alfred | For background only |
+| [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how the learners plug in | Before writing the poller or agent |
 | [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; device IDs | Before writing code |
 | [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules | Before the pitch or report |
 | [`deliverables/README.md`](deliverables/README.md) | What we hand in, limits and deadlines | Before each deadline |
@@ -49,7 +50,8 @@ Without `OPENROUTER_API_KEY` (or with `--stub`) the stub agent runs. Replays giv
 README.md               you are here
 .mcp.example.json       MCP config template (the real .mcp.json is gitignored)
 docs/
-  synapse.md            the concept
+  starting-plan.md      how Alfred learns, what we build first
+  learned-sensors-plan.md, synapse.md   earlier plan and concept (superseded)
   event-loop.md         polling loop + agent triggers design
   mcp-capabilities.md   MCP reference
   altice-hackathon-brief.md
@@ -60,7 +62,7 @@ tools/                  connected_home_auth.py (OAuth helper used by .mcp.json)
 source/                 event loop: poll the MCP, diff, store, triggers, agent (LangGraph + stub), logs, show
 tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Planned: more of `source/` (semantic layer, rules, verifier, memory, MCP server) · `simulator/` (digital twin + replayed "Rosa" weeks) · `apps/` (Ana's app, Rosa's tablet).
+Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): `source/simulate.py` (the simulator) · `source/learn/` (rest, happenings, kinds, habits, namer) · sensor storage · the dashboard in `console/`.
 
 ## Conventions
 - **Never commit secrets:** `.mcp.json`, `.env` and tokens stay local (see `.gitignore`).
