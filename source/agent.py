@@ -140,7 +140,11 @@ def guard_writes(tools: list[BaseTool], devices: dict[str, str], actions: list[d
         return tools
 
     async def call_tool(name: str, args: dict) -> str:
-        return _text(await by_name[name].ainvoke(args))
+        # invoked as a ToolCall so an MCP isError reply keeps its status instead of passing as text
+        msg = await by_name[name].ainvoke({"type": "tool_call", "id": f"guard-{name}", "name": name, "args": args})
+        if getattr(msg, "status", None) == "error":
+            raise RuntimeError(_text(msg.content))
+        return _text(getattr(msg, "content", msg))
 
     async def guarded(**args) -> str:
         action = await guarded_write(call_tool, args, devices, allow_plug_on=allow_plug_on,
@@ -179,7 +183,7 @@ class LangGraphAgent:
                 log.warning("tools unavailable, running without tools: %s", e)
                 tools = []
         actions: list[dict] = []
-        devices = {dev_id: d.get("type", "") for dev_id, d in ctx["state"].items()}
+        devices = {dev_id: d.get("type", "") for dev_id, d in ctx["state"].items() if d.get("fresh") is True}
         tools = guard_writes(tools, devices, actions, allow_plug_on=self.allow_plug_on,
                              readback_tries=self.readback_tries, readback_delay_s=self.readback_delay_s)
 

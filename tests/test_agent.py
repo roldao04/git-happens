@@ -9,7 +9,7 @@ from typing import Any
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_core.tools import tool
+from langchain_core.tools import ToolException, tool
 
 from source.agent import REPORT_ASK, LangGraphAgent, parse_report
 
@@ -62,7 +62,7 @@ class FakeHouse:
     `reports=False` = the device never sends a newer lastCommunicationTime (offline or slow).
     """
 
-    def __init__(self, write_result: str = '{"ok": true}', reports: bool = True):
+    def __init__(self, write_result: str = '{"ok": true}', reports: bool = True, rejects: str = ""):
         self.calls: list[str] = []
         self.ts = 1000
         self.caps: dict = {"power": "on", "rgb": (255, 255, 255)}
@@ -72,6 +72,8 @@ class FakeHouse:
         async def update_device_capabilities(deviceId: str, body: dict) -> str:
             """Set a capability."""
             house.calls.append("update")
+            if rejects:  # like an MCP isError reply: the adapter returns it as content, not an exception
+                raise ToolException(rejects)
             if "SH_10500" not in write_result:
                 if body["type"] == "color_rgb":
                     house.caps["rgb"] = (body["redValue"], body["greenValue"], body["blueValue"])
@@ -90,6 +92,7 @@ class FakeHouse:
             caps += [{"type": k, "value": v} for k, v in house.caps.items() if k != "rgb"]
             return json.dumps({"id": deviceId, "lastCommunicationTime": house.ts, "capabilities": caps})
 
+        update_device_capabilities.handle_tool_error = True
         self.tools = [update_device_capabilities, get_device_details]
 
     async def provider(self):
@@ -154,6 +157,27 @@ class AgentTest(unittest.IsolatedAsyncioTestCase):
         a = out["actions"][0]
         self.assertEqual((a["status"], a["verified"], a["error"]), ("failed", None, True))
         self.assertIn("SH_10500", a["result"])
+        self.assertEqual(house.calls, ["details", "update"])
+
+    async def test_stale_device_write_blocked(self):
+        house = FakeHouse()
+        ctx = {**CTX, "state": {**CTX["state"], BULB: {**CTX["state"][BULB], "fresh": False, "staleMinutes": 180}}}
+        model = ScriptedModel(script=[call("update_device_capabilities", {"deviceId": BULB, "body": BLUE}, "c1"),
+                                      AIMessage(content="done")])
+        out = await agent(model, house).run(ctx)
+
+        self.assertEqual(house.calls, [])
+        self.assertEqual((out["actions"][0]["status"], out["actions"][0]["error"]), ("blocked", True))
+
+    async def test_mcp_error_reply_is_failed(self):
+        house = FakeHouse(rejects="Device offline")
+        model = ScriptedModel(script=[call("update_device_capabilities", {"deviceId": BULB, "body": BLUE}, "c1"),
+                                      AIMessage(content="done")])
+        out = await agent(model, house).run(CTX)
+
+        a = out["actions"][0]
+        self.assertEqual((a["status"], a["verified"], a["error"]), ("failed", None, True))
+        self.assertIn("Device offline", a["result"])
         self.assertEqual(house.calls, ["details", "update"])
 
     async def test_no_tools(self):
