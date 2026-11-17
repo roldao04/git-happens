@@ -1,4 +1,6 @@
 """Rest finder: each signal's resting state or level, learned from time held (starting-plan part 3)."""
+import contextlib
+import io
 import tempfile
 import unittest
 from datetime import date
@@ -6,7 +8,7 @@ from pathlib import Path
 
 from source.clock import day_bounds
 from source.ingest import ingest, read_jsonl
-from source.learn.rest import find_rest, observed_stretches, rest_from_store
+from source.learn.rest import find_rest, main, observed_stretches, rest_from_store
 from source.model import Event
 from source.store import Store
 from tests.test_ingest import DAY_MS, MORNING, at, plug
@@ -160,6 +162,16 @@ class LevelRestTest(unittest.TestCase):
         self.assertFalse(rest.at_rest(2100))
         self.assertGreater(rest.share, 0.99)
 
+    def test_readings_on_the_way_up_do_not_widen_the_wobble(self):
+        # a real coffee maker: each burst passes through a few low readings, which chain up from 0 W
+        ramp = [(w, 5_000) for w in (23, 46, 64, 98, 138)]
+        day = [(0, 23 * H)] + ramp + [(900 + 10 * i, 60_000) for i in range(7)] + [(0, 1 * H)]
+        events, end = series(PLUG, 0, day * 14)
+        rest = find_rest(events, end)[PLUG]
+        self.assertEqual((rest.value, rest.wobble), (0, 1))
+        self.assertFalse(rest.at_rest(23))
+        self.assertFalse(rest.at_rest(138))
+
     def test_three_levels_never_pick_the_one_held_least(self):
         events, end = series(PLUG, 0, [(0, 4 * H), (60, 2 * H), (80, 4 * H)])
         self.assertEqual(find_rest(events, end)[PLUG].value, 0)
@@ -254,6 +266,36 @@ class FromStoreTest(unittest.TestCase):
 
     def test_nothing_stored_yet(self):
         self.assertEqual(rest_from_store(self.store, at(2026, 9, 1, 8)), {})
+
+
+class CommandTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.folder = Path(tmp.name)
+
+    def _run(self, *args) -> tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = main([str(self.folder), *args])
+        return code, out.getvalue()
+
+    def test_shows_the_signals_that_left_rest(self):
+        store = Store(self.folder, record=False)
+        ingest(read_jsonl(MORNING), store, stale_ms=H)
+        store.close()
+        code, out = self._run()
+        self.assertEqual(code, 0)
+        self.assertIn("Plug.instantPower", out)
+        self.assertIn("0 ± 1", out)
+        self.assertNotIn("todayConsumption", out)
+        self.assertGreater(len(self._run("--all")[1]), len(out))
+
+    def test_a_folder_without_a_history_is_refused_and_left_empty(self):
+        code, out = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("no home.sqlite3", out)
+        self.assertEqual(list(self.folder.iterdir()), [])
 
 
 if __name__ == "__main__":

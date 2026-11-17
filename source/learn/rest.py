@@ -2,10 +2,14 @@
 
 Everything is measured in observed time, never in event counts. Time between snapshots that were far
 apart (gap), while a device was silent (stale) or after a signal left the snapshot (gone) is unknown.
+
+  uv run python -m source.learn.rest data/sim/rosa/      # the rests of an ingested history
 """
+import argparse
 from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from ..model import Event
@@ -23,6 +27,7 @@ SKIP = {
 VALUE_KINDS = {"initial", "change", "gone"}
 SLOW = {"temperatureValue", "humidityValue"}
 HOUR_MS = 3600_000
+WOBBLE_COVERS = 0.995  # of the time held in the resting group; the few readings further out are not rest
 
 
 @dataclass(frozen=True)
@@ -149,7 +154,7 @@ def _level(sig: SignalId, signal: str, held: dict[Any, int], observed: int) -> R
     step = _resolution(held)
     group = _busiest_group(held, step)
     value = _weighted_median([(v, held[v]) for v in group])
-    wobble = max(step, max(abs(v - value) for v in group))
+    wobble = max(step, _spread([(abs(v - value), held[v]) for v in group]))
     at_rest = sum(ms for v, ms in held.items() if abs(v - value) <= wobble)
     return Rest(sig, signal, "level", value, wobble, step, None, None, at_rest / observed, observed)
 
@@ -193,11 +198,24 @@ def _busiest_group(held: dict[Any, int], step: float) -> list[Any]:
 
 
 def _weighted_median(pairs: list[tuple[Any, int]]) -> Any:
+    return _weighted_quantile(pairs, 0.5)
+
+
+def _spread(distances: list[tuple[float, int]]) -> float:
+    """How far from rest the group reaches, without its rarest readings.
+
+    A burst passes through low values on its way up and down. They can chain onto the resting group,
+    but they hold almost none of its time, so they must not widen the wobble.
+    """
+    return _weighted_quantile(distances, WOBBLE_COVERS)
+
+
+def _weighted_quantile(pairs: list[tuple[Any, int]], q: float) -> Any:
     pairs = sorted(pairs)
-    half, acc = sum(ms for _, ms in pairs) / 2, 0
+    target, acc = sum(ms for _, ms in pairs) * q, 0
     for v, ms in pairs:
         acc += ms
-        if acc >= half:
+        if acc >= target:
             return v
     return pairs[-1][0]
 
@@ -208,3 +226,39 @@ def _longest(held: dict[Any, int]) -> Any:
         if best is None or ms > held[best]:
             best = v
     return best
+
+
+def describe(rest: Rest) -> str:
+    if rest.kind == "state":
+        at = repr(rest.value)
+    elif rest.kind == "level":
+        at = f"{rest.value:g} ± {rest.wobble:g}"
+    else:
+        at = f"around {rest.value:g}, moving {rest.rate_per_h:.2f} ± {rest.rate_wobble:.2f} per hour"
+    return f"{rest.signal:<38} {rest.kind:<5} {at:<46} {rest.share:6.1%} of {rest.observed_ms / HOUR_MS:,.1f} h"
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="source.learn.rest", description="Show each signal's rest in a history")
+    p.add_argument("folder", type=Path, help="a folder with a home.sqlite3, as source.ingest writes it")
+    p.add_argument("--all", action="store_true", help="also show signals that never left rest")
+    args = p.parse_args(argv)
+    if not (args.folder / "home.sqlite3").exists():
+        print(f"{args.folder} has no home.sqlite3: ingest a file into it first")
+        return 1
+    store = Store(args.folder, record=False)
+    try:
+        last = store.last_snapshot_before(2 ** 62)
+        rests = {} if last is None else rest_from_store(store, last + 1)
+    finally:
+        store.close()
+    shown = sorted((r for r in rests.values() if args.all or r.share < 1), key=lambda r: (r.signal, r.signal_id))
+    for rest in shown:
+        print(describe(rest))
+    hidden = "" if args.all else " (the others never left rest; --all shows them)"
+    print(f"{len(shown)} of {len(rests)} signals shown{hidden}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
