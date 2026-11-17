@@ -59,7 +59,9 @@ source/
   model.py      Reading, Event, WakeReason
   normalize.py  get_home JSON → flat readings
   diff.py       readings → events
-  store.py      SQLite: snapshots, events, triggers, agent runs
+  store.py      SQLite: snapshots, events, devices, days, agent and rule runs
+  clock.py      home time: local days in Europe/Lisbon, never the machine's zone
+  ingest.py     JSONL snapshots → history at full speed, for the learners (no agent, no rules)
   triggers.py   load, match (by device type), apply updates
   guard.py      write allow-list, plug-on rule, read-back verification
   actions.py    hard-rule actions: resolve the target type, then guarded_write
@@ -98,6 +100,24 @@ Live runs write to `data/`, replays to `data/replay/` (both gitignored):
 | `recording.jsonl` | Every raw snapshot (live only) | replay it with `--replay` |
 
 Every poll logs one `tick` line (`tick 22 @ 11-18 08:21:00: 52 readings, 2 events, wake: plug-power`), every change an `event` line, every wake-up a `wake` line. Console level: `LOOP_LOG_LEVEL` or `-v`; `-q` for files only. In code, attach data with `log.info("...", extra={"data": {...}})`.
+
+### Ingest (what the learners read)
+`source/ingest.py` builds the history from a JSONL file (the simulator's output or a live `recording.jsonl`) without the loop: no agent, no triggers, no rules, so it never calls the LLM or touches the kit. Every time comes from the data.
+```
+uv run python -m source.ingest data/sim/couple.jsonl --out data/sim/couple/   # --replace to start the run again
+```
+In code: `ingest(read_jsonl(path), store, stale_ms=..., on_day_end=fn)`. `fn(day)` runs once per local date (empty days too), after that day is committed and before anything later is stored, so a learner run there never sees the future.
+
+What it writes to `home.sqlite3`:
+
+| Table | Holds |
+|---|---|
+| `events` | `initial` (each signal's value at the first snapshot), `change`, `stale`, `returned`, and `gap` (snapshots more than 30 min apart: `old` = last before, `new` = first after) |
+| `devices` | `device_id`, `type`, `name`, `first_ts`: find devices by type with `store.devices_of_type("plug")`, even after re-pairing |
+| `days` | Each local date that has data: `first_ts`, `last_ts`, `snapshots` |
+| `snapshots` | Every snapshot, as before |
+
+Times are epoch ms; days are Lisbon dates (`source/clock.py`: `local_day`, `day_bounds`; 25 Oct 2026 is 25 h long).
 
 ### LangGraph
 Not used in the loop: poll → diff → store → decide is simpler and easier to debug as plain asyncio. LangGraph lives inside **`agent.run(ctx)`** (`source/agent.py`), with the same contract: context dict in, `{notes, trigger_updates, actions}` out.
@@ -160,7 +180,7 @@ Later:
 
 ## 6. What the real data tells us (`get_home`, 17 Nov 2026)
 - **The kit came back on 17 Nov (~10:00 UTC).** Until then every `lastCommunicationTime` was from 13–14 Nov, and the loop's first live run correctly reported all six devices as stale. At 11:01 only the **smoke sensor** was still stale (since 14 Nov), and the loop reported exactly that. Opening the door showed up as contact `sensorState: normal → alarm` within ~10 s.
-- **Re-pairing changed device IDs** (contact and temperature sensors). `triggers.py` still hard-codes the old contact ID, so the `contact` trigger can't fire on live data, and the locked `smoke` trigger points at a sensor that isn't reporting. Fix: find devices by `type` and flag stale ones.
+- **Re-pairing changed device IDs** (contact and temperature sensors). Triggers and rules now find devices by `type` and skip stale ones (PR #10); the smoke sensor is still not reporting.
 - **`lastCommunicationTime` isn't an event by itself**, but it decides whether a device is stale. The plug's was ~7 h older than the others', so "relay on, 0 A" only means something if the reading is **newer than our command**.
 - **Camera `motionDetected` / `soundDetected` were empty strings.** They look short-lived, so a 20 s poll may miss them. Log them whenever they're non-empty to learn how long they stay set; don't build routines on them until then.
 - **`security.isAlarmed: true` with `alarmType: FIRE_SMOKE`** is a stale "has gone off" flag, not "armed". Trigger on the **change**, not the level.
