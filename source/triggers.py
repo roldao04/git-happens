@@ -9,15 +9,11 @@ A trigger can also be a hard rule: `actions` are tool calls the loop runs itself
 """
 from dataclasses import dataclass, field
 
-from .model import Event, WakeReason
-from .normalize import HOME_SECURITY
+from .model import Event, State, WakeReason
+from .normalize import fresh_by_type
 
-SMOKE = "e4566929-1477-4023-8095-af904a0befe3"
-CONTACT = "d4d883d1-c83b-4411-b790-f63289402c1d"
-PLUG = "a291277c-8ba5-480a-b3a3-35b5f49bb459"
-DOOR = "13dc0bee-f750-4cb1-9cac-6897fe0a4bd4"  # the contact sensor that is actually reporting
-LIGHT = "90654832-7bca-47dd-89f3-d6e0b5f0a9ee"
-CAMERA = "4f4f2408-ffc2-4543-a42b-3757133a6df4"
+# Devices are found by type: ids change when a device is re-paired (docs/mcp-capabilities.md).
+SAFETY_TYPES = ("smokeSensor",)
 
 
 @dataclass
@@ -31,14 +27,14 @@ class Trigger:
     created_by: str = "seed"  # seed | agent | human
     expires_at: int | None = None  # ms
     enabled: bool = True
-    actions: list[dict] = field(default_factory=list)  # [{"tool": ..., "args": {...}}], run by code
+    actions: list[dict] = field(default_factory=list)  # [{"tool", "target": <type>, "args"}], run by code
     wake_agent: bool = True
 
 
-def set_color(device_id: str, r: int, g: int, b: int) -> dict:
-    return {"tool": "update_device_capabilities",
-            "args": {"deviceId": device_id,
-                     "body": {"type": "color_rgb", "redValue": r, "greenValue": g, "blueValue": b}}}
+def set_color(target_type: str, r: int, g: int, b: int) -> dict:
+    """The loop sends it to a fresh device of `target_type` (e.g. "bulb") when the rule fires."""
+    return {"tool": "update_device_capabilities", "target": target_type,
+            "args": {"body": {"type": "color_rgb", "redValue": r, "greenValue": g, "blueValue": b}}}
 
 
 def seed_triggers(heartbeat_minutes: float) -> list[Trigger]:
@@ -46,38 +42,40 @@ def seed_triggers(heartbeat_minutes: float) -> list[Trigger]:
         Trigger("heartbeat", "interval", "Regular check, also catches when nothing happens",
                 {"period_s": heartbeat_minutes * 60}, locked=True),
         Trigger("smoke", "change", "Smoke detected",
-                {"device_id": SMOKE, "capability": "sensorState", "to": "alarm"}, locked=True),
+                {"device_type": "smokeSensor", "capability": "sensorState", "to": "alarm"}, locked=True),
         Trigger("alarm-went-off", "change", "The alarm went off",
-                {"device_id": HOME_SECURITY, "capability": "isAlarmed", "to": True}, locked=True),
+                {"device_type": "security", "capability": "isAlarmed", "to": True}, locked=True),
         Trigger("contact", "change", "Door/window opened or closed",
-                {"device_id": CONTACT, "capability": "sensorState"}),
+                {"device_type": "contactSensor", "capability": "sensorState"}),
         Trigger("plug-power", "delta", "Big change in plug power",
-                {"device_id": PLUG, "capability": "instantPower", "min_delta": 300}),
+                {"device_type": "plug", "capability": "instantPower", "min_delta": 300}),
         Trigger("device-silent", "stale", "A device stopped reporting or came back"),
         # Hard rules: door open → lamp blue, door closed → lamp red. No LLM, no cooldown.
         Trigger("door-open", "change", "The door opened: lamp blue",
-                {"device_id": DOOR, "capability": "sensorState", "not_to": "normal"},
-                cooldown_s=0, actions=[set_color(LIGHT, 0, 0, 255)], wake_agent=False),
+                {"device_type": "contactSensor", "capability": "sensorState", "not_to": "normal"},
+                cooldown_s=0, actions=[set_color("bulb", 0, 0, 255)], wake_agent=False),
         Trigger("door-closed", "change", "The door closed: lamp red",
-                {"device_id": DOOR, "capability": "sensorState", "to": "normal"},
-                cooldown_s=0, actions=[set_color(LIGHT, 255, 0, 0)], wake_agent=False),
+                {"device_type": "contactSensor", "capability": "sensorState", "to": "normal"},
+                cooldown_s=0, actions=[set_color("bulb", 255, 0, 0)], wake_agent=False),
         # The camera reports no dB level: "loud enough" is its soundSensitivity (set in the app,
         # with soundAlarmSwitch on). soundDetected is "" when quiet, non-empty when it hears sound.
         Trigger("camera-sound", "change", "The camera heard sound (people talking): turn the lamp blue",
-                {"device_id": CAMERA, "capability": "soundDetected", "not_to": ""}),
+                {"device_type": "camera", "capability": "soundDetected", "not_to": ""}),
         # Same idea for motion: needs motionAlarmSwitch on; motionSensitivity is the level.
         Trigger("camera-motion", "change", "The camera saw motion: turn the lamp blue",
-                {"device_id": CAMERA, "capability": "motionDetected", "not_to": ""}),
+                {"device_type": "camera", "capability": "motionDetected", "not_to": ""}),
     ]
 
 
-def _matches(t: Trigger, e: Event) -> bool:
+def _matches(t: Trigger, e: Event, types: dict[str, str]) -> bool:
     c = t.condition
     if t.kind == "stale":
         return e.kind in ("stale", "returned")
     if e.kind != "change":
         return False
     if c.get("device_id") not in (None, e.device_id) or c.get("capability") not in (None, e.capability):
+        return False
+    if c.get("device_type") not in (None, types.get(e.device_id)):
         return False
     if t.kind == "change":
         if "not_to" in c and e.new == c["not_to"]:
@@ -96,7 +94,10 @@ class Triggers:
         self.triggers = {t.id: t for t in triggers}
         self._last_fired: dict[str, int] = {}
 
-    def match(self, events: list[Event], now_ms: int) -> list[WakeReason]:
+    def match(self, events: list[Event], now_ms: int,
+              types: dict[str, str] | None = None) -> list[WakeReason]:
+        """types: device_id -> device type, for conditions on `device_type`."""
+        types = types or {}
         reasons: list[WakeReason] = []
         for t in self.triggers.values():
             if not t.enabled or (t.expires_at and now_ms > t.expires_at):
@@ -107,7 +108,7 @@ class Triggers:
                     reasons.append(WakeReason(t.id, t.reason))
                     self._last_fired[t.id] = now_ms
                 continue
-            hits = [e for e in events if _matches(t, e)]
+            hits = [e for e in events if _matches(t, e, types)]
             if not hits:
                 continue
             if not t.locked and last is not None and now_ms - last < t.cooldown_s * 1000:
@@ -123,3 +124,10 @@ class Triggers:
             if t and t.locked and u.get("enabled") is False:
                 continue
             # TODO: validate and apply add / change / expire once the agent proposes them.
+
+
+def missing_fresh(state: State, now_ms: int, stale_ms: int,
+                  required: tuple[str, ...] = SAFETY_TYPES) -> list[str]:
+    """Device types a locked safety trigger needs but no fresh device provides."""
+    fresh = fresh_by_type(state, now_ms, stale_ms)
+    return [t for t in required if not fresh.get(t)]

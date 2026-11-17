@@ -60,3 +60,19 @@ async def run_actions(actuator: Actuator, trigger_id: str, actions: list[dict],
                 extra={"data": {"trigger_id": trigger_id, "action": out}})
         done.append(out)
     return done
+
+
+def resolve_targets(actions: list[dict], fresh: dict[str, list[str]]) -> tuple[list[dict], list[dict]]:
+    """Fills each action's deviceId from its `target` type (first fresh device of that type).
+    Returns (ready to run, skipped records): an action never goes to a device that isn't reporting."""
+    ready, skipped = [], []
+    for a in actions:
+        target = a.get("target")
+        if target is None:
+            ready.append(a)
+        elif fresh.get(target):
+            ready.append({"tool": a["tool"], "args": {"deviceId": fresh[target][0], **a.get("args", {})}})
+        else:
+            skipped.append({"tool": a.get("tool", ""), "args": a.get("args", {}), "status": "skipped",
+                            "verified": None, "error": True, "result": f"no fresh {target}"})
+    return ready, skipped

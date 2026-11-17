@@ -47,3 +47,14 @@ def device_last_seen(state: State) -> dict[str, tuple[str, int]]:
         if r.comm_ts is not None:
             out[r.device_id] = (r.device, r.comm_ts)
     return out
+
+
+def fresh_by_type(state: State, now_ms: int, stale_ms: int) -> dict[str, list[str]]:
+    """device type -> ids of devices of that type that reported within stale_ms."""
+    out: dict[str, list[str]] = {}
+    for r in state.values():
+        if r.comm_ts is not None and now_ms - r.comm_ts <= stale_ms:
+            ids = out.setdefault(r.device_type, [])
+            if r.device_id not in ids:
+                ids.append(r.device_id)
+    return out
