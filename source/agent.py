@@ -5,7 +5,8 @@ StubAgent only logs what it was given. LangGraphAgent runs a small graph per wak
     START -> agent <-> tools (ToolNode) -> report -> END
 
 Contract (same for both): context dict in, {notes, trigger_updates, actions} out.
-`actions` is built from the tool calls actually made, never taken from the LLM.
+`actions` is built from the tool calls actually made, never taken from the LLM: every write
+goes through guard.guarded_write (allow-list, then read-back by code).
 """
 import json
 import logging
@@ -15,14 +16,16 @@ from typing import Annotated
 
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import BaseTool
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
+from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from pydantic import BaseModel
 from typing_extensions import TypedDict
+
+from .guard import WRITE_TOOL, guarded_write
 
 log = logging.getLogger("source.agent")
 
@@ -98,7 +101,13 @@ def build_graph(model: BaseChatModel, tools: list[BaseTool]):
 
 
 def _text(content) -> str:
-    return content if isinstance(content, str) else json.dumps(content, default=str)
+    """Message or tool content as plain text (MCP tools may return a list of content blocks)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(b if isinstance(b, str) else str(b.get("text", "")) if isinstance(b, dict) else str(b)
+                       for b in content)
+    return json.dumps(content, default=str)
 
 
 def parse_report(text: str) -> Report:
@@ -112,29 +121,53 @@ def parse_report(text: str) -> Report:
     return Report(notes=text.strip())
 
 
-def extract_actions(messages: list) -> list[dict]:
-    results = {m.tool_call_id: m for m in messages if isinstance(m, ToolMessage)}
-    actions = []
-    for m in messages:
-        if not isinstance(m, AIMessage):
-            continue
-        for call in m.tool_calls:
-            if call["name"] not in WRITE_TOOLS:
-                continue
-            tm = results.get(call["id"])
-            result = _text(tm.content) if tm is not None else ""
-            error = tm is None or tm.status == "error" or "SH_10500" in result or '"error"' in result
-            actions.append({"tool": call["name"], "args": call["args"], "result": result, "error": error})
-    return actions
+def _tell_llm(action: dict) -> str:
+    if action["status"] == "blocked":
+        return action["result"]
+    if action["status"] == "failed":
+        return f"failed: {action['result']}"
+    if action["verified"] == "confirmed":
+        return "sent and confirmed: the device now reports the new value."
+    return "sent but NOT confirmed: the device did not report the new value. Say you tried but couldn't confirm."
+
+
+def guard_writes(tools: list[BaseTool], devices: dict[str, str], actions: list[dict], *,
+                 allow_plug_on: bool, readback_tries: int, readback_delay_s: float) -> list[BaseTool]:
+    """Replaces the write tool with one that runs guarded_write and records each action."""
+    by_name = {t.name: t for t in tools}
+    write = by_name.get(WRITE_TOOL)
+    if write is None:
+        return tools
+
+    async def call_tool(name: str, args: dict) -> str:
+        # invoked as a ToolCall so an MCP isError reply keeps its status instead of passing as text
+        msg = await by_name[name].ainvoke({"type": "tool_call", "id": f"guard-{name}", "name": name, "args": args})
+        if getattr(msg, "status", None) == "error":
+            raise RuntimeError(_text(msg.content))
+        return _text(getattr(msg, "content", msg))
+
+    async def guarded(**args) -> str:
+        action = await guarded_write(call_tool, args, devices, allow_plug_on=allow_plug_on,
+                                     readback_tries=readback_tries, readback_delay_s=readback_delay_s)
+        actions.append(action)
+        return _tell_llm(action)
+
+    wrapped = StructuredTool.from_function(coroutine=guarded, name=write.name,
+                                           description=write.description, args_schema=write.args_schema)
+    return [wrapped if t is write else t for t in tools]
 
 
 class LangGraphAgent:
     def __init__(self, model: BaseChatModel,
                  tools_provider: Callable[[], Awaitable[list[BaseTool]]] | None = None,
-                 *, max_steps: int = 12):
+                 *, max_steps: int = 12, allow_plug_on: bool = False,
+                 readback_tries: int = 3, readback_delay_s: float = 2.0):
         self.model = model
         self.tools_provider = tools_provider
         self.max_steps = max_steps
+        self.allow_plug_on = allow_plug_on  # only source.ask: a person asked directly (tier 2)
+        self.readback_tries = readback_tries
+        self.readback_delay_s = readback_delay_s
 
     async def run(self, ctx: dict) -> dict:
         why = ", ".join(r["trigger_id"] for r in ctx["reasons"])
@@ -149,6 +182,10 @@ class LangGraphAgent:
             except Exception as e:
                 log.warning("tools unavailable, running without tools: %s", e)
                 tools = []
+        actions: list[dict] = []
+        devices = {dev_id: d.get("type", "") for dev_id, d in ctx["state"].items() if d.get("fresh") is True}
+        tools = guard_writes(tools, devices, actions, allow_plug_on=self.allow_plug_on,
+                             readback_tries=self.readback_tries, readback_delay_s=self.readback_delay_s)
 
         graph = build_graph(self.model, tools)
         messages = [SystemMessage(PROMPT_PATH.read_text()),
@@ -165,11 +202,10 @@ class LangGraphAgent:
             limit_hit = True
             log.warning("agent hit the step limit (%d)", self.max_steps)
 
-        actions = extract_actions(final["messages"])
         for a in actions:
-            log.info("action %s %s -> %s", a["tool"], json.dumps(a["args"], default=str),
-                     "ERROR" if a["error"] else "ok",
-                     extra={"data": a})
+            log.log(logging.WARNING if a["error"] else logging.INFO, "action %s %s -> %s%s",
+                    a["tool"], json.dumps(a["args"], default=str), a["status"],
+                    f" ({a['verified']})" if a["verified"] else "", extra={"data": a})
 
         rep: Report | None = final.get("report")
         if limit_hit or rep is None:

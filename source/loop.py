@@ -8,27 +8,28 @@ import logging
 import time
 from datetime import datetime
 
-from .actions import Actuator, DryRunActuator, run_actions
+from .actions import Actuator, DryRunActuator, resolve_targets, run_actions
 from .context import build_context
 from .diff import diff, initially_stale
 from .model import Event
-from .normalize import normalize
+from .normalize import device_types, fresh_by_type, normalize
 from .sources import Source, SourceError
 from .store import Store
-from .triggers import Triggers
+from .triggers import Triggers, missing_fresh
 
 log = logging.getLogger("source.loop")
 
 
 async def run(source: Source, store: Store, triggers: Triggers, agent, *,
               poll_seconds: float, stale_minutes: float, max_ticks: int | None = None,
-              actuator: Actuator | None = None) -> None:
+              actuator: Actuator | None = None, readback_delay_s: float = 0.0) -> None:
     actuator = actuator or DryRunActuator()
     stale_ms = int(stale_minutes * 60_000)
     prev = None
     prev_now: int | None = None
     last_run_ms: int | None = None
     in_gap = False
+    blind: list[str] = []  # safety device types with no fresh device
     ticks = 0
     log.info("loop started: %s, poll every %ss, stale after %s min",
              type(source).__name__, poll_seconds, stale_minutes,
@@ -65,11 +66,35 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
         for e in events:
             log.info("event  %s", e.describe(), extra={"data": {"event": e.to_dict()}})
 
-        fired = triggers.match(events, now)
+        now_blind = missing_fresh(state, now, stale_ms)
+        if now_blind != blind:
+            if now_blind:
+                log.warning("safety trigger can't fire: no fresh %s", ", ".join(now_blind),
+                            extra={"data": {"missing": now_blind}})
+            else:
+                log.info("safety devices reporting again")
+            blind = now_blind
+
+        types = device_types(state)
+        fresh = fresh_by_type(state, now, stale_ms)
+        fired = triggers.match(events, now, types)
+        rules_ran: list[dict] = []
         for r in fired:  # hard rules first: code runs their actions, no LLM
             t = triggers.triggers[r.trigger_id]
-            if t.actions:
-                store.log_rule_run(now, r.trigger_id, await run_actions(actuator, r.trigger_id, t.actions))
+            if not t.actions:
+                continue
+            try:
+                ready, skipped = resolve_targets(t.actions, fresh)
+                for a in skipped:
+                    log.warning("rule   %s skipped: %s", r.trigger_id, a["result"],
+                                extra={"data": {"trigger_id": r.trigger_id, "action": a}})
+                done = await run_actions(actuator, r.trigger_id, ready, types, readback_delay_s=readback_delay_s)
+                store.log_rule_run(now, r.trigger_id, skipped + done)
+                rules_ran.append({"trigger_id": r.trigger_id, "actions": [
+                    {"deviceId": a["args"].get("deviceId"), "body": a["args"].get("body"),
+                     "status": a["status"], "verified": a["verified"]} for a in skipped + done]})
+            except Exception:  # a broken rule must never stop the loop (or the smoke trigger)
+                log.exception("rule   %s actions failed", r.trigger_id, extra={"data": {"trigger_id": r.trigger_id}})
         reasons = [r for r in fired if triggers.triggers[r.trigger_id].wake_agent]
         rules = [r.trigger_id for r in fired if r not in reasons]
         log.info("tick %d @ %s: %d readings, %d events, %s%s (%.1fs)",
@@ -81,7 +106,7 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
                                  "events": len(events), "wake": [r.trigger_id for r in reasons],
                                  "rules": rules}})
         if reasons:
-            ctx = build_context(now, reasons, state, store, last_run_ms)
+            ctx = build_context(now, reasons, state, store, last_run_ms, stale_ms, rules_ran)
             log.debug("agent context", extra={"data": {"context": ctx}})
             try:
                 out = await agent.run(ctx)

@@ -35,13 +35,13 @@ async def _main(request: str) -> None:
     try:
         now, home = await source.fetch()
         reasons = [WakeReason("person", f"A person asked: {request}")]
-        ctx = build_context(now, reasons, normalize(home), store, None)
+        ctx = build_context(now, reasons, normalize(home), store, None, int(s.stale_minutes * 60_000))
 
         async def tools():
             return await mcp_tools(await source.session())
 
         agent = LangGraphAgent(make_model(s.agent_model, s.openrouter_api_key),
-                               tools_provider=tools, max_steps=s.agent_max_steps)
+                               tools_provider=tools, max_steps=s.agent_max_steps, allow_plug_on=True)
         try:
             out = await agent.run(ctx)
         except Exception as exc:  # e.g. the model provider refusing the request

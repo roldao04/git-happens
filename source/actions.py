@@ -1,12 +1,15 @@
 """Hard-rule actions: tool calls a trigger runs directly, with no LLM.
 
 A trigger's `actions` is a list of {"tool": <MCP tool name>, "args": {...}}. Only the tools in
-ALLOWED can run, the same write the agent is limited to. Replays get DryRunActuator, so a replay
-never touches the real kit.
+ALLOWED can run, the same write the agent is limited to, and each write goes through
+guard.guarded_write (allow-list, never plug-on, read-back). Replays get DryRunActuator, so a
+replay never touches the real kit.
 """
 import json
 import logging
 from typing import Protocol
+
+from .guard import READ_TOOL, guarded_write
 
 log = logging.getLogger("source.actions")
 
@@ -34,24 +37,42 @@ class McpActuator:
 
 class DryRunActuator:
     async def call(self, tool: str, args: dict) -> str:
-        return "dry run"
+        return "{}" if tool == READ_TOOL else "dry run"  # reads answer "nothing known": never confirmed
 
 
-async def run_actions(actuator: Actuator, trigger_id: str, actions: list[dict]) -> list[dict]:
-    """Runs each action in order. A failure is logged and recorded, never raised."""
+async def run_actions(actuator: Actuator, trigger_id: str, actions: list[dict],
+                      devices: dict[str, str] | None = None, *,
+                      readback_tries: int = 3, readback_delay_s: float = 0.0) -> list[dict]:
+    """Runs each action in order through the write guard (never plug-on), then reads it back.
+    A failure is logged and recorded, never raised. `devices`: device_id -> type."""
     done = []
     for a in actions:
         tool, args = a.get("tool", ""), a.get("args", {})
         if tool not in ALLOWED:
-            out = {"tool": tool, "args": args, "error": True, "result": f"tool {tool!r} is not allowed"}
+            out = {"tool": tool, "args": args, "status": "blocked", "verified": None,
+                   "error": True, "result": f"tool {tool!r} is not allowed"}
         else:
-            try:
-                out = {"tool": tool, "args": args, "error": False, "result": await actuator.call(tool, args)}
-            except Exception as exc:
-                out = {"tool": tool, "args": args, "error": True, "result": str(exc)}
+            out = await guarded_write(actuator.call, args, devices or {}, allow_plug_on=False,
+                                      readback_tries=readback_tries, readback_delay_s=readback_delay_s)
         level = logging.WARNING if out["error"] else logging.INFO
-        log.log(level, "rule   %s → %s %s: %s", trigger_id, tool, json.dumps(args),
-                "FAILED " + out["result"] if out["error"] else "ok",
+        log.log(level, "rule   %s → %s %s: %s%s", trigger_id, tool, json.dumps(args), out["status"],
+                f" ({out['verified']})" if out["verified"] else f": {out['result'][:200]}",
                 extra={"data": {"trigger_id": trigger_id, "action": out}})
         done.append(out)
     return done
+
+
+def resolve_targets(actions: list[dict], fresh: dict[str, list[str]]) -> tuple[list[dict], list[dict]]:
+    """Fills each action's deviceId from its `target` type (first fresh device of that type).
+    Returns (ready to run, skipped records): an action never goes to a device that isn't reporting."""
+    ready, skipped = [], []
+    for a in actions:
+        target = a.get("target")
+        if target is None:
+            ready.append(a)
+        elif fresh.get(target):
+            ready.append({"tool": a["tool"], "args": {"deviceId": fresh[target][0], **a.get("args", {})}})
+        else:
+            skipped.append({"tool": a.get("tool", ""), "args": a.get("args", {}), "status": "skipped",
+                            "verified": None, "error": True, "result": f"no fresh {target}"})
+    return ready, skipped

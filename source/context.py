@@ -10,13 +10,17 @@ def _iso(ms: int) -> str:
 
 
 def build_context(now_ms: int, reasons: list[WakeReason], state: State, store: Store,
-                  last_run_ms: int | None) -> dict:
+                  last_run_ms: int | None, stale_ms: int, rules_ran: list[dict] | None = None) -> dict:
     devices: dict[str, dict] = {}
     for r in state.values():
-        d = devices.setdefault(r.device, {})
+        d = devices.setdefault(r.device_id, {"name": r.device, "type": r.device_type})
         d[r.capability] = r.value
         if r.comm_ts is not None:
             d["lastSeen"] = _iso(r.comm_ts)
+            age = now_ms - r.comm_ts
+            d["fresh"] = age <= stale_ms
+            if not d["fresh"]:
+                d["staleMinutes"] = age // 60_000
 
     midnight = datetime.fromtimestamp(now_ms / 1000).replace(hour=0, minute=0, second=0, microsecond=0)
     today = store.events_since(int(midnight.timestamp() * 1000))
@@ -28,6 +32,7 @@ def build_context(now_ms: int, reasons: list[WakeReason], state: State, store: S
     return {
         "now": _iso(now_ms),
         "reasons": [r.to_dict() for r in reasons],
+        "rules_just_ran": rules_ran or [],
         "state": devices,
         "events_since_last_run": [line(e) for e in since_last][-200:],
         "timeline_today": [line(e) for e in today][-500:],

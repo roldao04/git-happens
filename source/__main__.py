@@ -63,13 +63,15 @@ async def _main(args) -> None:
             sys.exit("CGH_API_KEY is not set: copy .env.example to .env and add the team API key")
         source = McpSource(s.api_key, proxy_log=data_dir / "logs" / "mcp-remote.log")
         store = Store(data_dir)
+    dry_run = bool(args.replay or args.stub)
     try:
         await run(source, store, Triggers(seed_triggers(s.heartbeat_minutes)),
                   _make_agent(s, args, source),
                   poll_seconds=args.poll or s.poll_seconds, stale_minutes=s.stale_minutes,
                   max_ticks=args.ticks,
                   # replays and --stub never write; live runs let hard rules act
-                  actuator=None if args.replay or args.stub else McpActuator(source))
+                  actuator=None if dry_run else McpActuator(source),
+                  readback_delay_s=0.0 if dry_run else 2.0)
     finally:
         await source.close()
         store.close()
