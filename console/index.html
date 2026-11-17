@@ -41,6 +41,9 @@
   .card h3 { margin: 0; font-size: 15px; }
   .card .type { font-size: 12px; color: var(--muted); }
   .facts { display: flex; flex-wrap: wrap; gap: 5px; }
+  .info { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .info dt { color: var(--muted); }
+  .info dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
   .ctl { display: grid; grid-template-columns: 76px 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
   .ctl input[type=range] { width: 100%; }
   .ctl input[type=color] { width: 44px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
@@ -182,10 +185,72 @@ function facts(d) {
   return out;
 }
 
+// Every other reading the device reports, shown as a label/value list under the pills.
+// Coded values (camera SD status, night vision, record mode) use the Tuya meanings, with the raw code kept beside them.
+const coded = (map) => (v) => (map[v] ? `${map[v]} (${v})` : String(v));
+const onOff = (v) => (v ? 'on' : 'off');
+const INFO = {
+  chargeState: ['Charging', (v) => (v ? 'yes' : 'no')],
+  wifiSignalStrength: ['Wi-Fi signal'],
+  cellularAllowed: ['Cellular allowed', (v) => (v ? 'yes' : 'no')],
+  cellularState: ['Cellular'],
+  cellularConnectionState: ['Cellular link'],
+  cellularSignalStrength: ['Cellular signal'],
+  alarmState: ['Alarm'],
+  tamperState: ['Tamper'],
+  instantVoltage: ['Voltage', (v) => `${v} V`],
+  instantCurrent: ['Current', (v) => `${v} mA`],
+  yesterdayConsumption: ['Yesterday', (v) => `${v} kWh`],
+  additionalEnergyConsumption: ['Extra consumption', (v) => `${v} kWh`],
+  multiPower: ['Sockets', (v) => (Array.isArray(v) ? v.map((x) => `${x.name} ${x.value}`).join(', ') : String(v))],
+  workMode: ['Mode'],
+  temperature: ['White temperature', (v) => `${v}%`],
+  sdAvailable: ['SD card', coded({ 1: 'ok', 2: 'abnormal', 3: 'low space', 4: 'formatting', 5: 'no card' })],
+  sdStorage: ['SD storage (total|used|free)'],
+  sdRecordMode: ['Record mode', coded({ 1: 'on event', 2: 'continuous' })],
+  streamingSwitch: ['Streaming', onOff],
+  motionAlarmSwitch: ['Motion alarm', onOff],
+  motionSensitivity: ['Motion sensitivity', coded({ 0: 'low', 1: 'medium', 2: 'high' })],
+  motionDetected: ['Last motion'],
+  soundAlarmSwitch: ['Sound alarm', onOff],
+  soundSensitivity: ['Sound sensitivity'],
+  soundDetected: ['Last sound'],
+  nightVisionMode: ['Night vision', coded({ 0: 'auto', 1: 'off', 2: 'on' })],
+  lightIndicator: ['Status light', onOff],
+  basicFlip: ['Image flipped', (v) => (v ? 'yes' : 'no')],
+  basicOsd: ['Time watermark', onOff],
+};
+// Already shown as pills or controls, or one-shot commands rather than readings.
+const HIDDEN = new Set(['temperatureValue', 'humidityValue', 'batteryLevel', 'batteryStatus', 'sensorState', 'signalStrength',
+  'networkMode', 'instantPower', 'todayConsumption', 'sdRecording', 'power', 'brightness', 'color_rgb',
+  'factoryReset', 'restart', 'sdFormat', 'sdFormatState', 'ptzControl', 'ptzStop']);
+const pairedCache = new Map(); // deviceId -> pairedTime; it never changes, so one lookup per device
+
+function info(d) {
+  const dl = el('dl', { className: 'info' });
+  const row = (label, value) => dl.append(el('dt', { textContent: label }), el('dd', { textContent: value }));
+  for (const c of d.capabilities || []) {
+    if (HIDDEN.has(c.type) || c.value === '' || c.value == null) continue;
+    const [label, fmt] = INFO[c.type] || [c.type];
+    row(label, fmt ? fmt(c.value) : typeof c.value === 'object' ? JSON.stringify(c.value) : String(c.value));
+  }
+  if (d.categories?.length) row('Category', d.categories.join(', '));
+  if (d.lastCommunicationTime) row('Last seen', new Date(d.lastCommunicationTime).toLocaleString());
+  const paired = el('dd', { textContent: '…' });
+  dl.append(el('dt', { textContent: 'Paired' }), paired);
+  const show = (ms) => (paired.textContent = ms ? new Date(ms).toLocaleDateString() : 'unknown');
+  if (pairedCache.has(d.id)) show(pairedCache.get(d.id));
+  else call('get_device_details', { deviceId: d.id })
+    .then((r) => { const ms = (r.device || r).pairedTime; pairedCache.set(d.id, ms); show(ms); })
+    .catch(() => show(null));
+  return dl;
+}
+
 function deviceCard(d) {
   const card = el('div', { className: 'card' },
     el('div', {}, el('h3', { textContent: d.name }), el('div', { className: 'type', textContent: `${d.type} · ${d.roomName || 'no room'} · seen ${ago(d.lastCommunicationTime)}` })),
     el('div', { className: 'facts' }, ...facts(d)));
+  const more = info(d);
   const update = (label, body) => act(`${d.name}: ${label}`, 'update_device_capabilities', { deviceId: d.id, body });
 
   const power = cap(d, 'power');
@@ -212,9 +277,9 @@ function deviceCard(d) {
     };
     card.append(el('div', { className: 'ctl' }, 'Colour', c, ''));
   }
-  const inspect = el('button', { textContent: 'Details' });
+  const inspect = el('button', { textContent: 'Raw details' });
   inspect.onclick = () => runTool('get_device_details', { deviceId: d.id });
-  card.append(inspect);
+  card.append(more, inspect);
   return card;
 }
 
