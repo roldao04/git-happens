@@ -9,6 +9,7 @@ Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimag
 | Doc | What it's for | Read when |
 |---|---|---|
 | [`docs/synapse.md`](docs/synapse.md) | **The concept:** story, semantic layer, rules, verification, memories, demo, build plan | First |
+| [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how verification and self-authored rules plug in | Before writing the poller or agent |
 | [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; device IDs | Before writing code |
 | [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules | Before the pitch or report |
 | [`deliverables/README.md`](deliverables/README.md) | What we hand in, limits and deadlines | Before each deadline |
@@ -26,20 +27,33 @@ Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimag
 2. `python3 tools/connected_home_auth.py login` (one-time browser sign-in with the team account).
 3. Start Claude Code in this folder and check `/mcp` shows `connected-home` connected.
 
+## Run the event loop
+```
+cp .env.example .env     # add the team API key as CGH_API_KEY
+uv run python -m source --replay tests/fixtures/morning.jsonl   # demo morning, no kit needed
+uv run python -m source                                         # live
+uv run python -m source.show events                             # what it saw
+tail -f data/logs/loop.log                                      # logs
+```
+Details: [`docs/event-loop.md`](docs/event-loop.md).
+
 ## Repo structure
 ```
 README.md               you are here
 .mcp.example.json       MCP config template (the real .mcp.json is gitignored)
 docs/
   synapse.md            the concept
+  event-loop.md         polling loop + agent triggers design
   mcp-capabilities.md   MCP reference
   altice-hackathon-brief.md
   reference/            organiser material + research (read-only)
 deliverables/           report, executive summary, slides (+ organiser templates)
 assets/                 logo and images
 tools/                  connected_home_auth.py (OAuth helper used by .mcp.json)
+source/                 event loop: poll the MCP, diff, store, triggers, agent (stub), logs, show
+tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Planned, created when the code starts: `synapse/` (event bridge, semantic layer, rules, verifier, memory, agent, MCP server) · `simulator/` (digital twin + replayed "Rosa" weeks) · `apps/` (Ana's app, Rosa's tablet).
+Planned: more of `source/` (semantic layer, rules, verifier, memory, real agent, MCP server) · `simulator/` (digital twin + replayed "Rosa" weeks) · `apps/` (Ana's app, Rosa's tablet).
 
 ## Conventions
 - **Never commit secrets:** `.mcp.json`, `.env` and tokens stay local (see `.gitignore`).
