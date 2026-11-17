@@ -31,8 +31,9 @@ WRITE_TOOLS = frozenset({"update_device_capabilities"})
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "agent.md"
 
-REPORT_ASK = ("Now give your final report: short plain-words notes (what you saw, what you did, "
-              "whether it was confirmed) and trigger_updates (usually empty).")
+REPORT_ASK = ("Now give your final report. Reply with ONLY a JSON object, no other text: "
+              '{"notes": "<short plain words: what you saw, what you did, whether it was confirmed>", '
+              '"trigger_updates": []}  (trigger_updates is usually empty).')
 
 
 class Report(BaseModel):
@@ -77,11 +78,10 @@ def build_graph(model: BaseChatModel, tools: list[BaseTool]):
         return {"messages": [await llm.ainvoke(state["messages"])]}
 
     async def report(state: _State):
-        out = await model.with_structured_output(Report, method="function_calling").ainvoke(
-            state["messages"] + [HumanMessage(REPORT_ASK)])
-        if not isinstance(out, Report):
-            out = Report.model_validate(out)
-        return {"report": out}
+        # Plain JSON-in-text, not with_structured_output: providers differ in what they support
+        # (e.g. Meta's endpoint accepts only tool_choice "auto" and only closed JSON schemas).
+        msg = await model.ainvoke(state["messages"] + [HumanMessage(REPORT_ASK)])
+        return {"report": parse_report(_text(msg.content))}
 
     g = StateGraph(_State)
     g.add_node("agent", agent)
@@ -99,6 +99,17 @@ def build_graph(model: BaseChatModel, tools: list[BaseTool]):
 
 def _text(content) -> str:
     return content if isinstance(content, str) else json.dumps(content, default=str)
+
+
+def parse_report(text: str) -> Report:
+    """The first {...} in the reply as a Report; if that fails, the whole reply becomes the notes."""
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return Report.model_validate(json.loads(text[start:end + 1]))
+        except ValueError:
+            pass
+    return Report(notes=text.strip())
 
 
 def extract_actions(messages: list) -> list[dict]:
