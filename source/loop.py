@@ -78,6 +78,7 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
         types = device_types(state)
         fresh = fresh_by_type(state, now, stale_ms)
         fired = triggers.match(events, now, types)
+        rules_ran: list[dict] = []
         for r in fired:  # hard rules first: code runs their actions, no LLM
             t = triggers.triggers[r.trigger_id]
             if not t.actions:
@@ -89,6 +90,9 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
                                 extra={"data": {"trigger_id": r.trigger_id, "action": a}})
                 done = await run_actions(actuator, r.trigger_id, ready, types, readback_delay_s=readback_delay_s)
                 store.log_rule_run(now, r.trigger_id, skipped + done)
+                rules_ran.append({"trigger_id": r.trigger_id, "actions": [
+                    {"deviceId": a["args"].get("deviceId"), "body": a["args"].get("body"),
+                     "status": a["status"], "verified": a["verified"]} for a in skipped + done]})
             except Exception:  # a broken rule must never stop the loop (or the smoke trigger)
                 log.exception("rule   %s actions failed", r.trigger_id, extra={"data": {"trigger_id": r.trigger_id}})
         reasons = [r for r in fired if triggers.triggers[r.trigger_id].wake_agent]
@@ -102,7 +106,7 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
                                  "events": len(events), "wake": [r.trigger_id for r in reasons],
                                  "rules": rules}})
         if reasons:
-            ctx = build_context(now, reasons, state, store, last_run_ms, stale_ms)
+            ctx = build_context(now, reasons, state, store, last_run_ms, stale_ms, rules_ran)
             log.debug("agent context", extra={"data": {"context": ctx}})
             try:
                 out = await agent.run(ctx)

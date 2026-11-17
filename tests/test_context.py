@@ -29,6 +29,12 @@ class ContextTest(unittest.TestCase):
     def state_of(self, home):
         return build_context(LIVE_TS, [], normalize(home), self.store, None, STALE_MS)["state"]
 
+    def test_rules_just_ran_listed(self):
+        ran = [{"trigger_id": "door-open", "actions": [{"deviceId": "x", "status": "sent"}]}]
+        ctx = build_context(LIVE_TS, [], normalize(LIVE), self.store, None, STALE_MS, rules_ran=ran)
+        self.assertEqual(ctx["rules_just_ran"], ran)
+        self.assertEqual(build_context(LIVE_TS, [], normalize(LIVE), self.store, None, STALE_MS)["rules_just_ran"], [])
+
     def test_smoke_marked_stale(self):
         smoke = self.state_of(LIVE)[SMOKE]
         self.assertIs(smoke["fresh"], False)

@@ -214,6 +214,25 @@ class LoopTest(unittest.TestCase):
             self._replay(frames)
         self.assertEqual(sum("smokeSensor" in line for line in logs.output), 1)
 
+    def test_agent_told_which_rules_ran(self):
+        home = copy.deepcopy(FIXTURE)
+        home["devices"].append({"id": DOOR, "name": "Door", "type": "contactSensor",
+                                "capabilities": [{"type": "sensorState", "value": "normal"}]})
+        frames = []
+        for i, state in enumerate(["normal", "alarm"]):
+            ts = T0 + i * STEP
+            _fresh(home, ts)
+            _set(home, DOOR, "sensorState", state)
+            frames.append({"ts": ts, "home": copy.deepcopy(home)})
+        agent = RecordingAgent()
+        self._replay(frames, agent=agent)
+        ctx = next(c for c in agent.runs if any(r["trigger_id"] == "contact" for r in c["reasons"]))
+        ran = ctx["rules_just_ran"]
+        self.assertEqual([r["trigger_id"] for r in ran], ["door-open"])
+        a = ran[0]["actions"][0]
+        self.assertEqual((a["deviceId"], a["body"]["blueValue"]), (LIGHT, 255))
+        self.assertIn("status", a)
+
     def test_rule_action_crash_does_not_stop_loop(self):
         home = copy.deepcopy(FIXTURE)
         home["devices"].append({"id": DOOR, "name": "Door", "type": "contactSensor",

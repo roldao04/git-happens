@@ -117,6 +117,7 @@ It shares the loop's `mcp-remote` session (`McpSource.session()`), so there is o
   - only the bulb (`power`, `brightness` 1–100, `temperature` 0–100, `color_rgb` 0–255) and the plug (`power`), with exactly `deviceId` and `body` (no `deviceName`, which the MCP would look up by name);
   - switching the plug **on** is blocked in the loop and allowed only from `source.ask` (a person asked); a blocked write is told to the LLM and the run continues;
   - after the write, code reads the device back and calls it **confirmed** only if the value matches **and** `lastCommunicationTime` is newer than before the write (verification level 2, [`synapse.md`](synapse.md) §6). Otherwise it is **unconfirmed**; the LLM is told which and must not claim more.
+- **The agent is told which rules just ran** (`rules_just_ran`: trigger, device, body, status), because its `state` was read before those writes; the prompt says never to undo them.
 - **Stale devices are marked** in the context (`fresh: false`, `staleMinutes`) so the LLM doesn't present last-known values as current.
 - **`actions` are the write calls that actually ran, with their results.** The LLM doesn't write them.
 - **Replay gives the LLM no tools**, so a replay never touches the real kit.

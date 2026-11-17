@@ -10,7 +10,7 @@ def _iso(ms: int) -> str:
 
 
 def build_context(now_ms: int, reasons: list[WakeReason], state: State, store: Store,
-                  last_run_ms: int | None, stale_ms: int) -> dict:
+                  last_run_ms: int | None, stale_ms: int, rules_ran: list[dict] | None = None) -> dict:
     devices: dict[str, dict] = {}
     for r in state.values():
         d = devices.setdefault(r.device_id, {"name": r.device, "type": r.device_type})
@@ -32,6 +32,7 @@ def build_context(now_ms: int, reasons: list[WakeReason], state: State, store: S
     return {
         "now": _iso(now_ms),
         "reasons": [r.to_dict() for r in reasons],
+        "rules_just_ran": rules_ran or [],
         "state": devices,
         "events_since_last_run": [line(e) for e in since_last][-200:],
         "timeline_today": [line(e) for e in today][-500:],
