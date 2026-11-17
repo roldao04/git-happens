@@ -28,7 +28,7 @@ import math
 import random
 import sys
 from collections.abc import Iterator
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -80,6 +80,14 @@ class Household:
     temp_base: float = 20.5
     temp_swing: float = 1.5  # between the coolest and warmest time of day, each side of the base
     humidity_base: float = 55
+    # For the learners' tests; empty by default. Times are local.
+    holidays: list = field(default_factory=list)  # "2026-09-20..2026-09-26" or "2026-09-20": nobody home
+    outages: list = field(default_factory=list)  # "2026-09-10T22:00..2026-09-11T08:00": no snapshots at all
+    changes: list = field(default_factory=list)  # {"from": "2026-10-01", "wake": "09:00"}: settings from that day
+
+
+TEST_OPTIONS = ("holidays", "outages", "changes")
+FIXED = {"name", *TEST_OPTIONS, "idle_watts", "temp_base", "temp_swing", "humidity_base"}  # `changes` can't change these
 
 
 PRESETS: dict[str, Household] = {
@@ -150,6 +158,9 @@ def household_from_dict(values: dict) -> Household:
     for key, raw in values.items():
         if key not in known:
             raise ValueError(f"unknown household setting: {key}")
+        if key in TEST_OPTIONS:
+            setattr(h, key, _option_list(key, raw))
+            continue
         try:
             setattr(h, key, known[key](raw) if known[key] is not str else str(raw).strip())
         except (TypeError, ValueError):
@@ -164,7 +175,66 @@ def household_from_dict(values: dict) -> Household:
             raise ValueError(f"{key} must be between 0 and 1")
     if h.appliance_watts <= 0 or h.appliance_minutes <= 0 or h.idle_watts < 0:
         raise ValueError("appliance_watts and appliance_minutes must be above 0, idle_watts 0 or more")
+    _holidays(h)
+    _outages(h)
+    _phases(h)
     return h
+
+
+def _option_list(key: str, raw) -> list:
+    if isinstance(raw, str) and key != "changes":
+        raw = [part for part in raw.replace(" ", "").split(",") if part]
+    if not isinstance(raw, list):
+        raise ValueError(f"{key} must be a list")
+    return list(raw)
+
+
+def _holidays(h: Household) -> set[date]:
+    out = set()
+    for item in h.holidays:
+        first, _, last = str(item).partition("..")
+        try:
+            a, b = date.fromisoformat(first), date.fromisoformat(last or first)
+        except ValueError:
+            raise ValueError(f"holidays: {item!r} is not a day or days like 2026-09-20..2026-09-26") from None
+        if b < a:
+            raise ValueError(f"holidays: {item!r} ends before it starts")
+        out.update(a + timedelta(days=i) for i in range((b - a).days + 1))
+    return out
+
+
+def _outages(h: Household) -> list[tuple[int, int]]:
+    out = []
+    for item in h.outages:
+        first, sep, last = str(item).partition("..")
+        try:
+            a, b = (int(datetime.fromisoformat(t).replace(tzinfo=TZ).timestamp() * 1000) for t in (first, last))
+        except ValueError:
+            raise ValueError(f"outages: {item!r} is not a stretch like 2026-09-10T22:00..2026-09-11T08:00") from None
+        if not sep or b <= a:
+            raise ValueError(f"outages: {item!r} must end after it starts")
+        out.append((a, b))
+    return sorted(out)
+
+
+def _phases(h: Household) -> list[tuple[date, Household, dict]]:
+    """The settings from each change's day on: (from, the household then, what changed), in date order."""
+    scalars = {k: v for k, v in asdict(h).items() if k not in TEST_OPTIONS}
+    out = []
+    for change in sorted(h.changes, key=lambda c: str(c.get("from", "")) if isinstance(c, dict) else ""):
+        if not isinstance(change, dict) or "from" not in change:
+            raise ValueError(f"changes: {change!r} needs a \"from\" day and the settings that change")
+        try:
+            day = date.fromisoformat(str(change["from"]))
+        except ValueError:
+            raise ValueError(f"changes: {change['from']!r} is not a day like 2026-10-01") from None
+        settings = {k: v for k, v in change.items() if k != "from"}
+        if not settings or set(settings) & FIXED:
+            raise ValueError(f"changes: {change!r} must change at least one habit (not {', '.join(sorted(FIXED))})")
+        settings_h = household_from_dict(scalars | settings)
+        scalars = {k: v for k, v in asdict(settings_h).items() if k not in TEST_OPTIONS}
+        out.append((day, settings_h, {k: getattr(settings_h, k) for k in settings}))
+    return out
 
 
 def _minutes(hhmm: str, what: str = "time") -> int:
@@ -228,13 +298,17 @@ class _Plan:
 
 def _config_plan(h: Household, start: date, days: int, rng: random.Random) -> _Plan:
     plan = _Plan()
-    outing_days = _weekdays(h.outing_days)
-    wake_min, bed_min = _minutes(h.wake), _minutes(h.bed)
-    if bed_min <= wake_min:
-        bed_min += 24 * 60  # after midnight
+    holidays, phases = _holidays(h), _phases(h)
     busy: list[tuple[int, int]] = []  # when the appliance runs, so the idle wobble stays out of it
 
-    def use(day_start: int, what: str) -> None:
+    def settings_on(day: date) -> Household:
+        current = h
+        for since, then, _ in phases:
+            if since <= day:
+                current = then
+        return current
+
+    def use(h: Household, day_start: int, what: str) -> None:
         watts = max(1.0, rng.gauss(h.appliance_watts, h.appliance_watts_spread))
         seconds = max(30.0, rng.gauss(h.appliance_minutes, h.appliance_minutes_spread) * 60)
         step = 30 if seconds <= 600 else 120
@@ -245,11 +319,14 @@ def _config_plan(h: Household, start: date, days: int, rng: random.Random) -> _P
         busy.append((day_start, end))
         plan.note(what, day_start, end, appliance=h.appliance, watts=round(watts))
 
-    for i in range(days):
-        day = start + timedelta(days=i)
+    def live(h: Household, day: date) -> None:
+        outing_days = _weekdays(h.outing_days)
+        wake_min, bed_min = _minutes(h.wake), _minutes(h.bed)
+        if bed_min <= wake_min:
+            bed_min += 24 * 60  # after midnight
         if rng.random() < h.away_chance:
             plan.note("away all day", _at(day, 0))
-            continue
+            return
         shift = h.weekend_shift_min if day.weekday() >= 5 else 0
         wake = (wake_min + shift + rng.gauss(0, h.wake_spread_min)) * 60
         bed = max((bed_min + rng.gauss(0, h.bed_spread_min)) * 60, wake + 4 * 3600)
@@ -265,11 +342,11 @@ def _config_plan(h: Household, start: date, days: int, rng: random.Random) -> _P
             plan.note("door after waking", opened)
         if rng.random() < h.morning_use_chance:
             delay = max(2.0, rng.gauss(h.morning_use_delay_min, h.morning_use_spread_min))
-            use(_at(day, wake + delay * 60), "morning use")
+            use(h, _at(day, wake + delay * 60), "morning use")
         if h.evening_use and rng.random() < h.evening_use_chance:
             at = (_minutes(h.evening_use) + rng.gauss(0, h.evening_use_spread_min)) * 60
             if wake < at < bed - 600:
-                use(_at(day, at), "evening use")
+                use(h, _at(day, at), "evening use")
 
         out = back = None
         if day.weekday() in outing_days and rng.random() < h.outing_chance:
@@ -293,6 +370,18 @@ def _config_plan(h: Household, start: date, days: int, rng: random.Random) -> _P
         if lamp_on < bed - 300:
             plan.lamp(_at(day, lamp_on), True)
         plan.lamp(_at(day, bed), False)
+
+    for since, _, changed in phases:
+        plan.note("change", _at(since, 0), settings=changed)
+    for i in range(days):
+        day = start + timedelta(days=i)
+        changes, truth = len(plan.changes), len(plan.truth)
+        live(settings_on(day), day)  # drawn even on a holiday, so the other days stay exactly the same
+        if day in holidays:
+            del plan.changes[changes:], plan.truth[truth:]  # `busy` keeps its runs, for the same reason
+            plan.note("away (holiday)", _at(day, 0))
+    for a, b in _outages(h):
+        plan.note("outage", a, b)
 
     first, last = _at(start, 0), _at(start + timedelta(days=days), 0)
     plan.set(first, "plug", "instantPower", round(h.idle_watts))
@@ -411,7 +500,9 @@ def _template() -> dict:
     return home
 
 
-def _lines(changes: list[Change], start_ms: int, end_ms: int, interval_s: int) -> Iterator[str]:
+def _lines(changes: list[Change], start_ms: int, end_ms: int, interval_s: int,
+           outages: list[tuple[int, int]] = ()) -> Iterator[str]:
+    """outages: [start, end) stretches with no snapshot at all; the home carries on underneath."""
     home = _template()
     caps = {(dev["type"], cap["type"]): cap for dev in home["devices"] for cap in dev["capabilities"]}
 
@@ -444,6 +535,8 @@ def _lines(changes: list[Change], start_ms: int, end_ms: int, interval_s: int) -
         home["energy"]["todayConsumption"] = round(kwh, 3)
         for n, dev in enumerate(home["devices"]):
             dev["lastCommunicationTime"] = ts - 1000 * (n + 1)  # every device reported just before the poll
+        if any(a <= ts < b for a, b in outages):
+            continue
         yield json.dumps({"ts": ts, "home": home}, separators=(",", ":")) + "\n"
 
 
@@ -459,6 +552,7 @@ def generate(household: Household | str, days: int, *, start: date = DEFAULT_STA
     if not 60 <= interval_s <= 1800:
         raise ValueError("the snapshot interval must be between 1 and 30 minutes (ingest reports longer gaps)")
     rng = random.Random(seed)
+    outages: list[tuple[int, int]] = []
     if household == REAL_HOME:
         plan = _home_a_plan(start, days, rng)
     else:
@@ -467,9 +561,10 @@ def generate(household: Household | str, days: int, *, start: date = DEFAULT_STA
                 raise ValueError(f"unknown household {household!r}: use {', '.join(PRESETS)} or {REAL_HOME}")
             household = PRESETS[household]
         plan = _config_plan(household, start, days, rng)
+        outages = _outages(household)
     end_ms = _at(start + timedelta(days=days), 0)
     truth = sorted((t for t in plan.truth if t["start"] < _iso(end_ms)), key=lambda t: t["start"])
-    return _lines(plan.changes, _at(start, 0), end_ms, interval_s), truth
+    return _lines(plan.changes, _at(start, 0), end_ms, interval_s, outages), truth
 
 
 def main(argv: list[str] | None = None) -> int:

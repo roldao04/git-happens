@@ -44,6 +44,8 @@ uv run python -m source.ask "make the lamp blue"               # ask the agent o
 uv run python -m source.show events                             # what it saw
 uv run python -m source.simulate --days 14 --household rosa --out data/sim/rosa.jsonl   # simulated history
 uv run python -m source.simulate --serve                        # the same, from a form in the browser
+uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/ --replace   # simulate + ingest + learn, per day
+uv run python -m source.learn.happenings data/sim/rosa/        # what it found
 tail -f data/logs/loop.log                                      # logs
 ```
 Without `OPENROUTER_API_KEY` (or with `--stub`) the stub agent runs. Replays give the LLM no tools. Details: [`docs/event-loop.md`](docs/event-loop.md).
@@ -65,7 +67,7 @@ tools/                  connected_home_auth.py (OAuth helper used by .mcp.json)
 source/                 event loop: poll the MCP, diff, store, triggers, agent (LangGraph + stub), logs, show
 tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): `source/learn/` (rest, happenings, kinds, habits, namer) · sensor storage · the dashboard in `console/`.
+Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)). `source/learn/` rest and happenings, `source/pipeline.py` (simulate 14 days). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): `source/learn/` (kinds, habits, namer) · sensor storage · the dashboard in `console/`.
 
 ## Conventions
 - **Never commit secrets:** `.mcp.json`, `.env` and tokens stay local (see `.gitignore`).

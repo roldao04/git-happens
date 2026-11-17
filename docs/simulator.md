@@ -57,6 +57,17 @@ Made-up houses (`--houses`, the form) draw these settings at random: one of eigh
 
 A day: lamp on at waking → door → appliance → lamp off; outings and other door openings; lamp on in the evening → off at bedtime → a quiet night (only temperature and humidity move).
 
+## Options for the learners' tests
+Off by default; set them in a `--config` JSON file (not in the form yet).
+
+| Option | Example | Effect | Answer key |
+|---|---|---|---|
+| `holidays` | `["2026-09-20..2026-09-26"]` | Nobody home on those days; snapshots and the room's climate continue | `away (holiday)`, one per day |
+| `outages` | `["2026-09-10T22:00..2026-09-11T08:00"]` (local) | No snapshots at all, so ingest records a `gap`; the home carries on underneath | `outage` |
+| `changes` | `[{"from": "2026-10-01", "wake": "09:00"}]` | Habit settings change from that day (not the climate, `idle_watts` or `name`) | `change`, with the settings |
+
+Other days come out exactly as without the option. Answer key labels: `wake`, `bed`, `door after waking`, `morning use`, `evening use`, `outing`, `away all day`, `away (holiday)`, `outage`, `change`.
+
 ## A real house: `home-a`
 Door, light, temperature and humidity are **recordings of one real kitchen**, replayed on the same weekdays and at the same times of day. Source: UMass Smart\* data set, Home A, May–July 2012 ([traces.cs.umass.edu](https://traces.cs.umass.edu/docs/traces/smartstar); Barker et al., SustKDD 2012).
 
