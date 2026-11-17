@@ -16,6 +16,7 @@ import asyncio
 import logging
 import sys
 
+from .actions import McpActuator
 from .agent import StubAgent
 from .config import load_settings
 from .logs import setup_logging
@@ -66,7 +67,9 @@ async def _main(args) -> None:
         await run(source, store, Triggers(seed_triggers(s.heartbeat_minutes)),
                   _make_agent(s, args, source),
                   poll_seconds=args.poll or s.poll_seconds, stale_minutes=s.stale_minutes,
-                  max_ticks=args.ticks)
+                  max_ticks=args.ticks,
+                  # replays and --stub never write; live runs let hard rules act
+                  actuator=None if args.replay or args.stub else McpActuator(source))
     finally:
         await source.close()
         store.close()

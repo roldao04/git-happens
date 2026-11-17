@@ -1,4 +1,4 @@
-"""History: SQLite (snapshots, events, agent runs) + a JSONL recording of raw snapshots.
+"""History: SQLite (snapshots, events, agent runs, rule runs) + a JSONL recording of raw snapshots.
 
 The MCP keeps no history, so this is the only record. Full snapshots are kept so the state at
 any moment can be rebuilt later (needed for override learning, docs/event-loop.md §7).
@@ -21,6 +21,10 @@ CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
 CREATE TABLE IF NOT EXISTS agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts INTEGER NOT NULL, reasons TEXT NOT NULL, context TEXT NOT NULL, output TEXT
+);
+CREATE TABLE IF NOT EXISTS rule_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL, trigger_id TEXT NOT NULL, actions TEXT NOT NULL
 );
 """
 
@@ -66,6 +70,15 @@ class Store:
             (ts, json.dumps(reasons), json.dumps(context, default=str), json.dumps(output, default=str)),
         )
         self.db.commit()
+
+    def log_rule_run(self, ts: int, trigger_id: str, actions: list[dict]) -> None:
+        self.db.execute("INSERT INTO rule_runs (ts, trigger_id, actions) VALUES (?, ?, ?)",
+                        (ts, trigger_id, json.dumps(actions, default=str)))
+        self.db.commit()
+
+    def rule_runs(self) -> list[tuple[int, str, list[dict]]]:
+        rows = self.db.execute("SELECT ts, trigger_id, actions FROM rule_runs ORDER BY id").fetchall()
+        return [(ts, tid, json.loads(a)) for ts, tid, a in rows]
 
     def close(self) -> None:
         self.db.close()
