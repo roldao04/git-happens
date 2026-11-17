@@ -33,7 +33,10 @@ while True:
     events = diff(prev_state, state, now)        # value changes + device went stale / came back
     store.save(snap, events)
 
-    reasons = triggers.match(events, now)        # data-driven, includes the heartbeat
+    fired = triggers.match(events, now, types)   # by device type, never a hard-coded id; includes the heartbeat
+    for rule in fired with actions:              # hard rules: code runs them, no LLM
+        run_actions(resolve_targets(rule.actions, fresh_by_type(state)))  # each write goes through the guard
+    reasons = [r for r in fired if r.wake_agent]
     if reasons:
         ctx = build_context(reasons, state, store, since=last_agent_run)
         out = agent.run(ctx)                     # LangGraph agent, or the stub
@@ -45,6 +48,8 @@ while True:
 ```
 - Several reasons in one tick wake the agent **once**; unlocked triggers have a **cooldown** (~2 min) so a flickering value doesn't spam the LLM.
 - A failed poll is recorded as a **gap**, never as "everything went to zero".
+- **Triggers match a device type** (`contactSensor`, `smokeSensor`, `plug`…), so a re-paired sensor with a new id still fires. A hard rule targets a type too (`"target": "bulb"`) and is resolved to the first device of that type that is **fresh**; if none is, the action is logged as `skipped`, never sent to a stale id.
+- If no fresh `smokeSensor` is reporting, the loop logs one WARNING (`safety trigger can't fire`) and one INFO when it comes back.
 - Every live snapshot is also appended to a **JSONL recording**: it feeds replay, the simulator and the "Rosa" weeks.
 
 ### Layout
@@ -55,7 +60,9 @@ source/
   normalize.py  get_home JSON → flat readings
   diff.py       readings → events
   store.py      SQLite: snapshots, events, triggers, agent runs
-  triggers.py   load, match, apply updates
+  triggers.py   load, match (by device type), apply updates
+  guard.py      write allow-list, plug-on rule, read-back verification
+  actions.py    hard-rule actions: resolve the target type, then guarded_write
   context.py    builds what the agent reads
   agent.py      StubAgent · LangGraphAgent (LLM + MCP tools)
   loop.py       the loop above
@@ -106,7 +113,11 @@ It shares the loop's `mcp-remote` session (`McpSource.session()`), so there is o
 | Alarm arming (`patch_home_security_status`) | excluded | The alarm is never armed on the kit |
 | Scenario create/activate/execute, timers | excluded | Scenarios and timers can't be deleted |
 
-- **Writes run inside the loop**, so the LLM sees each result and must **read the device back** before saying it worked (verification level 2, [`synapse.md`](synapse.md) §6).
+- **Every write goes through the guard (`source/guard.py`), in code, not in the prompt**:
+  - only the bulb (`power`, `brightness` 1–100, `temperature` 0–100, `color_rgb` 0–255) and the plug (`power`), with exactly `deviceId` and `body` (no `deviceName`, which the MCP would look up by name);
+  - switching the plug **on** is blocked in the loop and allowed only from `source.ask` (a person asked); a blocked write is told to the LLM and the run continues;
+  - after the write, code reads the device back and calls it **confirmed** only if the value matches **and** `lastCommunicationTime` is newer than before the write (verification level 2, [`synapse.md`](synapse.md) §6). Otherwise it is **unconfirmed**; the LLM is told which and must not claim more.
+- **Stale devices are marked** in the context (`fresh: false`, `staleMinutes`) so the LLM doesn't present last-known values as current.
 - **`actions` are the write calls that actually ran, with their results.** The LLM doesn't write them.
 - **Replay gives the LLM no tools**, so a replay never touches the real kit.
 - **`--stub`**, or no `OPENROUTER_API_KEY`, runs the stub agent (logs the context, does nothing).
@@ -115,7 +126,6 @@ Config: `OPENROUTER_API_KEY`, `AGENT_MODEL` (any OpenRouter slug with tool calli
 
 Later:
 - Route per wake reason (heartbeat, safety, stale device) with different prompts and tools.
-- **Propose → guard → execute** for guardrails and approval: write tools move out of the tool node into a guard step, reads stay.
 - The action ledger (§7) records each write with its expected effects.
 
 ## 5. Data shapes (fix these now, they're costly to change later)
