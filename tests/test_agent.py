@@ -8,10 +8,9 @@ from typing import Any
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import tool
 
-from source.agent import LangGraphAgent
+from source.agent import REPORT_ASK, LangGraphAgent, parse_report
 
 CTX = {
     "now": "2026-11-17T10:00:00",
@@ -38,6 +37,10 @@ class ScriptedModel(BaseChatModel):
         return "scripted"
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        if messages[-1].content == REPORT_ASK:  # the report step: answer it, don't consume the script
+            self.structured_calls += 1
+            msg = AIMessage(content='Here: {"notes": "report-notes", "trigger_updates": []}')
+            return ChatResult(generations=[ChatGeneration(message=msg)])
         msg = self.script[min(self.step, len(self.script) - 1)]
         self.step += 1
         return ChatResult(generations=[ChatGeneration(message=msg)])
@@ -48,11 +51,6 @@ class ScriptedModel(BaseChatModel):
     def bind_tools(self, tools, **kwargs):
         return self
 
-    def with_structured_output(self, schema, **kwargs):
-        def make(_):
-            self.structured_calls += 1
-            return schema(notes="report-notes", trigger_updates=[])
-        return RunnableLambda(make)
 
 
 class FakeTools:
@@ -137,3 +135,12 @@ class AgentTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ParseReportTest(unittest.TestCase):
+    def test_json_inside_text(self):
+        r = parse_report('Sure. {"notes": "all fine", "trigger_updates": []}')
+        self.assertEqual(r.notes, "all fine")
+
+    def test_not_json_becomes_notes(self):
+        self.assertEqual(parse_report("The plug is on.").notes, "The plug is on.")

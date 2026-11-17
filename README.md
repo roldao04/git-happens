@@ -33,6 +33,7 @@ cp .env.example .env     # add the team API key as CGH_API_KEY, and OPENROUTER_A
 uv run python -m source --replay tests/fixtures/morning.jsonl   # demo morning, no kit needed
 uv run python -m source                                         # live: LangGraph agent (can change the lamp/plug)
 uv run python -m source --stub                                  # live, stub agent: no LLM, no writes
+uv run python -m source.ask "make the lamp blue"               # ask the agent once, on the live house
 uv run python -m source.show events                             # what it saw
 tail -f data/logs/loop.log                                      # logs
 ```
