@@ -93,7 +93,7 @@ source/                 event loop: poll the MCP, diff, store, triggers, agent (
   learn/                learners: kinds, links, habits, sensor storage (docs/learners.md)
 tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). `dashboard/` (the jury dashboard, on a mock recording). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): the namer · the dashboard on live simulated data.
+Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). `dashboard/` (the jury dashboard, playing a simulated run written by `source/recording.py`). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): the namer.
   ingest.py, clock.py   JSONL snapshots → history at full speed; Lisbon days
   simulate.py           the simulator (+ simulate_web.py, sim_data/)
   learn/                rest.py, happenings.py (starting plan parts 3 and 4)

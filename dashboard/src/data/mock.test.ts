@@ -11,9 +11,9 @@ test("is a 21-day simulated run", () => {
   expect(rec.meta.simulated).toBe(true);
 });
 
-test("leaves out pattern-10 and its readings", () => {
-  expect(rec.sensors.map((s) => s.id)).not.toContain("pattern-10");
-  expect(rec.readings.some((r) => r.sensor_id === "pattern-10")).toBe(false);
+test("holds all ten sensors the run learned, each with readings", () => {
+  expect(rec.sensors).toHaveLength(10);
+  expect(rec.sensors.every((s) => rec.readings.some((r) => r.sensor_id === s.id))).toBe(true);
 });
 
 test("has five sensors strong enough for a card", () => {
