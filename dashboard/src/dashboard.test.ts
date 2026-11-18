@@ -37,6 +37,9 @@ test.each([
   ".lt-row .when",
   ".fold summary",
   ".see-day",
+  ".house-temp",
+  ".alfred-note p",
+  ".alfred-note .sign",
 ])("%s is readable from the back of a room", (selector) => {
   expect(fontSize(selector)).toBeGreaterThanOrEqual(16);
 });
@@ -60,6 +63,15 @@ test("no rules are left for the old top-bar controls and bottom slider", () => {
 test("the folded weak sensors show an arrow that turns when opened", () => {
   expect(css).toMatch(/\.fold summary::after\{content:"▸"/);
   expect(css).toMatch(/\.fold\[open\] summary::after\{content:"▾"/);
+});
+
+test("home sets the picture beside the headline on wide screens and stacks it on a phone", () => {
+  expect(css).toMatch(/(^|\n)\.home\{[^}]*grid-template-columns:/);
+  expect(phone).toMatch(/\.home\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
+});
+
+test("the lamp's glow uses the accent color", () => {
+  expect(css).toMatch(/\.house-glow\{[^}]*var\(--accent\)/);
 });
 
 test("the devices page has a side column next to its list", () => {

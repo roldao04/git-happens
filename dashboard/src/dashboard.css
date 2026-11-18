@@ -51,7 +51,29 @@ a.lt-row:hover .nm{text-decoration:underline;text-underline-offset:3px}
 .later p{margin:0;font:400 16px/24px var(--font-sans);color:var(--muted)}
 .tab-ic{display:none}
 .see-day{display:inline-flex;align-items:center;min-height:44px;font:500 18px/24px var(--font-sans);text-underline-offset:3px}
-.pg>.attn{max-width:640px}
+.home{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,440px);gap:64px;align-items:start}
+.home-main{display:grid;gap:40px;align-content:start;min-width:0}
+.home-main .attn{max-width:640px}
+.alfred-note{margin:0;display:grid;gap:var(--space-4);padding:var(--space-6);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg)}
+.alfred-note figcaption{display:grid;gap:var(--space-2)}
+.alfred-note p{margin:0;font:italic 400 20px/30px var(--font-display);color:var(--text)}
+.alfred-note .sign{justify-self:end;font:500 16px/22px var(--font-sans);color:var(--muted)}
+.house{display:block;width:100%;height:auto;fill:none;stroke:var(--line-strong);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.house-ground{stroke:var(--line)}
+.house-roof{fill:var(--surface-raised)}
+.house-wall{fill:var(--bg)}
+.house-temp{fill:var(--text);stroke:none;font:500 18px var(--font-sans);font-variant-numeric:tabular-nums}
+.house-window rect{fill:var(--surface)}
+.house-window.lit rect{fill:color-mix(in srgb,var(--accent) 30%,var(--surface))}
+.house-glow{fill:var(--accent);stroke:none}
+.house-glow circle{opacity:.12}
+.house-shade,.house-outlet,.house-appliance,.house-dial,.house-panel{fill:var(--surface-raised)}
+.house-lamp.on .house-shade{fill:var(--accent);stroke:var(--accent)}
+.house-plug.on .house-outlet,.house-plug.on .house-appliance,.house-door.open .house-frame{stroke:var(--accent)}
+.house-led{fill:var(--accent);stroke:none}
+.house-doorway{fill:color-mix(in srgb,var(--accent) 18%,var(--surface))}
+.house-knob{fill:var(--line-strong);stroke:none}
+.house .unknown{opacity:.35}
 .fold summary{list-style:none;display:flex;align-items:center;min-height:44px;font:500 18px/24px var(--font-sans);color:var(--muted);cursor:pointer}
 .fold summary:hover{color:var(--text)}
 .fold summary::-webkit-details-marker{display:none}
@@ -131,6 +153,8 @@ a.lt-row:hover .nm{text-decoration:underline;text-underline-offset:3px}
   .sg2 li{grid-template-columns:48px minmax(0,1fr) auto;font-size:14px}
   .scr{padding-bottom:var(--tabbar-h)}
   .chart-axis span:nth-child(even){display:none}
+  .home{grid-template-columns:minmax(0,1fr);gap:32px}
+  .alfred-note{padding:var(--space-4)}
   .sim{right:var(--space-4);bottom:calc(var(--tabbar-h) + var(--space-3))}
   .scr:has(.sim) .pg{padding-bottom:96px}
 }

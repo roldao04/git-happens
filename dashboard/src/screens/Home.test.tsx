@@ -28,6 +28,13 @@ test("links to the whole day on the timeline", () => {
   expect(screen.getByRole("link", { name: "See the whole day" })).toHaveAttribute("href", "#/timeline");
 });
 
+test("draws the home from the devices, with a note from Alfred", () => {
+  render(<Home rec={recording()} state={state({ devices: [door("alarm")], cards: [sensorNow()] })} playback={playback()} />);
+  expect(screen.getByRole("img", { name: "The home: the door is open." })).toBeInTheDocument();
+  const note = screen.getByText(/I know 1 of your habits now\./);
+  expect(note.closest("figure")).toHaveTextContent("Alfred");
+});
+
 test("keeps the page to the headline: no feed, no newest sensors, no device list, no suggestion card", () => {
   render(<Home rec={recording()} state={state({ cards: [sensorNow()], devices: [door("normal")] })} playback={playback()} />);
   expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual(["All quiet at home."]);
