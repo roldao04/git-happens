@@ -23,3 +23,6 @@ venv/
 
 # Poller output (snapshots, recordings)
 data/
+
+# Extra 
+meeting-notes.md

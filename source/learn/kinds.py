@@ -88,7 +88,7 @@ def find_kinds(happenings: list[Happening], known: list[Kind] | None = None) -> 
                 id="", signal=signal, count=len(members),
                 duration_s=float(np.median([h.duration_s for h in members])),
                 size=float(np.median(sizes)) if sizes else None,
-                value=max(set(values), key=values.count) if values else None,
+                value=max(sorted(set(values)), key=values.count) if values else None,  # sorted: same tie-break every run
                 centre=np.median(X[idx], axis=0).tolist(),
                 lo=X[idx].min(axis=0).tolist(), hi=X[idx].max(axis=0).tolist(),
                 mean=X[idx].mean(axis=0).tolist(),

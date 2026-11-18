@@ -2,7 +2,7 @@
 
 How Alfred notices what happens in the home and decides when the LLM should think about it.
 It is the history that the learners in [`starting-plan.md`](starting-plan.md) read from. It began as the "event bridge + history" block of the earlier concept ([`synapse.md`](synapse.md) §9), which is where the § references to verification and scenarios below point.
-Status: **v1 built** in [`source/`](../source/): poll, normalize, diff, store, seed triggers, hard-rule actions, the stub agent and the **LangGraph agent** (reads the home, can set the lamp and plug, verifies by reading back), plus ingest and the first two learners (rest, happenings) for simulated days. Not yet: agent-editable triggers, approval for writes, the action ledger, attribution.
+Status: **v1 built** in [`source/`](../source/): poll, normalize, diff, store, seed triggers, hard-rule actions, the stub agent and the **LangGraph agent** (reads the home, can set the lamp and plug, verifies by reading back), plus ingest and the learners (rest, happenings, kinds, habits) for simulated days. Not yet: agent-editable triggers, approval for writes, the action ledger, attribution.
 
 ## 1. Why poll, and why not call the LLM on every poll
 - The MCP has **no live events** ([`mcp-capabilities.md`](mcp-capabilities.md)), so we poll `get_home` (one call returns every device with its values and `lastCommunicationTime`).
@@ -151,7 +151,7 @@ uv run python -m source.learn.rest data/sim/rosa/      # --all also lists signal
 On 90 simulated days the plug rests at 0 ± 1 W (`rosa`, `couple`, the real house `home-a`) or 8 ± 1 W (`students`, whose console idles), the door at `normal`, the light at `off`, and the temperature moves about 0.2 °C per hour. Running the finder at every day end reads the whole history again each time: 0.2 s per day at 90 days, 2 to 9 s over the 90.
 
 ### Happenings (starting-plan part 4)
-`save_happenings(store, until_ms)` in `source/learn/happenings.py` appends each departure from rest that ended before `until_ms` to the `happenings` table, which the grouper and habit learner read. `source/pipeline.py` calls it from `on_day_end` with `day_bounds(day)[1]`, then `learn_day(db, day)` from `source/learn/run.py` once that exists.
+`save_happenings(store, until_ms)` in `source/learn/happenings.py` appends each departure from rest that ended before `until_ms` to the `happenings` table, which the grouper and habit learner read. `source/pipeline.py` calls it from `on_day_end` with `day_bounds(day)[1]`, then `learn_day(db, day)` from `source/learn/run.py`.
 
 | Column | Holds |
 |---|---|
@@ -234,7 +234,7 @@ Config: `OPENROUTER_API_KEY`, `AGENT_MODEL` (any OpenRouter slug with tool calli
 ## 6. What plugs in next
 | Later | Plugs into | Notes |
 |---|---|---|
-| **Learned sensors** (the current focus) | `on_day_end` in [`source/pipeline.py`](../source/pipeline.py), once per simulated or real day | Plain code. Built: rest finder → happening extractor (above). Next: grouper → habit learner (`source.learn.run`, which the pipeline calls once it exists), then the LLM names each pattern. Writes `sensors` and `sensor_readings`. See [`starting-plan.md`](starting-plan.md) |
+| **Learned sensors** (the current focus) | `on_day_end` in [`source/pipeline.py`](../source/pipeline.py), once per simulated or real day | Plain code. Built: rest finder → happening extractor → grouper → habit learner (`source.learn.run`, [`learners.md`](learners.md)). Next: the LLM names each pattern. Writes `sensors` and `sensor_readings`. See [`starting-plan.md`](starting-plan.md) |
 
 **Parked** from the earlier concept until the sensors work (design in [`synapse.md`](synapse.md)):
 - **Approval and per-reason routing** inside `agent.run(ctx)`: different prompts and tools per wake reason.

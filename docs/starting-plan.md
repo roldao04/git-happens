@@ -8,7 +8,7 @@ Smart homes report devices and values. **Alfred learns what they mean**, and sho
 
 ## Goal for today
 - ✅ Simulate any number of days and have Alfred learn **one well-defined sensor** from it, with no LLM in the finding (`source/pipeline.py`).
-- ⬜ A small dashboard where we can watch that happen.
+- ✅ A small dashboard where we can watch that happen (`dashboard/`).
 - ⬜ The visual identity defined: colour, typeface, logo.
 
 The target: from 14 simulated days, Alfred finds the morning pattern and the nightly quiet on its own. ✅ **Met:** on 14 days of `rosa`, the morning tea (lamp → kettle, 07:48, 9 of 12 days) is learned on day 6, the night's quiet (from 23:05, 10 of 12 nights) on day 11, and its end (08:01, waking up) on day 14.
@@ -58,10 +58,10 @@ The habit learner comes first because it produces the usual day, which the other
 | 2 | Ingest | `source/ingest.py` | Snapshots | Events | ✅ Done (#14) |
 | 3 | Rest finder | `source/learn/rest.py` | Events | Each signal's rest | ✅ Done (#15) |
 | 4 | Happening extractor | `source/learn/happenings.py` | Events + rest | Happenings | ✅ Done (#18) |
-| 5 | Grouper | `source/learn/kinds.py` | Happenings | Kinds and combinations | ✅ Done (`feat/grouper-habits`, not merged yet) |
-| 6 | Habit learner | `source/learn/habits.py` | Kinds over many days | Sensors and readings | ✅ Done (`feat/grouper-habits`, not merged yet) |
+| 5 | Grouper | `source/learn/kinds.py` | Happenings | Kinds and combinations | ✅ Done (#19) |
+| 6 | Habit learner | `source/learn/habits.py` | Kinds over many days | Sensors and readings | ✅ Done (#19) |
 | 7 | Namer | `source/learn/namer.py` | A sensor's facts | A name and explanation | ⬜ To do |
-| 8 | Dashboard | `console/` | Sensors, readings, device states | What we see | ⬜ To do |
+| 8 | Dashboard | `dashboard/` | Sensors, readings, device states | What we see | ✅ Done (#22, #23) |
 
 **1. Simulator** ✅ ([`simulator.md`](simulator.md))
 - Writes a household's days as snapshots in the `get_home` shape: a wake time, a kettle, a bedtime, each with random variation and some days skipped.
@@ -94,7 +94,7 @@ The habit learner comes first because it produces the usual day, which the other
 - Sends the sensor's facts to the LLM and gets back a name and a one-line explanation.
 - Until it runs, or if it fails, the sensor is shown as "Pattern 1". A wrong name never breaks the pattern underneath, and a person can rename it.
 
-**8. Dashboard**
+**8. Dashboard** ✅ ([`dashboard/README.md`](../dashboard/README.md))
 - Shows simulated time advancing, device states changing, and sensor cards appearing on the day they were learned.
 - Reads one JSON response, so it can be built on fake data from the start.
 
