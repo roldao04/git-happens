@@ -20,13 +20,13 @@ function Row({ d }: { d: DeviceNow }) {
   );
 }
 
-export function Devices({ state, playback }: { rec: Recording; state: StateAt; playback: Playback }) {
+export function Devices({ rec, state, playback }: { rec: Recording; state: StateAt; playback: Playback }) {
   const concerns = needsLook(state.devices);
   const flagged = new Set(concerns.map((c) => c.device.id));
   const switchable = state.devices.filter((d) => SWITCHABLE.has(d.device.type));
   const reporting = state.devices.filter((d) => !SWITCHABLE.has(d.device.type) && !flagged.has(d.device.id));
   return (
-    <Shell state={state} playback={playback} tab="devices">
+    <Shell state={state} playback={playback} tab="devices" simulated={rec.meta.simulated}>
       <section className="pg-head" aria-label="Summary">
         <h1>{devicesHeadline(state.devices.length, concerns.length)}</h1>
         <p>Alfred only reads them. It never switches anything.</p>

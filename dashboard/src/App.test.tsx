@@ -33,13 +33,14 @@ test("going to a sensor and back keeps the playhead", async () => {
   // the keyboard listener is attached by an effect that can land just after the page shows
   await waitFor(() => {
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Simulated · day 2 · 00:00" })).toBeInTheDocument();
   });
-  await userEvent.click(screen.getByRole("link", { name: /Pattern 2/ }));
+  await userEvent.click(screen.getByRole("link", { name: "Learned" }));
+  await userEvent.click(await screen.findByRole("link", { name: /Pattern 2/ }));
   expect(await screen.findByRole("heading", { level: 1, name: "Pattern 2" })).toBeInTheDocument();
   await userEvent.click(screen.getByRole("link", { name: "← Learned" }));
-  expect(await screen.findByRole("heading", { name: "Connected life" })).toBeInTheDocument();
-  expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
+  expect(await screen.findByRole("list", { name: "Learned sensors" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Simulated · day 2 · 00:00" })).toBeInTheDocument();
 });
 
 test("the tabs switch between Home and Learned", async () => {
@@ -47,22 +48,22 @@ test("the tabs switch between Home and Learned", async () => {
   await screen.findByRole("link", { name: "Alfred home" });
   await waitFor(() => {
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Simulated · day 2 · 00:00" })).toBeInTheDocument();
   });
   await userEvent.click(screen.getByRole("link", { name: "Learned" }));
-  expect(await screen.findByRole("heading", { name: "Connected life" })).toBeInTheDocument();
+  expect(await screen.findByRole("list", { name: "Learned sensors" })).toBeInTheDocument();
   await userEvent.click(screen.getByRole("link", { name: "Home" }));
-  expect(await screen.findByRole("heading", { name: "Today so far" })).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: "See the whole day" })).toBeInTheDocument();
 });
 
-test("the Timeline and Devices tabs open their pages, and a day can be opened by its link", async () => {
+test("Home's link opens the Timeline, a day opens by its link, and the Devices tab opens its page", async () => {
   render(<App load={async () => rec} />);
   await screen.findByRole("link", { name: "Alfred home" });
   await waitFor(() => {
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Simulated · day 2 · 00:00" })).toBeInTheDocument();
   });
-  await userEvent.click(screen.getByRole("link", { name: "Timeline" }));
+  await userEvent.click(screen.getByRole("link", { name: "See the whole day" }));
   expect(await screen.findByRole("heading", { level: 1, name: "Today, Wed 2 Sep" })).toBeInTheDocument();
   await userEvent.click(screen.getByRole("link", { name: "Earlier" }));
   expect(await screen.findByRole("heading", { level: 1, name: "Tue 1 Sep, day 1" })).toBeInTheDocument();

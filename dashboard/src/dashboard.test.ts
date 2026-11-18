@@ -12,24 +12,14 @@ function fontSize(selector: string): number | null {
 }
 
 test.each([
-  ".al-clock .al-sub",
-  ".al-new",
+    ".al-new",
   ".al-list time",
   ".tab",
   ".more",
   ".pg-head p",
-  ".rows time",
-  ".rows .t b",
-  ".rows .t span",
-  ".rows .a",
   ".devs .n",
   ".devs .s",
   ".devs .v",
-  ".latest .al-label",
-  ".lt-head",
-  ".lt-row .ds",
-  ".lt-row .num",
-  ".lt-row .num small",
   ".later p",
   ".note",
   ".chart-day",
@@ -43,6 +33,10 @@ test.each([
   ".evt time",
   ".evt .body span",
   ".sg2 li",
+  ".sim-toggle",
+  ".lt-row .when",
+  ".fold summary",
+  ".see-day",
 ])("%s is readable from the back of a room", (selector) => {
   expect(fontSize(selector)).toBeGreaterThanOrEqual(16);
 });
@@ -51,11 +45,24 @@ test("the still-learning counter fills its row instead of collapsing to zero wid
   expect(css).toMatch(/\.al-empty \.al-counter\s*\{[^}]*width:\s*100%/);
 });
 
-test("the day slider stays on screen at the bottom", () => {
-  expect(css).toMatch(/\.scrub-bar\s*\{[^}]*position:\s*sticky[^}]*bottom:\s*0/);
+test("the playback pill floats in the bottom right corner", () => {
+  expect(css).toMatch(/(^|\n)\.sim\{[^}]*position:fixed[^}]*right:[^}]*bottom:/);
 });
 
-test("home puts the devices in a side column next to the feed", () => {
+test("the pill's buttons are at least 44px tall", () => {
+  expect(css).toMatch(/(^|\n)\.sim \.al-btn,\.sim-toggle\{[^}]*min-height:44px/);
+});
+
+test("no rules are left for the old top-bar controls and bottom slider", () => {
+  expect(css).not.toMatch(/\.scrub-bar|\.ph-play|\.controls|\.al-clock|\.lt-head|\.rows|\.latest|\.pairs/);
+});
+
+test("the folded weak sensors show an arrow that turns when opened", () => {
+  expect(css).toMatch(/\.fold summary::after\{content:"▸"/);
+  expect(css).toMatch(/\.fold\[open\] summary::after\{content:"▾"/);
+});
+
+test("the devices page has a side column next to its list", () => {
   expect(css).toMatch(/\.two\s*\{[^}]*grid-template-columns:[^}]*340px/);
 });
 
@@ -69,27 +76,20 @@ test("no bare .today rule, which would also hit the chart's today row", () => {
 
 const phone = /@media \(max-width:640px\)\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
 
-test("on a phone the tabs become a bar fixed to the bottom", () => {
-  expect(phone).toMatch(/\.tabs\{[^}]*position:fixed[^}]*bottom:0/);
+test("on a phone the three tabs become a bar fixed to the bottom", () => {
+  expect(phone).toMatch(/\.tabs\{[^}]*position:fixed[^}]*bottom:0[^}]*repeat\(3,/);
   expect(phone).toMatch(/\.tab-ic\{[^}]*display:block/);
   expect(css).toMatch(/(^|\n)\.tab-ic\{[^}]*display:none/);
 });
 
-test("on a phone the top controls hide and the bottom bar's play button shows", () => {
-  expect(phone).toMatch(/\.top \.controls\{[^}]*display:none/);
-  expect(phone).toMatch(/\.ph-play\{[^}]*display:inline-flex/);
-  expect(css).toMatch(/(^|\n)\.ph-play\{[^}]*display:none/);
-});
-
-test("on a phone the slider sits just above the tab bar", () => {
-  expect(phone).toMatch(/\.scrub-bar\{[^}]*bottom:var\(--tabbar-h\)/);
+test("on a phone the pill sits just above the tab bar", () => {
+  expect(phone).toMatch(/\.sim\{[^}]*bottom:calc\(var\(--tabbar-h\)/);
 });
 
 test("on a phone the lanes chart is left out", () => {
   expect(phone).toMatch(/\.lanes-sec\{[^}]*display:none/);
 });
 
-test("tab and bottom-bar buttons are at least 44px tall on a phone", () => {
+test("tabs are at least 44px tall on a phone", () => {
   expect(phone).toMatch(/\.tab\{[^}]*min-height:(4[4-9]|[5-9]\d)px/);
-  expect(phone).toMatch(/\.ph-play\{[^}]*min-height:(4[4-9]|[5-9]\d)px/);
 });

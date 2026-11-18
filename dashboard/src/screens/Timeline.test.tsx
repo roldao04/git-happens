@@ -37,12 +37,12 @@ const rec: Recording = recording({
 
 const page = (t: number, day: number) => render(<Timeline rec={rec} state={stateAt(rec, t)} playback={playback({ t })} day={day} />);
 
-test("is the Timeline tab and names the day, with the slider", () => {
+test("sits under the Home tab and names the day, with the playback pill", () => {
   page(at(2, "20:00"), 2);
-  expect(screen.getByRole("link", { name: "Timeline" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("heading", { level: 1, name: "Today, Wed 2 Sep" })).toBeInTheDocument();
   expect(screen.getByText("Alfred recognized 1 habit and noticed 1 more.")).toBeInTheDocument();
-  expect(screen.getByRole("slider", { name: "Simulated day" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Simulated · day 2/ })).toBeInTheDocument();
 });
 
 test("an earlier day is named by its date and can step to the day after", () => {
