@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import App from "./App";
@@ -30,8 +30,11 @@ test("a failing load shows the reason as an alert", async () => {
 test("going to a sensor and back keeps the playhead", async () => {
   render(<App load={async () => rec} />);
   await screen.findByRole("heading", { level: 1, name: "Alfred" });
-  fireEvent.keyDown(window, { key: "ArrowRight" });
-  expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
+  // the keyboard listener is attached by an effect that can land just after the page shows
+  await waitFor(() => {
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
+  });
   await userEvent.click(screen.getByRole("link", { name: /Pattern 2/ }));
   expect(await screen.findByRole("heading", { level: 2, name: "Pattern 2" })).toBeInTheDocument();
   await userEvent.click(screen.getByRole("link", { name: /Back/ }));
