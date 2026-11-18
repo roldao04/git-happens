@@ -25,7 +25,16 @@ uv run python -m source.learn.run --store data/sim/rosa/        # learn again on
 uv run python -m source.learn.today --db data/sim/rosa/home.sqlite3 --at 2026-09-21T08:30
 uv run python -m source.learn.run --happenings tests/fixtures/happenings-14d.jsonl          # hand-made data
 ```
-The pipeline calls `learn_day(store.db, day)` at each day end. The dashboard gets `storage.export(db, as_of, now)`: sensors, readings and today.
+The pipeline calls `learn_day(store.db, day)` at each day end. `storage.export(db, as_of, now)` gives the sensors, readings and today.
+
+**For the dashboard:** `source/recording.py` writes a whole run as the one JSON file the dashboard plays back (devices, their first values, every change, sensors and readings). Add `--recording <file>` to the pipeline, or run it on a history that exists:
+```
+uv run python -m source.pipeline --household rosa --days 21 --out data/sim/rosa/ --replace --recording dashboard/public/recording.json
+uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recording.json --household rosa
+```
+- Camera motion is left out, as the dashboard never shows it.
+- When the clocks go back, the repeated hour's events are shown at the last time before it, so the file stays in clock order.
+- `--real` marks a history from the kit (`meta.simulated` is false).
 
 ## Contracts
 - **Happenings:** the table in `source/learn/happenings.py` (epoch ms; `signal` = `<device type>.<capability>`). The learners read it in Lisbon time (`source/clock.py`) and leave `cut` ones out of kinds and links.

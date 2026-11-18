@@ -34,7 +34,13 @@ npm run build && npm run preview  # http://localhost:4173
 
 Replace `public/recording.json`, or `dist/recording.json` in a build, with another file in the same shape. The shape is described in the spec under "The recording", and `src/data/recording.ts` checks it on load. If the file is missing or malformed, the page says which field is wrong.
 
-The current file is a 21-day simulated run of the `rosa` household. Camera motion is left out, and so is `pattern-10`, which looks wrong in the learner output.
+The current file is a 21-day simulated run of the `rosa` household, written by `source/recording.py`. To make a new one, from the repo root:
+
+```
+uv run python -m source.pipeline --household rosa --days 21 --out data/sim/rosa/ --replace --recording dashboard/public/recording.json
+```
+
+Camera motion is left out. `src/data/mock.test.ts` checks this file (21 days, ten sensors, five strong enough for a card), so update it when the run changes.
 
 ## Design system
 
