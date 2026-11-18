@@ -19,10 +19,24 @@ test.each([
   ".devices .al-what .changed",
   ".devices .al-what b",
   ".also summary",
+  ".headline",
+  ".feed .al-what b",
+  ".al-list time",
+  ".chart-day",
+  ".recent-days .al-what b",
+  ".steps p",
 ])("%s is readable from the back of a room", (selector) => {
   expect(fontSize(selector)).toBeGreaterThanOrEqual(16);
 });
 
 test("the still-learning counter fills its row instead of collapsing to zero width", () => {
   expect(css).toMatch(/\.al-empty \.al-counter\s*\{[^}]*width:\s*100%/);
+});
+
+test("the day slider stays on screen at the bottom", () => {
+  expect(css).toMatch(/\.scrubber\s*\{[^}]*position:\s*sticky[^}]*bottom:\s*0/);
+});
+
+test("no bare .today rule, which would also hit the chart's today row", () => {
+  expect(css).not.toMatch(/(^|[},\s])\.today[\s{,]/m);
 });

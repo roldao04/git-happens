@@ -57,3 +57,11 @@ test("an active sensor has no fading pill", () => {
   render(<SensorCard item={sensorNow()} atEnd={false} />);
   expect(screen.queryByText("fading")).not.toBeInTheDocument();
 });
+
+test("draws its day as a bar with the times seen", () => {
+  const r = (start: string) => ({ sensor_id: "pattern-2", start, end: null, value: null });
+  render(<SensorCard item={sensorNow({ readings: [r("2026-09-07T07:51:00"), r("2026-09-08T08:05:00")] })} atEnd={false} />);
+  const bar = screen.getByRole("img", { name: "usually between 07:39 and 08:19" });
+  expect(bar.querySelectorAll(".al-hit")).toHaveLength(2);
+  expect(bar.querySelectorAll(".al-now")).toHaveLength(0);
+});

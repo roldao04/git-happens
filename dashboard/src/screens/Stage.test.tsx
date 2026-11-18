@@ -29,3 +29,28 @@ test("has the home, the learned sensors, the controls and the scrubber", () => {
   expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
   expect(screen.getByRole("slider", { name: "Simulated day" })).toBeInTheDocument();
 });
+
+test("the home column has a headline and today's happenings", () => {
+  const devices = [{ device: { id: "d", type: "contactSensor", name: "Front door" }, values: { sensorState: "alarm" }, changedAt: null }];
+  render(<Stage rec={recording()} state={state({ devices })} playback={playback()} />);
+  expect(screen.getByText("The door is open.")).toHaveClass("headline");
+  expect(screen.getByRole("heading", { name: "Today so far" })).toBeInTheDocument();
+});
+
+test("the learned column has a headline, a summary and the honesty line", () => {
+  const weak = sensorNow({ sensor: sensor({ id: "pattern-5", confidence: 0.44 }) });
+  render(<Stage rec={recording()} state={state({ cards: [sensorNow({ justLearned: true })], alsoNoticed: [weak] })} playback={playback()} />);
+  expect(screen.getByText("Alfred has learned 1 sensor.")).toHaveClass("headline");
+  expect(screen.getByText("1 is new today. 1 more is too weak to show yet.")).toBeInTheDocument();
+  expect(screen.getByText("The rosa home is simulated; the learning is real.")).toBeInTheDocument();
+});
+
+test("the bars on the cards are explained once", () => {
+  render(<Stage rec={recording()} state={state({ cards: [sensorNow()] })} playback={playback()} />);
+  expect(screen.getByText(/Each bar is one day, midnight to midnight/)).toBeInTheDocument();
+});
+
+test("no bar caption while there are no cards", () => {
+  render(<Stage rec={recording()} state={state()} playback={playback()} />);
+  expect(screen.queryByText(/Each bar is one day/)).not.toBeInTheDocument();
+});

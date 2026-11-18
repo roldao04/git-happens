@@ -13,17 +13,22 @@ test("shows the sensor in full", () => {
   expect(screen.getByRole("heading", { level: 2, name: "Pattern 2" })).toBeInTheDocument();
   expect(screen.getByText("lamp on, about 43 min, then plug about 2,100 W, about 3 min")).toBeInTheDocument();
   expect(screen.getByText("84%").closest(".al-conf")).not.toBeNull();
-  const tl = screen.getByRole("img", { name: "usually between 07:39 and 08:19" });
-  expect(tl.querySelectorAll(".al-hit")).toHaveLength(2);
-  expect(screen.getByRole("img", { name: "seen on 2 of the last 14 days" })).toBeInTheDocument();
+  const chart = screen.getByRole("img", { name: "seen on 2 of the last 9 days, usually between 07:39 and 08:19" });
+  expect(chart.querySelectorAll(".al-hit")).toHaveLength(2);
+  expect(screen.getByRole("heading", { name: "How Alfred found it" })).toBeInTheDocument();
+  expect(screen.getByText("Alfred never turns anything on or off because of this sensor.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: /Back/ })).toHaveAttribute("href", "#/");
   expect(screen.getByRole("heading", { name: "Naming comes later" }).closest(".al-later")).not.toBeNull();
 });
 
-test("lists each reading so far, newest first", () => {
+test("lists the recent days, newest first, missed ones included", () => {
   render(<SensorDetail rec={rec} state={state({ cards: [item] })} playback={playback()} id="pattern-2" />);
-  const rows = screen.getAllByRole("listitem").filter((li) => li.closest(".readings"));
-  expect(rows.map((li) => li.textContent)).toEqual(["Tue 8 Sep08:05", "Mon 7 Sep07:51"]);
+  const rows = screen.getAllByRole("listitem").filter((li) => li.closest(".recent-days"));
+  expect(rows.map((li) => li.textContent).slice(0, 3)).toEqual([
+    "Todaynothing yetnot yet",
+    "Tue 808:05 to 08:30seen",
+    "Mon 707:51 to 08:30seen",
+  ]);
 });
 
 test("an also-noticed sensor opens too", () => {

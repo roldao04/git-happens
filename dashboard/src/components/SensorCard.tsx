@@ -1,7 +1,10 @@
+import { toMs } from "../data/recording";
+import { minuteOfDay } from "../data/days";
 import type { SensorNow } from "../data/stateAt";
 import { evidence, sensorTitle } from "../data/words";
 import { sensorHref } from "./sensorHref";
 import { FadingPill } from "./FadingPill";
+import { DayTimeline } from "./DayTimeline";
 
 function daysText({ sensor, daysSoFar }: SensorNow, atEnd: boolean): string {
   const { days_seen: seen, days_total: total } = sensor.pattern;
@@ -30,6 +33,7 @@ export function SensorCard({ item, atEnd }: { item: SensorNow; atEnd: boolean })
         {spread !== undefined && <span>{`± ${spread} min`}</span>}
       </div>
       <p className="al-evidence">{evidence(sensor.pattern.parts)}</p>
+      <DayTimeline usual={sensor.pattern.time_of_day} spreadMin={spread} hits={item.readings.map((r) => minuteOfDay(toMs(r.start)))} nowMin={null} />
       <div className="al-foot">
         <span className="al-muted al-tnum">{daysText(item, atEnd)}</span>
         <span className="al-pct">{`${Math.round(sensor.confidence * 100)}%`}</span>
