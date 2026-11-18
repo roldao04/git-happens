@@ -11,21 +11,21 @@
   :root {
     color-scheme: light;
     --bg: #eef0f3; --ground: #e2e5ea; --panel: #ffffff; --line: #dfe2e8; --text: #1b1f27; --muted: #667085;
-    --accent: #0a6cff; --accent-text: #ffffff; --accent-soft: #eaf2ff; --bad: #c4320a; --chip: #eef1f5;
+    --accent: #0a6cff; --accent-text: #ffffff; --accent-soft: #eaf2ff; --bad: #c4320a; --bad-soft: #fdeee8; --ok: #12805c; --ok-soft: #e4f4ec; --chip: #eef1f5;
     --lamp: #e2a100; --door: #0a6cff; --plug: #d9480f; --temp: #12805c; --shadow: 0 6px 24px rgba(20, 28, 45, .12);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       color-scheme: dark;
       --bg: #0f1217; --ground: #171b22; --panel: #181c24; --line: #2a303b; --text: #e7eaf0; --muted: #98a2b3;
-      --accent: #5b9dff; --accent-text: #0b1220; --accent-soft: #1c2a44; --bad: #ff8a65; --chip: #222833;
+      --accent: #5b9dff; --accent-text: #0b1220; --accent-soft: #1c2a44; --bad: #ff8a65; --bad-soft: #3a2018; --ok: #4cc9a0; --ok-soft: #15302a; --chip: #222833;
       --lamp: #ffcf4d; --door: #5b9dff; --plug: #ff8a4c; --temp: #4cc9a0; --shadow: 0 6px 24px rgba(0, 0, 0, .45);
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
     --bg: #0f1217; --ground: #171b22; --panel: #181c24; --line: #2a303b; --text: #e7eaf0; --muted: #98a2b3;
-    --accent: #5b9dff; --accent-text: #0b1220; --accent-soft: #1c2a44; --bad: #ff8a65; --chip: #222833;
+    --accent: #5b9dff; --accent-text: #0b1220; --accent-soft: #1c2a44; --bad: #ff8a65; --bad-soft: #3a2018; --ok: #4cc9a0; --ok-soft: #15302a; --chip: #222833;
     --lamp: #ffcf4d; --door: #5b9dff; --plug: #ff8a4c; --temp: #4cc9a0; --shadow: 0 6px 24px rgba(0, 0, 0, .45);
   }
   * { box-sizing: border-box; }
@@ -34,9 +34,10 @@
   #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
   #scene:active { cursor: grabbing; }
   .float { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
-  #panel { top: 16px; left: 16px; width: 304px; max-height: calc(100vh - 204px); overflow-y: auto; padding: 14px; display: grid; gap: 12px; }
+  #panel { top: 16px; left: 16px; width: 304px; max-height: calc(100vh - 222px); overflow-y: auto; padding: 14px; display: grid; gap: 12px; }
   #bar { left: 16px; right: 16px; bottom: 16px; padding: 10px 14px 12px; display: grid; gap: 6px; }
   #tools { top: 16px; right: 16px; padding: 4px; display: flex; gap: 2px; }
+  #habits { top: 72px; right: 16px; width: 340px; max-height: calc(100vh - 290px); overflow-y: auto; padding: 14px; display: grid; gap: 8px; align-content: start; }
   h1 { font-size: 15px; margin: 0; }
   h2 { font-size: 11px; margin: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
   p { margin: 0; }
@@ -67,8 +68,21 @@
   #devices .name { font-weight: 600; }
   #devices .what { display: grid; flex: 1; min-width: 0; }
   #devices small, #truth small { color: var(--muted); font-size: 12px; }
+  #learned li button { width: 100%; justify-content: flex-start; align-items: flex-start; text-align: left; border-color: transparent; padding: 6px 8px; gap: 10px; }
+  #learned .what { display: grid; flex: 1; min-width: 0; }
+  #learned .title { font-weight: 600; overflow-wrap: anywhere; }
+  #learned small { color: var(--muted); font-size: 12px; }
+  #learned li.off { opacity: .6; }
+  .chip { flex: none; min-width: 74px; text-align: center; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px;
+          margin-top: 1px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+  .chip.done { background: var(--ok-soft); color: var(--ok); }
+  .chip.now { background: var(--accent-soft); color: var(--accent); }
+  .chip.late { background: var(--bad-soft); color: var(--bad); }
+  .chip.new { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  #learned-note { font-size: 12px; }
+  #learned-note.bad { color: var(--bad); }
   #truth li button { width: 100%; justify-content: flex-start; border-color: transparent; padding: 3px 8px; min-height: 28px; gap: 10px; }
-  #lanes { width: 100%; height: 86px; display: block; cursor: ew-resize; touch-action: none; }
+  #lanes { width: 100%; height: 104px; display: block; cursor: ew-resize; touch-action: none; }
   /* The slider sits under the lanes: its thumb is 14px wide, so its travel starts 7px in, like the lanes' plot. */
   #scrub { -webkit-appearance: none; appearance: none; display: block; width: calc(100% - 44px); margin: 0 0 0 44px; height: 16px; background: transparent; }
   #scrub::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line); }
@@ -81,7 +95,7 @@
   [hidden] { display: none !important; }
   @media (max-width: 720px) {
     #panel { right: 16px; width: auto; max-height: 38vh; }
-    #tools { top: auto; bottom: 190px; }
+    #tools { top: auto; bottom: 208px; }
     #keys { display: none; }
   }
 </style>
@@ -126,6 +140,17 @@
   <div id="truth-box" hidden>
     <h2 title="What the simulator planted that day. For people, never for the learners.">Planted that day</h2>
     <ul id="truth"></ul>
+  </div>
+</aside>
+
+<aside id="habits" class="float" aria-label="Learned by Alfred">
+  <div id="learned-box" style="display: grid; gap: 8px">
+    <div class="row spread">
+      <h2 title="Sensors the learners found from day 1 up to this day, with no LLM. Statuses are what Alfred knew during the day.">Learned by Alfred</h2>
+      <span id="learned-count" class="muted num"></span>
+    </div>
+    <p id="learned-note" class="muted"></p>
+    <ul id="learned"></ul>
   </div>
 </aside>
 
@@ -670,8 +695,8 @@ function houseScene(THREE, canvas) {
     if (!w || !h) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    // The panel covers the left and the time bar the bottom: on a wide window, look a little past the house.
-    camera.setViewOffset(w, h, w > 900 ? -150 : 0, w > 900 ? 60 : 110, w, h);
+    // The panels cover the sides and the time bar the bottom: look a little past the house when only the left one is there.
+    camera.setViewOffset(w, h, w > 1100 ? 0 : w > 900 ? -150 : 0, w > 900 ? 60 : 110, w, h);
     camera.updateProjectionMatrix();
   }
 
@@ -781,8 +806,9 @@ function houseScene(THREE, canvas) {
   };
 }
 
-// The lanes over the slider: when the light was on, the door open, the plug drawing, and the temperature.
-function drawLanes(canvas, day, t, css) {
+// The lanes over the slider: when the light was on, the door open, the plug drawing, the temperature,
+// and when a learned habit occurred (its readings, as the learners saw them that night).
+function drawLanes(canvas, day, t, css, learned, habit) {
   const ratio = Math.min(window.devicePixelRatio || 1, 2), w = canvas.clientWidth, h = canvas.clientHeight;
   if (canvas.width !== Math.round(w * ratio)) canvas.width = Math.round(w * ratio);
   if (canvas.height !== Math.round(h * ratio)) canvas.height = Math.round(h * ratio);
@@ -832,6 +858,20 @@ function drawLanes(canvas, day, t, css) {
     }
     ctx.globalAlpha = 1;
   });
+  top = rows.length * (lane + gap);
+  ctx.fillStyle = css.chip;
+  ctx.fillRect(x0, top, x1 - x0, lane);
+  ctx.fillStyle = css.muted;
+  ctx.fillText('Habits', 0, top + lane / 2 + 1);
+  ctx.fillStyle = css.accent;
+  for (const [id, a, b] of learned ? learned.readings : []) {
+    const on = !habit || habit === id, xa = X(Math.max(a, day.start)), xb = X(Math.min(b ?? a, day.end));
+    ctx.globalAlpha = on ? 0.28 : 0.08;
+    if (xb - xa > 1) ctx.fillRect(xa, top + 4, xb - xa, lane - 8);  // how long it lasted
+    ctx.globalAlpha = on ? 1 : 0.25;
+    if (a >= day.start) ctx.fillRect(Math.round(xa) - 1, top, 2.5, lane);  // when it started
+  }
+  ctx.globalAlpha = 1;
   const bottom = top + lane;
   ctx.fillStyle = css.bg;  // an outage: no snapshots, so nothing is known
   for (let i = 0; i < n; i++) if (until(i) - day.times[i] > GAP_MS) ctx.fillRect(X(day.times[i] + GAP_MS), 0, X(until(i)) - X(day.times[i] + GAP_MS), bottom);
@@ -852,7 +892,8 @@ function drawLanes(canvas, day, t, css) {
 }
 
 // --- the page ----------------------------------------------------------------------------------------
-const view = { day: null, t: 0, index: -1, playing: false, selected: null, fileDays: null, plot: { x0: 51, x1: 100 } };
+const view = { day: null, t: 0, index: -1, playing: false, selected: null, fileDays: null, plot: { x0: 51, x1: 100 },
+               learned: null, habit: null, frame: -2 };
 const status = $('status');
 const say = (text, bad) => { status.textContent = text; status.className = bad ? 'bad' : 'muted'; };
 const house = window.THREE ? houseScene(window.THREE, $('scene')) : null;
@@ -875,7 +916,8 @@ function render(force) {
   const i = indexAt(day, view.t), state = day.states[i];
   $('clock').textContent = clock(view.t);
   $('scrub').value = Math.round((view.t - day.start) / 1000);
-  view.plot = drawLanes($('lanes'), day, view.t, css);
+  view.plot = drawLanes($('lanes'), day, view.t, css, view.learned, view.habit);
+  updateLearned(force);
   if (house) house.setState(day.devices, state, (view.t - day.start) / 3600000, words);
   if (i === view.index && !force) return;
   view.index = i;
@@ -893,6 +935,162 @@ function render(force) {
     }
     row.querySelector('small').textContent = said.text + since;
   });
+}
+
+// --- what Alfred learned (GET /learned) ---------------------------------------------------------------
+// A sensor's parts name kinds, such as "bulb-A (power on, about 44 min)" or "end of home-A (quiet after bulb
+// until bulb, …)". Shown with the devices' own names; "home" is the whole home being quiet.
+function partText(part) {
+  const names = deviceNames();
+  return part
+    .replace(/^(end of )?(\w+?)-[A-Z]+\b/, (_, end, type) => {
+      const what = type === 'home' ? 'Quiet' : names[type] || type;
+      return end ? `End of ${what.toLowerCase()}` : what;
+    })
+    .replace(/\b(after|until) (\w+)/g, (m, word, type) => (names[type] ? `${word} ${names[type].toLowerCase()}` : m));
+}
+
+function deviceNames() {
+  const names = {};
+  for (const d of view.day ? view.day.devices : []) names[d.type] = names[d.type] || d.name || d.type;
+  return names;
+}
+
+// The same part, short: "Light on", "Plug about 2,100 W", "Quiet after light until light". The size stays, the duration goes.
+function partShort(part) {
+  const m = part.match(/^(end of )?(\w+?)-[A-Z]+\b(?: \((.*)\))?$/);
+  if (!m) return part;
+  const [, end, type] = m, names = deviceNames();
+  let what = (m[3] || '').split(', ').filter((x) => !/^about [\d.,]+ (s|min|h)$/.test(x)).join(', ');
+  what = what.replace(/^(power|sensorState) /, '').replace(/^quiet /, '')
+    .replace(/\b(after|until) (\w+)/g, (x, word, t) => (names[t] ? `${word} ${names[t].toLowerCase()}` : x));
+  if (type === 'home') return `${end ? 'End of quiet' : 'Quiet'}${what ? ' ' + what : ''}`;
+  if (type === 'contactSensor' && what === 'alarm') what = 'open';
+  return `${end ? 'End of ' : ''}${names[type] || type}${what ? ' ' + what : ''}`;
+}
+
+const STATUS_WORDS = { done: 'done', now: 'now', expected: 'expected', late: 'late', not_today: 'not today', unknown: 'no data',
+                       fading: 'fading', merged: 'merged' };
+
+// The status frame in force at time t: the latest one at or before it (-1 before the first).
+function frameAt(learned, t) {
+  const f = learned.statuses.frames;
+  let lo = 0, hi = f.length - 1, k = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (f[mid][0] <= t) { k = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return k;
+}
+
+function learnedNote(text, bad) {
+  $('learned-note').textContent = text;
+  $('learned-note').className = bad ? 'bad' : 'muted';
+  $('learned-note').hidden = !text;
+}
+
+function clearLearned(note) {
+  view.learned = null;
+  view.habit = null;
+  view.frame = -2;
+  $('learned').replaceChildren();
+  $('learned-count').textContent = '';
+  learnedNote(note);
+}
+
+// One row per sensor: a status chip that follows the time, what it is, and how sure Alfred is.
+function showLearned() {
+  const learned = view.learned, fmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
+  const rank = (s) => (s.tonight === 'learned' ? 1 : s.status === 'active' ? 0 : 2);
+  const sensors = [...learned.sensors].sort((a, b) => rank(a) - rank(b) || a.time_of_day.localeCompare(b.time_of_day));
+  const known = learned.sensors.filter((s) => s.tonight !== 'learned').length, fresh = learned.sensors.length - known;
+  $('learned-count').textContent = `${known} known${fresh ? ` · +${fresh} tonight` : ''}`;
+  learnedNote(learned.sensors.length ? ''
+    : 'Nothing learned yet. A habit needs at least 5 occurrences that beat chance in this home, so the first ones appear after about a week.');
+  $('learned').replaceChildren(...sensors.map((s) => {
+    const li = document.createElement('li'), button = document.createElement('button');
+    li.dataset.id = s.id;
+    li.classList.toggle('off', s.status !== 'active' && s.tonight !== 'learned');
+    button.type = 'button';
+    button.innerHTML = '<span class="chip"></span><span class="what"><span class="title"></span><small class="meta"></small><small class="change"></small></span>';
+    button.querySelector('.title').textContent = s.name || s.parts.map(partShort).join(' → ');
+    button.title = s.parts.map(partText).join(' → ');
+    const days = s.weekdays && s.weekdays.length ? ` · ${s.weekdays.map((w) => w[0].toUpperCase() + w.slice(1)).join(', ')}` : '';
+    const range = s.earliest && s.latest && s.earliest !== s.latest ? ` (${s.earliest}–${s.latest})` : '';
+    button.querySelector('.meta').textContent =
+      `around ${s.time_of_day}${range}${days} · ${s.days_seen} of ${s.days_total} days · since ${fmt.format(Date.parse(s.learned_at + 'T12:00Z'))}`;
+    const change = { learned: 'Learned at the end of this day', fading: 'Starts fading tonight: not seen enough',
+                     merged: `Merged tonight into ${s.merged_into}`,
+                     moved: s.moved_from ? `Moved tonight, from around ${s.moved_from.time_of_day}` : 'Moved tonight' }[s.tonight]
+      || (s.status === 'merged' ? `Merged into ${s.merged_into}` : s.moved_from ? `Moved here from around ${s.moved_from.time_of_day}` : '');
+    button.querySelector('.change').textContent = change;
+    button.querySelector('.change').hidden = !change;
+    button.setAttribute('aria-pressed', String(view.habit === s.id));
+    button.addEventListener('click', () => pickHabit(s));
+    li.append(button);
+    return li;
+  }));
+  view.frame = -2;
+}
+
+// The chips follow view.t: each habit's status as Alfred saw it at that moment.
+function updateLearned(force) {
+  const learned = view.learned;
+  if (!learned) return;
+  const k = frameAt(learned, view.t);
+  if (k === view.frame && !force) return;
+  view.frame = k;
+  const row = k >= 0 ? learned.statuses.frames[k][1] : [], byId = {};
+  learned.statuses.ids.forEach((id, n) => { byId[id] = row[n]; });
+  for (const li of $('learned').children) {
+    const s = learned.sensors.find((x) => x.id === li.dataset.id), chip = li.querySelector('.chip'), st = byId[s.id];
+    let text, cls = '', tip = '';
+    if (s.tonight === 'learned') { text = 'new tonight'; cls = 'new'; tip = 'Alfred did not know this habit yet during this day.'; }
+    else if (st) {
+      const [status, at] = st;
+      text = STATUS_WORDS[status] + (at ? ` ${at}` : '');
+      cls = status === 'done' ? 'done' : status === 'now' ? 'now' : status === 'late' ? 'late' : '';
+      tip = status === 'late' ? `Later than ever seen: usually by ${s.late_after}.` : status === 'expected' ? `Usually by ${s.late_after}.` : '';
+    } else text = STATUS_WORDS[s.status] || s.status;
+    chip.textContent = text;
+    chip.className = `chip ${cls}`;
+    chip.title = tip;
+  }
+}
+
+// Click a habit: mark it and its devices, and go to when it happened that day (or its usual time).
+function pickHabit(s) {
+  view.habit = view.habit === s.id ? null : s.id;
+  for (const li of $('learned').children) li.firstChild.setAttribute('aria-pressed', String(li.dataset.id === view.habit));
+  const type = view.habit ? s.devices[0] || null : null;
+  view.selected = type;
+  if (house) house.select(type);
+  [...$('devices').children].forEach((row, n) => row.firstChild.setAttribute('aria-pressed', String(view.day.devices[n].type === type)));
+  if (view.habit) {
+    play(false);
+    const hit = view.learned.readings.find(([id, a]) => id === s.id && a >= view.day.start && a < view.day.end);
+    const [hh, mm] = s.time_of_day.split(':').map(Number);
+    seek(hit ? hit[1] : view.day.start + (hh * 60 + mm) * 60000);
+  }
+  render(true);
+}
+
+let learnToken = 0;
+async function loadLearned(household, n) {
+  const token = ++learnToken;
+  clearLearned(`Alfred is learning from days 1 to ${n}…`);
+  try {
+    const res = await fetch(`/learned?household=${encodeURIComponent(household)}&day=${n}`);
+    const body = await res.json().catch(() => ({}));
+    if (token !== learnToken) return;  // another day was picked meanwhile
+    if (!res.ok) throw new Error(body.error || `Failed (${res.status})`);
+    if (!view.day || body.date !== view.day.date) return;
+    view.learned = body;
+    showLearned();
+    render(true);
+  } catch (err) {
+    if (token === learnToken) learnedNote(err instanceof TypeError ? 'Could not reach the simulator.' : err.message, true);
+  }
 }
 
 function seek(t) {
@@ -971,6 +1169,7 @@ async function load(household, n, keepTime) {
     $('day').max = body.max_days;
     $('day').value = n;
     show(fromServer(body), keepTime);
+    loadLearned(household, n);
     history.replaceState(null, '', `?household=${encodeURIComponent(household)}&day=${n}`);
   } catch (err) {
     say(err instanceof TypeError ? 'Could not reach the simulator. Start it (uv run python -m source.simulate --serve), or open a .jsonl file.' : err.message, true);
@@ -981,7 +1180,11 @@ async function load(household, n, keepTime) {
 function go(n, keepTime) {
   n = Math.max(1, Math.min(Number($('day').max) || 1, Math.round(n) || 1));
   $('day').value = n;
-  if (view.fileDays) return show(view.fileDays[n - 1], keepTime);
+  if (view.fileDays) {
+    learnToken++;
+    clearLearned('Learning runs on the simulator\'s households, not on an opened file.');
+    return show(view.fileDays[n - 1], keepTime);
+  }
   load($('household').value, n, keepTime);
 }
 
@@ -1070,6 +1273,11 @@ window.addEventListener('resize', () => { if (house) house.resize(); render(true
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); render(true); });
 
 try { const saved = localStorage.getItem('alfred-visualizer-theme'); if (saved) document.documentElement.dataset.theme = saved; } catch { /* no storage */ }
+// On a narrow window there is no room for a second panel: the habits join the left one.
+const narrow = window.matchMedia('(max-width: 1100px)');
+const placeHabits = () => { (narrow.matches ? $('panel') : $('habits')).append($('learned-box')); $('habits').hidden = narrow.matches; };
+narrow.addEventListener('change', placeHabits);
+placeHabits();
 for (let n = 1; n <= 20; n++) $('made-up').append(new Option(`house-${n}`, `house-${n}`));
 readColors();
 if (house) { house.onPick((type) => type && select(type)); house.start(); }

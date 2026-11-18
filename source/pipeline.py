@@ -51,8 +51,13 @@ def _sensors(db: sqlite3.Connection) -> int | None:
         return None
 
 
-def run(snaps: Iterable[Snapshot], out: Path, *, replace: bool = False) -> int:
-    """Ingests snaps into out/home.sqlite3 and learns at each day end. Returns how many days ran."""
+def run(snaps: Iterable[Snapshot], out: Path, *, replace: bool = False,
+        before_learn: Callable[[sqlite3.Connection, date], None] | None = None) -> int:
+    """Ingests snaps into out/home.sqlite3 and learns at each day end. Returns how many days ran.
+
+    `before_learn(db, day)` runs at each day end once that day's happenings are saved, before the learners
+    see it: the store then holds what Alfred knew during that day (the 3D view's /learned uses it).
+    """
     db = out / "home.sqlite3"
     if db.exists():
         if not replace:
@@ -67,6 +72,8 @@ def run(snaps: Iterable[Snapshot], out: Path, *, replace: bool = False) -> int:
         days += 1
         new = save_happenings(store, day_bounds(day)[1])
         line = f"{day}  {new:3d} new happenings"
+        if before_learn is not None:
+            before_learn(store.db, day)
         if learn_day is not None:
             before = _sensors(store.db) or 0
             learn_day(store.db, day)

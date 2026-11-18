@@ -6,17 +6,22 @@ GET  /           the page (console/simulator.html)
 POST /generate   kind (simulated | real), days, houses -> a zip with one JSONL file per house
 GET  /visualizer the 3D view of one day (console/visualizer.html)
 GET  /day        household, day[, seed, start] -> that day's snapshots, cut down to what the view draws
+GET  /learned    household, day[, seed, start] -> what Alfred learned by that day, and each habit's status through it
 
 "simulated" gives made-up homes (`simulate.houses`), each different. "real" replays the one recorded house
 (home-a). The same choices always give the same zip; for a specific named household, use the command line
 (docs/simulator.md).
 """
 import json
+import re
+import sqlite3
 import tempfile
 import time
 import zipfile
+from datetime import date, datetime, timedelta
+from datetime import time as clock_time
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -157,6 +162,103 @@ def day_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START) ->
             "truth": [t for t in truth if t["start"][:10] <= iso <= t.get("end", t["start"])[:10]]}
 
 
+# --- what Alfred learned, for the 3D view -----------------------------------------------------------
+
+MAX_LEARN_DAYS = 60  # simulate + ingest + learn from day 1: about 7 s for 21 days, so a cap keeps the page usable
+STATUS_STEP_MIN = 5  # a habit's status through the day is worked out this often
+
+
+def _device_types(parts: list[str]) -> list[str]:
+    """A sensor's parts name kinds such as "bulb-A (power on…)" or "end of home-A (quiet…)": their device types."""
+    out = []
+    for part in parts:
+        m = re.match(r"(?:end of )?(\w+?)-[A-Z]+\b", part)
+        if m and m.group(1) != "home" and m.group(1) not in out:
+            out.append(m.group(1))
+    return out
+
+
+def _card(sensor: dict) -> dict:
+    p = sensor["pattern"]
+    return {"id": sensor["id"], "name": sensor.get("name"), "parts": p["parts"], "devices": _device_types(p["parts"]),
+            "time_of_day": p["time_of_day"], "weekdays": p.get("weekdays"), "days_seen": p["days_seen"],
+            "days_total": p["days_total"], "earliest": p.get("earliest"), "latest": p.get("latest"),
+            "late_after": p.get("late_after"), "first_seen": p.get("first_seen"), "learned_at": sensor["learned_at"],
+            "confidence": sensor.get("confidence"), "status": sensor["status"],
+            "merged_into": sensor.get("merged_into"), "moved_from": p.get("moved_from")}
+
+
+@lru_cache(maxsize=12)
+def learned_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START) -> dict:
+    """Days 1 to `day` through the pipeline (simulate, ingest, learn each night), seen from day `day`.
+
+    `sensors`: every sensor Alfred had when the day began, plus those first learned that night
+    (`tonight`: learned, fading, merged or moved, from the learners' run at the day's end).
+    `statuses`: each active habit's status (source/learn/today.py) every STATUS_STEP_MIN minutes of the day,
+    kept only where one changes: [ms, [[status, at] per id in `ids`]].
+    `readings`: the occurrences inside that day, as the learners saw them that night: [sensor id, start ms, end ms].
+    """
+    from .learn import storage, to_ms
+    from .learn.today import sensor_today
+    from .pipeline import _parse, run
+
+    if not 1 <= day <= MAX_LEARN_DAYS:
+        raise ValueError(f"Alfred learns from day 1, so the learned view stops at day {MAX_LEARN_DAYS}")
+    lines, _ = generate(_household(name), day, start=start, seed=seed)
+    target = start + timedelta(days=day - 1)
+    during: dict = {}
+
+    def before_learn(db: sqlite3.Connection, d: date) -> None:
+        if d != target:
+            return
+        storage.init(db)
+        during["sensors"] = storage.export(db, d)["sensors"]
+        ids, frames, last = None, [], None
+        midnight = datetime.combine(d, clock_time())
+        for m in range(0, 24 * 60, STATUS_STEP_MIN):
+            now = midnight + timedelta(minutes=m)
+            today = sensor_today(db, now)
+            ids = ids or [st["sensor_id"] for st in today]
+            row = [[st["status"], st["at"]] for st in today]
+            if row != last:
+                frames.append([to_ms(now), row])
+                last = row
+        during["statuses"] = {"ids": ids or [], "frames": frames}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        run(_parse(lines), Path(tmp), before_learn=before_learn)
+        db = sqlite3.connect(Path(tmp) / "home.sqlite3")
+        try:
+            after = storage.export(db, target)
+        finally:
+            db.close()
+
+    before = {s["id"]: s for s in during.get("sensors", [])}
+    sensors = []
+    for s in after["sensors"]:
+        was = before.get(s["id"])
+        card = _card(was or s)
+        if was is None:
+            card["tonight"] = "learned"
+        elif s["status"] != was["status"]:
+            card["tonight"] = s["status"]  # fading or merged
+            card["merged_into"] = s.get("merged_into")
+        elif s["pattern"].get("moved_from") != was["pattern"].get("moved_from"):
+            card["tonight"] = "moved"
+            card["moved_from"] = s["pattern"]["moved_from"]
+        else:
+            card["tonight"] = None
+        if was is None:
+            card.update(_card(s), tonight="learned")
+        sensors.append(card)
+    iso = target.isoformat()
+    readings = [[r["sensor_id"], to_ms(datetime.fromisoformat(r["start"])),
+                 to_ms(datetime.fromisoformat(r["end"])) if r["end"] else None]
+                for r in after["readings"] if r["start"][:10] == iso or (r["end"] or "")[:10] == iso]
+    return {"household": name, "day": day, "date": iso, "max_days": MAX_LEARN_DAYS, "sensors": sensors,
+            "statuses": during.get("statuses", {"ids": [], "frames": []}), "readings": readings}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "AlfredSimulator"
 
@@ -193,6 +295,12 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/day":
             try:
                 view = day_view(*_day_request({k: v[-1] for k, v in parse_qs(url.query).items()}))
+            except ValueError as exc:
+                return self._error(400, str(exc))
+            return self._send(200, json.dumps(view, separators=(",", ":")).encode(), "application/json")
+        if url.path == "/learned":
+            try:
+                view = learned_view(*_day_request({k: v[-1] for k, v in parse_qs(url.query).items()}))
             except ValueError as exc:
                 return self._error(400, str(exc))
             return self._send(200, json.dumps(view, separators=(",", ":")).encode(), "application/json")
