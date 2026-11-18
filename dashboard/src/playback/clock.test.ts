@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { DAY_MS } from "../data/stateAt";
+import { CHANGED_FOR_MS, DAY_MS } from "../data/stateAt";
 import { advance, dayStart, holdFor, HOLD_REAL_MS } from "./clock";
 
 const start = Date.UTC(2026, 8, 1);
@@ -26,4 +26,9 @@ test("a hold of 3 real seconds spans more simulated time at higher speed", () =>
   expect(HOLD_REAL_MS).toBe(3_000);
   expect(holdFor(1)).toBe(0.3 * DAY_MS);
   expect(holdFor(4)).toBe(1.2 * DAY_MS);
+});
+
+test("while paused, changes are held only for the usual 10 simulated minutes", () => {
+  expect(holdFor(4, false)).toBe(CHANGED_FOR_MS);
+  expect(holdFor(1, true)).toBe(0.3 * DAY_MS);
 });

@@ -17,7 +17,7 @@ function DetailRoute(props: { rec: Recording; state: StateAt; playback: Playback
 
 function Player({ rec }: { rec: Recording }) {
   const playback = usePlayback(toMs(rec.meta.start), toMs(rec.meta.end));
-  const state = useMemo(() => stateAt(rec, playback.t, holdFor(playback.speed)), [rec, playback.t, playback.speed]);
+  const state = useMemo(() => stateAt(rec, playback.t, holdFor(playback.speed, playback.playing)), [rec, playback.t, playback.speed, playback.playing]);
   return (
     <HashRouter>
       <Routes>
