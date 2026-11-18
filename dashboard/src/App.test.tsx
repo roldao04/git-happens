@@ -16,7 +16,7 @@ test("says it is loading until the recording arrives", async () => {
   render(<App load={() => new Promise((ok) => { resolve = ok; })} />);
   expect(screen.getByRole("status")).toHaveTextContent("Loading the recording");
   await act(async () => resolve(rec));
-  expect(screen.getByRole("heading", { level: 1, name: "Alfred" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Alfred home" })).toBeInTheDocument();
 });
 
 test("a failing load shows the reason as an alert", async () => {
@@ -29,15 +29,28 @@ test("a failing load shows the reason as an alert", async () => {
 
 test("going to a sensor and back keeps the playhead", async () => {
   render(<App load={async () => rec} />);
-  await screen.findByRole("heading", { level: 1, name: "Alfred" });
+  await screen.findByRole("link", { name: "Alfred home" });
   // the keyboard listener is attached by an effect that can land just after the page shows
   await waitFor(() => {
     fireEvent.keyDown(window, { key: "ArrowRight" });
     expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
   });
   await userEvent.click(screen.getByRole("link", { name: /Pattern 2/ }));
-  expect(await screen.findByRole("heading", { level: 2, name: "Pattern 2" })).toBeInTheDocument();
-  await userEvent.click(screen.getByRole("link", { name: /Back/ }));
-  expect(await screen.findByRole("heading", { name: "Home now" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "Pattern 2" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("link", { name: "← Learned" }));
+  expect(await screen.findByRole("heading", { name: "Connected life" })).toBeInTheDocument();
   expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
+});
+
+test("the tabs switch between Home and Learned", async () => {
+  render(<App load={async () => rec} />);
+  await screen.findByRole("link", { name: "Alfred home" });
+  await waitFor(() => {
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
+  });
+  await userEvent.click(screen.getByRole("link", { name: "Learned" }));
+  expect(await screen.findByRole("heading", { name: "Connected life" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("link", { name: "Home" }));
+  expect(await screen.findByRole("heading", { name: "Today so far" })).toBeInTheDocument();
 });

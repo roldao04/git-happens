@@ -239,3 +239,15 @@ describe("today", () => {
     expect(stateAt(rec({ events: [], sensors: [weak, later], readings }), at("2026-09-02T09:00:00")).today).toEqual([]);
   });
 });
+
+describe("since", () => {
+  test("is when a door, lamp or plug last changed, and stays after the hold", () => {
+    const d = stateAt(rec(), at("2026-09-01T12:00:00")).devices[0];
+    expect(d?.since).toBe(at("2026-09-01T07:59:39"));
+    expect(d?.changedAt).toBeNull();
+  });
+
+  test("is null for a device that has not changed yet", () => {
+    expect(stateAt(rec(), at("2026-09-01T07:00:00")).devices[0]?.since).toBeNull();
+  });
+});

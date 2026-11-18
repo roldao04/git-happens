@@ -118,3 +118,47 @@ export function foundSteps(parts: string[], usual: string, spreadMin: number | u
   const spread = spreadMin === undefined ? "" : `, give or take ${spreadMin} min`;
   return [...steps, { title: "Habit", text: `This repeats around ${usual}${spread}.` }];
 }
+
+export function homeTitle(devices: DeviceNow[]): string {
+  const value = (type: string, cap: string) => devices.find((d) => d.device.type === type)?.values[cap];
+  if (value("contactSensor", "sensorState") === "alarm") return "The door is open.";
+  const watts = value("plug", "instantPower");
+  if (typeof watts === "number" && watts > IN_USE_W) return "The plug is in use.";
+  const lamp = value("bulb", "power");
+  if (lamp === true || lamp === "on") return "The lamp is on.";
+  return "All quiet at home.";
+}
+
+export function homeSummary(devices: DeviceNow[], newToday: number): string {
+  const learned =
+    newToday === 0 ? "Nothing new was learned today." : `Alfred learned ${newToday} new ${newToday === 1 ? "sensor" : "sensors"} today.`;
+  return `${homeHeadline(devices)} ${learned}`;
+}
+
+const capital = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
+export interface DeviceRow { value: string; sub: string }
+
+export function deviceRow({ device, values, since }: DeviceNow): DeviceRow | null {
+  const at = since === null ? null : formatClock(since).time;
+  const sinceText = (state: string) => (at ? `${state} since ${at}` : "");
+  const v = values;
+  if (device.type === "contactSensor" && v.sensorState !== undefined) {
+    const state = deviceWords("contactSensor", "sensorState", v.sensorState);
+    return { value: capital(state), sub: sinceText(state) };
+  }
+  if (device.type === "bulb" && v.power !== undefined) {
+    const state = deviceWords("bulb", "power", v.power);
+    const bright = state === "on" && typeof v.brightness === "number" ? `, ${deviceWords("bulb", "brightness", v.brightness)}` : "";
+    const sub = sinceText(state);
+    return { value: capital(state), sub: sub ? `${sub}${bright}` : "" };
+  }
+  if (device.type === "plug" && typeof v.instantPower === "number") {
+    return { value: `${whole(v.instantPower)} W`, sub: sinceText(v.instantPower > IN_USE_W ? "in use" : "at rest") };
+  }
+  if (device.type === "temperatureSensor" && typeof v.temperatureValue === "number") {
+    const hum = typeof v.humidityValue === "number" ? `${v.humidityValue.toFixed(1)}% humidity` : "";
+    return { value: `${v.temperatureValue.toFixed(1)} °C`, sub: hum };
+  }
+  return null;
+}

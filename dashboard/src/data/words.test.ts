@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Sensor } from "./recording";
 import type { DeviceNow } from "./stateAt";
-import { deviceWords, evidence, formatClock, formatDate, foundSteps, homeHeadline, learnedHeadline, learnedSummary, partToWords, sensorTitle } from "./words";
+import { deviceRow, deviceWords, evidence, formatClock, formatDate, foundSteps, homeHeadline, homeSummary, homeTitle, learnedHeadline, learnedSummary, partToWords, sensorTitle } from "./words";
 
 describe("partToWords", () => {
   test.each([
@@ -67,7 +67,7 @@ test("formatDate gives weekday, day and month", () => {
 });
 
 describe("homeHeadline", () => {
-  const dev = (type: string, values: DeviceNow["values"]): DeviceNow => ({ device: { id: type, type, name: type }, values, changedAt: null });
+  const dev = (type: string, values: DeviceNow["values"]): DeviceNow => ({ device: { id: type, type, name: type }, values, changedAt: null, since: null });
 
   test("says what the door, lamp, plug and temperature are doing", () => {
     expect(
@@ -122,5 +122,42 @@ describe("foundSteps", () => {
       { title: "First", text: "the home quiet, about 9.1 h" },
       { title: "Habit", text: "This repeats around 23:07." },
     ]);
+  });
+});
+
+describe("Home page words", () => {
+  const t = (h: number, m: number) => Date.UTC(2026, 8, 9, h, m);
+  const dev = (type: string, values: DeviceNow["values"], since: number | null = null): DeviceNow => ({
+    device: { id: type, type, name: type },
+    values,
+    changedAt: null,
+    since,
+  });
+
+  test("the title says the most notable thing, else all quiet", () => {
+    expect(homeTitle([dev("contactSensor", { sensorState: "alarm" }), dev("bulb", { power: true })])).toBe("The door is open.");
+    expect(homeTitle([dev("plug", { instantPower: 2105 }), dev("bulb", { power: true })])).toBe("The plug is in use.");
+    expect(homeTitle([dev("bulb", { power: true })])).toBe("The lamp is on.");
+    expect(homeTitle([dev("contactSensor", { sensorState: "normal" }), dev("plug", { instantPower: 0 })])).toBe("All quiet at home.");
+  });
+
+  test("the summary adds what was learned today", () => {
+    expect(homeSummary([], 0)).toBe("Nothing to show yet. Nothing new was learned today.");
+    expect(homeSummary([dev("temperatureSensor", { temperatureValue: 20 })], 1)).toBe("It is 20.0 °C inside. Alfred learned 1 new sensor today.");
+    expect(homeSummary([], 2)).toBe("Nothing to show yet. Alfred learned 2 new sensors today.");
+  });
+
+  test("each device has a value and a line under its name", () => {
+    expect(deviceRow(dev("contactSensor", { sensorState: "normal" }, t(8, 41)))).toEqual({ value: "Closed", sub: "closed since 08:41" });
+    expect(deviceRow(dev("bulb", { power: true, brightness: 100 }, t(7, 33)))).toEqual({ value: "On", sub: "on since 07:33, 100%" });
+    expect(deviceRow(dev("bulb", { power: false, brightness: 100 }))).toEqual({ value: "Off", sub: "" });
+    expect(deviceRow(dev("plug", { instantPower: 2105 }, t(7, 59)))).toEqual({ value: "2,105 W", sub: "in use since 07:59" });
+    expect(deviceRow(dev("plug", { instantPower: 0 }, t(8, 2)))).toEqual({ value: "0 W", sub: "at rest since 08:02" });
+    expect(deviceRow(dev("temperatureSensor", { temperatureValue: 21.94, humidityValue: 48 }))).toEqual({ value: "21.9 °C", sub: "48.0% humidity" });
+  });
+
+  test("a device with nothing to show gives no row", () => {
+    expect(deviceRow(dev("gateway", { tamperState: "normal" }))).toBeNull();
+    expect(deviceRow(dev("plug", {}))).toBeNull();
   });
 });

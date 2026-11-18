@@ -8,7 +8,7 @@ const at = (h: number, m: number) => Date.UTC(2026, 8, 9, h, m);
 const door = { id: "d", type: "contactSensor", name: "Front door" };
 const plug = { id: "p", type: "plug", name: "Plug" };
 
-test("lists today's happenings in words, newest first as given", () => {
+test("lists today's happenings in words, in the order given", () => {
   const items: FeedItem[] = [
     { kind: "device", at: at(8, 10), device: door, capability: "sensorState", value: "alarm" },
     { kind: "habit", at: at(7, 59), sensor: sensor() },
@@ -16,8 +16,16 @@ test("lists today's happenings in words, newest first as given", () => {
   ];
   render(<TodayFeed items={items} />);
   expect(screen.getByRole("heading", { name: "Today so far" })).toBeInTheDocument();
-  const rows = screen.getAllByRole("listitem").map((li) => li.textContent);
-  expect(rows).toEqual(["08:10Front door open", "07:59Pattern 2 seen againlearned habit", "07:59Plug 2,105 W, in use"]);
+  expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+    "08:10Front door open",
+    "07:59Pattern 2lamp on, about 43 min, then plug about 2,100 W, about 3 minlearned habit",
+    "07:59Plug 2,105 W, in use",
+  ]);
+});
+
+test("a habit row links to its sensor", () => {
+  render(<TodayFeed items={[{ kind: "habit", at: at(7, 59), sensor: sensor() }]} />);
+  expect(screen.getByRole("link", { name: /Pattern 2/ })).toHaveAttribute("href", "#/sensor/pattern-2");
 });
 
 test("shows only the newest six", () => {

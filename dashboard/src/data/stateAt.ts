@@ -7,7 +7,7 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
 export const CHANGED_FOR_MS = 10 * 60 * 1000;
 
 export interface Latest { device: Device; capability: string; value: Value; at: number }
-export interface DeviceNow { device: Device; values: Record<string, Value>; changedAt: number | null }
+export interface DeviceNow { device: Device; values: Record<string, Value>; changedAt: number | null; since: number | null }
 export type FeedItem =
   | { kind: "device"; at: number; device: Device; capability: string; value: Value }
   | { kind: "habit"; at: number; sensor: Sensor };
@@ -73,6 +73,7 @@ function devicesAt(rec: Recording, t: number, holdMs: number): DevicesNow {
       device,
       values: values.get(device.id) ?? {},
       changedAt: changed !== undefined && t - changed <= holdMs ? changed : null,
+      since: changed ?? null,
     };
   });
   const device = active ? byId.get(active.device_id) : undefined;

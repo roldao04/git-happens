@@ -1,5 +1,6 @@
 import type { FeedItem } from "../data/stateAt";
-import { deviceWords, formatClock, sensorTitle } from "../data/words";
+import { deviceWords, evidence, formatClock, sensorTitle } from "../data/words";
+import { sensorHref } from "./sensorHref";
 
 const SHOWN = 6;
 
@@ -9,14 +10,17 @@ function Row({ item }: { item: FeedItem }) {
     return (
       <li>
         {time}
-        <div className="al-what"><b>{`${sensorTitle(item.sensor).text} seen again`}</b></div>
-        <span className="al-aside">learned habit</span>
+        <a className="t" href={sensorHref(item.sensor.id)}>
+          <b>{sensorTitle(item.sensor).text}</b>
+          <span>{evidence(item.sensor.pattern.parts)}</span>
+        </a>
+        <span className="a">learned habit</span>
       </li>
     );
   return (
     <li>
       {time}
-      <div className="al-what"><b>{`${item.device.name} ${deviceWords(item.device.type, item.capability, item.value)}`}</b></div>
+      <div className="t"><b>{`${item.device.name} ${deviceWords(item.device.type, item.capability, item.value)}`}</b></div>
     </li>
   );
 }
@@ -24,18 +28,18 @@ function Row({ item }: { item: FeedItem }) {
 export function TodayFeed({ items }: { items: FeedItem[] }) {
   const shown = items.slice(0, SHOWN);
   return (
-    <section className="today-feed" aria-labelledby="today-so-far">
-      <h3 id="today-so-far">Today so far</h3>
+    <section className="sec" aria-labelledby="h-today">
+      <div className="sec-t"><h2 id="h-today">Today so far</h2></div>
       {shown.length === 0 ? (
-        <p className="al-muted">Nothing yet today.</p>
+        <p className="note">Nothing yet today.</p>
       ) : (
-        <ul className="al-list feed">
+        <ul className="rows">
           {shown.map((item, i) => (
             <Row key={`${item.at}-${i}`} item={item} />
           ))}
         </ul>
       )}
-      {items.length > SHOWN && <p className="al-muted">{`and ${items.length - SHOWN} earlier`}</p>}
+      {items.length > SHOWN && <p className="note">{`and ${items.length - SHOWN} earlier`}</p>}
     </section>
   );
 }

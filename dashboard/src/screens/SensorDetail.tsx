@@ -1,7 +1,7 @@
-import { Controls } from "../components/Controls";
 import { DaysChart } from "../components/DaysChart";
 import { FoundSteps } from "../components/FoundSteps";
-import { Header } from "../components/Header";
+import { Later } from "../components/Later";
+import { Shell } from "../components/Shell";
 import { RecentDays } from "../components/RecentDays";
 import { recentDays } from "../data/days";
 import type { Recording } from "../data/recording";
@@ -11,7 +11,7 @@ import type { Playback } from "../playback/usePlayback";
 import { FadingPill } from "../components/FadingPill";
 
 function Back() {
-  return <a className="al-btn quiet" href="#/">← Back</a>;
+  return <a className="more back" href="#/learned">← Learned</a>;
 }
 
 function Detail({ item, state }: { item: SensorNow; state: StateAt }) {
@@ -23,7 +23,7 @@ function Detail({ item, state }: { item: SensorNow; state: StateAt }) {
   return (
     <article className="detail">
       <header>
-        <h2 className={`detail-title${title.unnamed ? " unnamed" : ""}`}>{title.text}</h2>
+        <h1 className={`detail-title${title.unnamed ? " unnamed" : ""}`}>{title.text}</h1>
         <FadingPill sensor={sensor} />
         {sensor.explanation && <p className="al-looks">{`Looks like ${sensor.explanation}`}</p>}
         <p className="detail-evidence">{evidence(sensor.pattern.parts)}</p>
@@ -57,11 +57,7 @@ function Detail({ item, state }: { item: SensorNow; state: StateAt }) {
           </section>
           <FoundSteps steps={foundSteps(sensor.pattern.parts, usual, spread)} />
           <p className="never">Alfred never turns anything on or off because of this sensor.</p>
-          <div className="al-later">
-            <span className="al-pill">not built yet</span>
-            <h3>Naming comes later</h3>
-            <p>Alfred will ask the household what this is and use their word for it.</p>
-          </div>
+          <Later title="Naming comes later">Alfred will ask the household what this is and use their word for it.</Later>
         </aside>
       </div>
     </article>
@@ -74,18 +70,13 @@ export function SensorDetail({ rec, state, playback, id }: Props) {
   const item = [...state.cards, ...state.alsoNoticed].find((s) => s.sensor.id === id);
   const known = rec.sensors.some((s) => s.id === id);
   return (
-    <>
-      <Header state={state}>
-        <Controls playback={playback} />
-      </Header>
-      <main className="stage">
-        <Back />
+    <Shell state={state} playback={playback} tab="learned">
+      <Back />
         {item ? (
           <Detail item={item} state={state} />
         ) : (
           <p className="al-muted">{known ? "Alfred hasn't learned this one yet at this point of the run" : "This sensor isn't in the recording"}</p>
         )}
-      </main>
-    </>
+    </Shell>
   );
 }

@@ -6,7 +6,8 @@ import { stateAt, type StateAt } from "./data/stateAt";
 import { holdFor } from "./playback/clock";
 import { usePlayback, type Playback } from "./playback/usePlayback";
 import { SensorDetail } from "./screens/SensorDetail";
-import { Stage } from "./screens/Stage";
+import { Home } from "./screens/Home";
+import { Learned } from "./screens/Learned";
 
 type Loaded = { rec: Recording } | { error: string } | null;
 
@@ -21,7 +22,8 @@ function Player({ rec }: { rec: Recording }) {
   return (
     <HashRouter>
       <Routes>
-        <Route path="/" element={<Stage rec={rec} state={state} playback={playback} />} />
+        <Route path="/" element={<Home rec={rec} state={state} playback={playback} />} />
+        <Route path="/learned" element={<Learned rec={rec} state={state} playback={playback} />} />
         <Route path="/sensor/:id" element={<DetailRoute rec={rec} state={state} playback={playback} />} />
       </Routes>
     </HashRouter>
