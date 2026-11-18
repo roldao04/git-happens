@@ -23,31 +23,20 @@ function clock(min: number): string {
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 
-interface Props { usual: string; spreadMin?: number; hits: number[]; nowMin: number | null }
-
-export function DayTimeline({ usual, spreadMin, hits, nowMin }: Props) {
+export function DayBar({ usual, spreadMin, hits }: { usual: string; spreadMin?: number; hits: number[] }) {
   const centre = toMin(usual);
   const label =
     spreadMin === undefined ? `usually around ${usual}` : `usually between ${clock(centre - spreadMin)} and ${clock(centre + spreadMin)}`;
   return (
-    <div className="al-timeline" role="img" aria-label={label}>
-      <div className="al-track">
-        <span className="al-axis" />
-        {[6, 12, 18].map((h) => (
-          <span key={h} className="al-hour" style={{ left: `${pct(h * 60)}%` }} />
-        ))}
-        {spreadMin !== undefined &&
-          windowPieces(centre, spreadMin).map((p) => <span key={p.left} className="al-window" style={{ left: `${p.left}%`, width: `${p.width}%` }} />)}
-        {hits.map((m, i) => (
-          <span key={i} className="al-hit" style={{ left: `${pct(m)}%` }} />
-        ))}
-        {nowMin !== null && <span className="al-now" style={{ left: `${pct(nowMin)}%` }} />}
-      </div>
-      <div className="al-ticks" aria-hidden="true">
-        {[0, 6, 12, 18, 24].map((h) => (
-          <span key={h} style={{ left: `${pct(h * 60)}%` }}>{String(h).padStart(2, "0")}</span>
-        ))}
-      </div>
+    <div className="ts" role="img" aria-label={label}>
+      {[25, 50, 75].map((left) => (
+        <span key={left} className="h" style={{ left: `${left}%` }} />
+      ))}
+      {spreadMin !== undefined &&
+        windowPieces(centre, spreadMin).map((p) => <span key={p.left} className="w" style={{ left: `${p.left}%`, width: `${p.width}%` }} />)}
+      {hits.map((m, i) => (
+        <span key={i} className="p" style={{ left: `${pct(m)}%` }} />
+      ))}
     </div>
   );
 }

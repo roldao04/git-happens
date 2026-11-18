@@ -1,4 +1,4 @@
-import { DAY_MS } from "../data/stateAt";
+import { CHANGED_FOR_MS, DAY_MS } from "../data/stateAt";
 
 export const SPEEDS = [1, 2, 4] as const;
 export type Speed = (typeof SPEEDS)[number];
@@ -14,6 +14,7 @@ export function dayStart(startMs: number, day: number): number {
 
 export const HOLD_REAL_MS = 3_000;
 
-export function holdFor(speed: Speed): number {
+export function holdFor(speed: Speed, playing: boolean = true): number {
+  if (!playing) return CHANGED_FOR_MS;
   return (HOLD_REAL_MS * speed * DAY_MS) / REAL_MS_PER_DAY;
 }

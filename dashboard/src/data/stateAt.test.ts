@@ -184,3 +184,70 @@ describe("latest", () => {
     expect(stateAt(r, at("2026-09-01T07:45:00"), hold).latest?.at).toBe(at("2026-09-01T07:00:00"));
   });
 });
+
+describe("today", () => {
+  const door = { id: "d-door", type: "contactSensor", name: "Front door" };
+  const plug = { id: "d-plug", type: "plug", name: "Plug" };
+  const day = () =>
+    rec({
+      devices: [plug, door],
+      events: [
+        { ts: "2026-09-01T23:00:00", device_id: "d-door", capability: "sensorState", value: "alarm" },
+        { ts: "2026-09-01T23:00:30", device_id: "d-door", capability: "sensorState", value: "normal" },
+        { ts: "2026-09-02T07:59:00", device_id: "d-plug", capability: "instantPower", value: 2105 },
+        { ts: "2026-09-02T08:00:00", device_id: "d-plug", capability: "instantPower", value: 2110 },
+        { ts: "2026-09-02T08:02:00", device_id: "d-plug", capability: "instantPower", value: 0 },
+        { ts: "2026-09-02T08:10:00", device_id: "d-door", capability: "sensorState", value: "alarm" },
+      ],
+    });
+
+  test("lists what went active since midnight, newest first", () => {
+    const items = stateAt(day(), at("2026-09-02T09:00:00")).today;
+    expect(items.map((i) => [i.kind, i.at])).toEqual([
+      ["device", at("2026-09-02T08:10:00")],
+      ["device", at("2026-09-02T07:59:00")],
+    ]);
+  });
+
+  test("a plug that stays above its rest counts once", () => {
+    const items = stateAt(day(), at("2026-09-02T08:01:00")).today;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "device", device: plug, value: 2105 });
+  });
+
+  test("leaves out what happens after the playhead", () => {
+    expect(stateAt(day(), at("2026-09-02T07:58:59")).today).toEqual([]);
+  });
+
+  test("a habit seen today shows once its sensor is a card", () => {
+    const s = sensor("pattern-2", 0.84, "2026-09-01");
+    const readings: Reading[] = [
+      { sensor_id: "pattern-2", start: "2026-09-01T07:59:00", end: null, value: null },
+      { sensor_id: "pattern-2", start: "2026-09-02T07:59:00", end: null, value: null },
+    ];
+    const items = stateAt(rec({ events: [], sensors: [s], readings }), at("2026-09-02T09:00:00")).today;
+    expect(items).toEqual([{ kind: "habit", at: at("2026-09-02T07:59:00"), sensor: s }]);
+  });
+
+  test("a weak or not yet learned sensor adds nothing", () => {
+    const weak = sensor("pattern-5", 0.4, "2026-09-01");
+    const later = sensor("pattern-3", 0.9, "2026-09-05");
+    const readings: Reading[] = [
+      { sensor_id: "pattern-5", start: "2026-09-02T07:00:00", end: null, value: null },
+      { sensor_id: "pattern-3", start: "2026-09-02T07:30:00", end: null, value: null },
+    ];
+    expect(stateAt(rec({ events: [], sensors: [weak, later], readings }), at("2026-09-02T09:00:00")).today).toEqual([]);
+  });
+});
+
+describe("since", () => {
+  test("is when a door, lamp or plug last changed, and stays after the hold", () => {
+    const d = stateAt(rec(), at("2026-09-01T12:00:00")).devices[0];
+    expect(d?.since).toBe(at("2026-09-01T07:59:39"));
+    expect(d?.changedAt).toBeNull();
+  });
+
+  test("is null for a device that has not changed yet", () => {
+    expect(stateAt(rec(), at("2026-09-01T07:00:00")).devices[0]?.since).toBeNull();
+  });
+});

@@ -24,5 +24,8 @@ venv/
 # Poller output (snapshots, recordings)
 data/
 
+# local planning notes
+docs/superpowers/
+
 # Extra 
 meeting-notes.md

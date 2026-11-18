@@ -7,7 +7,10 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
 export const CHANGED_FOR_MS = 10 * 60 * 1000;
 
 export interface Latest { device: Device; capability: string; value: Value; at: number }
-export interface DeviceNow { device: Device; values: Record<string, Value>; changedAt: number | null }
+export interface DeviceNow { device: Device; values: Record<string, Value>; changedAt: number | null; since: number | null }
+export type FeedItem =
+  | { kind: "device"; at: number; device: Device; capability: string; value: Value }
+  | { kind: "habit"; at: number; sensor: Sensor };
 export interface SensorNow { sensor: Sensor; readings: Reading[]; daysSoFar: number; justLearned: boolean }
 export interface StateAt {
   t: number;
@@ -21,6 +24,7 @@ export interface StateAt {
   alsoNoticed: SensorNow[];
   learnDays: number[];
   latest: Latest | null;
+  today: FeedItem[];
 }
 
 export function appearsAt(sensor: Sensor): number {
@@ -35,10 +39,15 @@ export function dayNumber(startMs: number, t: number): number {
   return Math.floor((midnight(t) - midnight(startMs)) / DAY_MS) + 1;
 }
 
-function devicesAt(rec: Recording, t: number, holdMs: number): { devices: DeviceNow[]; latest: Latest | null } {
+interface DevicesNow { devices: DeviceNow[]; latest: Latest | null; deviceFeed: FeedItem[] }
+
+function devicesAt(rec: Recording, t: number, holdMs: number): DevicesNow {
   const values = new Map<string, Record<string, Value>>();
   const last = new Map<string, number>();
   const byId = new Map(rec.devices.map((d) => [d.id, d]));
+  const isActive = new Set<string>();
+  const since = midnight(t);
+  const deviceFeed: FeedItem[] = [];
   let active: DeviceEvent | null = null;
   for (const v of rec.initial) values.set(v.device_id, { ...values.get(v.device_id), [v.capability]: v.value });
   for (const e of rec.events) {
@@ -47,7 +56,16 @@ function devicesAt(rec: Recording, t: number, holdMs: number): { devices: Device
     values.set(e.device_id, { ...values.get(e.device_id), [e.capability]: e.value });
     const type = byId.get(e.device_id)?.type ?? "";
     if (marksChange(type, e.capability)) last.set(e.device_id, ts);
-    if (wentActive(type, e.capability, e.value)) active = e;
+    if (marksChange(type, e.capability)) {
+      const device = byId.get(e.device_id);
+      if (!wentActive(type, e.capability, e.value)) isActive.delete(e.device_id);
+      else {
+        active = e;
+        if (!isActive.has(e.device_id) && ts >= since && device)
+          deviceFeed.push({ kind: "device", at: ts, device, capability: e.capability, value: e.value });
+        isActive.add(e.device_id);
+      }
+    }
   }
   const devices = rec.devices.map((device) => {
     const changed = last.get(device.id);
@@ -55,12 +73,20 @@ function devicesAt(rec: Recording, t: number, holdMs: number): { devices: Device
       device,
       values: values.get(device.id) ?? {},
       changedAt: changed !== undefined && t - changed <= holdMs ? changed : null,
+      since: changed ?? null,
     };
   });
   const device = active ? byId.get(active.device_id) : undefined;
   const at = active ? toMs(active.ts) : 0;
   const latest = active && device && t - at <= holdMs ? { device, capability: active.capability, value: active.value, at } : null;
-  return { devices, latest };
+  return { devices, latest, deviceFeed };
+}
+
+function habitFeed(cards: SensorNow[], t: number): FeedItem[] {
+  const since = midnight(t);
+  return cards.flatMap(({ sensor, readings }) =>
+    readings.map((r) => toMs(r.start)).filter((ms) => ms >= since).map((at): FeedItem => ({ kind: "habit", at, sensor })),
+  );
 }
 
 function sensorNow(sensor: Sensor, readings: Reading[], t: number): SensorNow {
@@ -93,6 +119,8 @@ export function stateAt(rec: Recording, tRaw: number, holdMs: number = CHANGED_F
     .filter((d) => d >= 1)
     .sort((a, b) => a - b);
 
+  const { devices, latest, deviceFeed } = devicesAt(rec, t, holdMs);
+  const cards = visible.filter((s) => s.sensor.confidence >= CARD_MIN_CONFIDENCE);
   return {
     t,
     startMs,
@@ -100,8 +128,10 @@ export function stateAt(rec: Recording, tRaw: number, holdMs: number = CHANGED_F
     atEnd,
     day: dayNumber(startMs, t),
     days: rec.meta.days > 0 ? rec.meta.days : lastDay,
-    ...devicesAt(rec, t, holdMs),
-    cards: visible.filter((s) => s.sensor.confidence >= CARD_MIN_CONFIDENCE),
+    devices,
+    latest,
+    today: [...deviceFeed, ...habitFeed(cards, t)].sort((a, b) => b.at - a.at),
+    cards,
     alsoNoticed: visible.filter((s) => s.sensor.confidence < CARD_MIN_CONFIDENCE),
     learnDays,
   };
