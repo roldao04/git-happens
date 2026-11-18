@@ -158,3 +158,12 @@ Component breakdown, file names inside `dashboard/src/`, exact layout spacing wi
 - Several sensors are the same night quiet seen from different angles (rosa patterns 4–7); ranking keeps most of them under "Also noticed".
 - rosa pattern-10 reports "done at 07:51" while its usual time is 11:56; leave it out of the mock and raise it with the learners' author.
 - Parts read like `bulb-A (power on, about 43 min)`; the card turns them into plain words with a small, tested mapping (bulb → lamp, contactSensor → door, plug → plug), as `docs/learners.md` lists under "readable cards".
+
+## Addendum (2026-11-18): v2 tabs
+Gabriel asked for the v2 mockup's structure ("build it more like this", v2 artboards "1 Home" and "2 Learned") and chose:
+- **Tabs, controls on all**: Home (`#/`), Learned (`#/learned`) and the sensor page (`#/sensor/:id`, under Learned). Every page has the top bar (logo, tabs, simulated clock, play controls) and the day slider stuck to the bottom. Timeline is left for later.
+- **Suggestions and questions as "coming later"**: the pipeline makes neither and the dashboard never writes, so v2's "Turn the lamp off?" card and the naming and question rows become dashed "Not built yet" cards.
+
+Home: a headline from the device states, a sentence (home words plus what was learned today), the "coming later" suggestion card, "Today so far" in v2's row style, "New from Alfred" (the newest learned sensors, linking to their pages), and a Devices box with sub-lines (door "closed since hh:mm", lamp brightness, humidity).
+Learned: the headline, the summary and the honesty line; a "Connected life" table (sensor, 24 h bar, seen, confidence; each row opens the sensor page); "Still noticing" for sensors under the 0.6 threshold; "Connectivity" (its sensors, or a line saying there are none); "Coming later" cards for naming and questions, the event learner and the drift learner.
+v2's 13–15 px text is raised to at least 16 px where the jury reads it. The stage's cards, "Also noticed" and the header pill are replaced by these pages.
