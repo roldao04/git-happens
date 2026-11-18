@@ -21,3 +21,20 @@ test("has Home and Learned tabs with the current one marked", () => {
   expect(screen.getByRole("link", { name: "Learned" })).toHaveAttribute("href", "#/learned");
   expect(screen.getByRole("link", { name: "Learned" })).toHaveAttribute("aria-current", "page");
 });
+
+test("has Timeline and Devices tabs too", () => {
+  render(<TopBar state={state()} playback={playback()} tab="devices" />);
+  expect(screen.getAllByRole("link").filter((a) => a.closest("nav")).map((a) => a.textContent)).toEqual(["Home", "Learned", "Timeline", "Devices"]);
+  expect(screen.getByRole("link", { name: "Timeline" })).toHaveAttribute("href", "#/timeline");
+  expect(screen.getByRole("link", { name: "Devices" })).toHaveAttribute("href", "#/devices");
+  expect(screen.getByRole("link", { name: "Devices" })).toHaveAttribute("aria-current", "page");
+});
+
+test("each tab carries a decorative icon for the phone's bottom bar", () => {
+  render(<TopBar state={state()} playback={playback()} tab="home" />);
+  for (const name of ["Home", "Learned", "Timeline", "Devices"]) {
+    const icon = screen.getByRole("link", { name }).querySelector("svg.tab-ic");
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+  }
+});

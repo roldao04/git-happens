@@ -12,6 +12,9 @@ export function Shell({ state, playback, tab, children }: Props) {
       <TopBar state={state} playback={playback} tab={tab} />
       <main className="pg">{children}</main>
       <footer className="scrub-bar">
+        <button type="button" className="al-btn primary ph-play" aria-label={playback.playing ? "Pause" : "Play"} onClick={playback.toggle}>
+          {playback.playing ? "❚❚" : "▶"}
+        </button>
         <Scrubber state={state} onJump={playback.jumpToDay} />
       </footer>
     </div>

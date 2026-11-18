@@ -36,3 +36,23 @@ test("weak sensors are not listed as new", () => {
   render(<Home rec={recording()} state={state({ alsoNoticed: [sensorNow()] })} playback={playback()} />);
   expect(screen.getByText("Nothing learned yet. Alfred is still watching.")).toBeInTheDocument();
 });
+
+const hub = { device: { id: "g", type: "gateway", name: "Security hub" }, values: { batteryLevel: 20, cellularConnectionState: "abnormal" }, changedAt: null, since: null };
+const smoke = { device: { id: "s", type: "smokeSensor", name: "Smoke sensor" }, values: { signalStrength: "low" }, changedAt: null, since: null };
+
+test("says which devices need a look and links to them", () => {
+  render(<Home rec={recording()} state={state({ devices: [door("normal"), hub, smoke] })} playback={playback()} />);
+  const link = screen.getByRole("link", { name: /2 devices need a look/ });
+  expect(link).toHaveAttribute("href", "#/devices");
+  expect(link).toHaveTextContent("Security hub: battery 20%, no mobile signal. Smoke sensor: weak signal.");
+});
+
+test("one device that needs a look is said in the singular", () => {
+  render(<Home rec={recording()} state={state({ devices: [hub] })} playback={playback()} />);
+  expect(screen.getByRole("link", { name: /1 device needs a look/ })).toBeInTheDocument();
+});
+
+test("there is no needs-a-look card when every device is fine", () => {
+  render(<Home rec={recording()} state={state({ devices: [door("normal")] })} playback={playback()} />);
+  expect(screen.queryByRole("link", { name: /need/ })).toBeNull();
+});

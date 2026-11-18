@@ -54,3 +54,18 @@ test("the tabs switch between Home and Learned", async () => {
   await userEvent.click(screen.getByRole("link", { name: "Home" }));
   expect(await screen.findByRole("heading", { name: "Today so far" })).toBeInTheDocument();
 });
+
+test("the Timeline and Devices tabs open their pages, and a day can be opened by its link", async () => {
+  render(<App load={async () => rec} />);
+  await screen.findByRole("link", { name: "Alfred home" });
+  await waitFor(() => {
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByText("Wed · day 2 of 21")).toBeInTheDocument();
+  });
+  await userEvent.click(screen.getByRole("link", { name: "Timeline" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Today, Wed 2 Sep" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("link", { name: "Earlier" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Tue 1 Sep, day 1" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("link", { name: "Devices" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "All 0 devices look fine." })).toBeInTheDocument();
+});

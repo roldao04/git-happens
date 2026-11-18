@@ -7,13 +7,20 @@ import { holdFor } from "./playback/clock";
 import { usePlayback, type Playback } from "./playback/usePlayback";
 import { SensorDetail } from "./screens/SensorDetail";
 import { Home } from "./screens/Home";
+import { Devices } from "./screens/Devices";
 import { Learned } from "./screens/Learned";
+import { Timeline } from "./screens/Timeline";
 
 type Loaded = { rec: Recording } | { error: string } | null;
 
 function DetailRoute(props: { rec: Recording; state: StateAt; playback: Playback }) {
   const { id = "" } = useParams();
   return <SensorDetail {...props} id={id} />;
+}
+
+function TimelineRoute(props: { rec: Recording; state: StateAt; playback: Playback }) {
+  const { day } = useParams();
+  return <Timeline {...props} day={day === undefined ? props.state.day : Number(day)} />;
 }
 
 function Player({ rec }: { rec: Recording }) {
@@ -24,6 +31,9 @@ function Player({ rec }: { rec: Recording }) {
       <Routes>
         <Route path="/" element={<Home rec={rec} state={state} playback={playback} />} />
         <Route path="/learned" element={<Learned rec={rec} state={state} playback={playback} />} />
+        <Route path="/timeline" element={<TimelineRoute rec={rec} state={state} playback={playback} />} />
+        <Route path="/timeline/:day" element={<TimelineRoute rec={rec} state={state} playback={playback} />} />
+        <Route path="/devices" element={<Devices rec={rec} state={state} playback={playback} />} />
         <Route path="/sensor/:id" element={<DetailRoute rec={rec} state={state} playback={playback} />} />
       </Routes>
     </HashRouter>

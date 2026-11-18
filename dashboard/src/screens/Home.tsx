@@ -1,8 +1,10 @@
 import { DevicesBox } from "../components/DevicesBox";
+import { NeedsLook } from "../components/NeedsLook";
 import { Later } from "../components/Later";
 import { NewFromAlfred } from "../components/NewFromAlfred";
 import { Shell } from "../components/Shell";
 import { TodayFeed } from "../components/TodayFeed";
+import { needsLook } from "../data/devices";
 import type { Recording } from "../data/recording";
 import type { StateAt } from "../data/stateAt";
 import { homeSummary, homeTitle } from "../data/words";
@@ -25,6 +27,7 @@ export function Home({ state, playback }: { rec: Recording; state: StateAt; play
           <NewFromAlfred items={state.cards} t={state.t} />
         </div>
         <aside className="aside" aria-label="Devices">
+          <NeedsLook concerns={needsLook(state.devices)} />
           <DevicesBox devices={state.devices} latest={state.latest} />
         </aside>
       </div>
