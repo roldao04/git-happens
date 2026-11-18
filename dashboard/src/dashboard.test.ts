@@ -13,16 +13,83 @@ function fontSize(selector: string): number | null {
 
 test.each([
   ".al-clock .al-sub",
-  ".al-card .al-evidence",
-  ".al-card .al-when span",
   ".al-new",
-  ".devices .al-what .changed",
-  ".devices .al-what b",
-  ".also summary",
+  ".al-list time",
+  ".tab",
+  ".more",
+  ".pg-head p",
+  ".rows time",
+  ".rows .t b",
+  ".rows .t span",
+  ".rows .a",
+  ".devs .n",
+  ".devs .s",
+  ".devs .v",
+  ".latest .al-label",
+  ".lt-head",
+  ".lt-row .ds",
+  ".lt-row .num",
+  ".lt-row .num small",
+  ".later p",
+  ".note",
+  ".chart-day",
+  ".recent-days .al-what b",
+  ".steps p",
+  ".al-empty p",
+  ".attn b",
+  ".attn span",
+  ".lane-l",
+  ".ticks2",
+  ".evt time",
+  ".evt .body span",
+  ".sg2 li",
 ])("%s is readable from the back of a room", (selector) => {
   expect(fontSize(selector)).toBeGreaterThanOrEqual(16);
 });
 
 test("the still-learning counter fills its row instead of collapsing to zero width", () => {
   expect(css).toMatch(/\.al-empty \.al-counter\s*\{[^}]*width:\s*100%/);
+});
+
+test("the day slider stays on screen at the bottom", () => {
+  expect(css).toMatch(/\.scrub-bar\s*\{[^}]*position:\s*sticky[^}]*bottom:\s*0/);
+});
+
+test("home puts the devices in a side column next to the feed", () => {
+  expect(css).toMatch(/\.two\s*\{[^}]*grid-template-columns:[^}]*340px/);
+});
+
+test("the active tab is marked by more than color", () => {
+  expect(css).toMatch(/\.tab\.on\s*\{[^}]*border-bottom-color/);
+});
+
+test("no bare .today rule, which would also hit the chart's today row", () => {
+  expect(css).not.toMatch(/(^|[},\s])\.today[\s{,]/m);
+});
+
+const phone = /@media \(max-width:640px\)\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+
+test("on a phone the tabs become a bar fixed to the bottom", () => {
+  expect(phone).toMatch(/\.tabs\{[^}]*position:fixed[^}]*bottom:0/);
+  expect(phone).toMatch(/\.tab-ic\{[^}]*display:block/);
+  expect(css).toMatch(/(^|\n)\.tab-ic\{[^}]*display:none/);
+});
+
+test("on a phone the top controls hide and the bottom bar's play button shows", () => {
+  expect(phone).toMatch(/\.top \.controls\{[^}]*display:none/);
+  expect(phone).toMatch(/\.ph-play\{[^}]*display:inline-flex/);
+  expect(css).toMatch(/(^|\n)\.ph-play\{[^}]*display:none/);
+});
+
+test("on a phone the slider sits just above the tab bar", () => {
+  expect(phone).toMatch(/\.scrub-bar\{[^}]*bottom:var\(--tabbar-h\)/);
+});
+
+test("on a phone the lanes chart is left out", () => {
+  expect(phone).toMatch(/\.lanes-sec\{[^}]*display:none/);
+});
+
+test("tab and bottom-bar buttons are at least 44px tall on a phone", () => {
+  expect(phone).toMatch(/\.tab\{[^}]*min-height:(4[4-9]|[5-9]\d)px/);
+  expect(phone).toMatch(/\.ph-play\{[^}]*min-height:(4[4-9]|[5-9]\d)px/);
 });

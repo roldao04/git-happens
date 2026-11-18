@@ -12,6 +12,10 @@ export function isShown(type: string, capability: string): boolean {
 export const IN_USE_W = 5;
 const NOTABLE: Record<string, string> = { contactSensor: "sensorState", bulb: "power", plug: "instantPower" };
 
+export function activeCapability(type: string): string | undefined {
+  return NOTABLE[type];
+}
+
 export function marksChange(type: string, capability: string): boolean {
   return type in NOTABLE && isShown(type, capability);
 }

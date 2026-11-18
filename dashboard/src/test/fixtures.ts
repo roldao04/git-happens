@@ -43,6 +43,7 @@ export function state(over: Partial<StateAt> = {}): StateAt {
     alsoNoticed: [],
     learnDays: [],
     latest: null,
+    today: [],
     ...over,
   };
 }
