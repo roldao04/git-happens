@@ -67,6 +67,7 @@ uv run python -m source.simulate --days 14 --household rosa --out data/sim/rosa.
 uv run python -m source.simulate --serve                        # the same, from a form in the browser
 uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/ --replace   # simulate + ingest + learn, per day
 uv run python -m source.learn.happenings data/sim/rosa/        # what it found
+uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recording.json --household rosa   # that run, for the dashboard
 ```
 All options, logs and tests: [`docs/event-loop.md`](docs/event-loop.md#running-and-testing-it). The console needs `.mcp.json` in the stdio form, not the HTTP form from step 1: see [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md#connecting).
 
@@ -95,6 +96,7 @@ Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator
   simulate.py           the simulator (+ simulate_web.py, sim_data/)
   learn/                rest.py, happenings.py (starting plan parts 3 and 4)
   pipeline.py           simulate + ingest + learn, one day at a time
+  recording.py          a run's history as the dashboard's recording (one JSON file)
 tests/                  replay and simulated-data tests; fixtures = a real get_home snapshot + a demo morning
 ```
 Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): `source/learn/` (kinds, habits, namer) · sensor storage · the dashboard in `console/`.

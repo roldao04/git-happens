@@ -7,6 +7,8 @@ they are installed.
   uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/ --replace
   uv run python -m source.pipeline --houses 5 --days 14 --out data/sim/houses/ --replace   # one folder per house
   uv run python -m source.pipeline --from data/sim/rosa.jsonl --out data/sim/rosa/ --replace
+  uv run python -m source.pipeline --household rosa --days 21 --out data/sim/rosa/ --replace \\
+      --recording dashboard/public/recording.json                                    # and the dashboard's file
 """
 import argparse
 import json
@@ -21,6 +23,7 @@ from .clock import day_bounds
 from .ingest import Snapshot, ingest, read_jsonl
 from .learn.happenings import save_happenings
 from .simulate import DEFAULT_START, PRESETS, REAL_HOME, Household, generate, household_from_dict, houses
+from .recording import write as write_recording
 from .store import Store
 
 log = logging.getLogger("source.pipeline")
@@ -79,6 +82,17 @@ def run(snaps: Iterable[Snapshot], out: Path, *, replace: bool = False) -> int:
     return days
 
 
+def _record(out: Path, recording: Path | None, household: str) -> None:
+    """Writes the run in out as the dashboard's recording (source/recording.py), when asked to."""
+    if recording is None:
+        return
+    db = sqlite3.connect(out / "home.sqlite3")
+    try:
+        write_recording(db, recording, household=household)
+    finally:
+        db.close()
+
+
 def _parse(lines: Iterator[str]) -> Iterator[Snapshot]:
     for line in lines:
         row = json.loads(line)
@@ -95,14 +109,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--from", dest="source", type=Path, help="ingest this JSONL file instead of simulating")
     p.add_argument("--config", type=Path, help="a JSON file of Household settings, applied on top of --household")
     p.add_argument("--truth", type=Path, help="also write the answer key (what was planted) as JSON")
+    p.add_argument("--recording", type=Path, help="also write the run as the dashboard's recording (JSON)")
     p.add_argument("--start", type=date.fromisoformat, default=DEFAULT_START, help="first day, YYYY-MM-DD")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--interval", type=int, default=300, help="seconds between snapshots when nothing changes")
     args = p.parse_args(argv)
+    if args.recording and args.houses:
+        p.error("--recording takes one home, not --houses")
 
     try:
         if args.source:
             run(read_jsonl(args.source), args.out, replace=args.replace)
+            _record(args.out, args.recording, args.source.stem)
         elif args.houses:
             for h in houses(args.houses, args.seed):
                 lines, _ = generate(h, args.days, start=args.start, seed=args.seed, interval_s=args.interval)
@@ -117,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
                 household = household_from_dict(base | json.loads(args.config.read_text()))
             lines, truth = generate(household, args.days, start=args.start, seed=args.seed, interval_s=args.interval)
             run(_parse(lines), args.out, replace=args.replace)
+            _record(args.out, args.recording, household if isinstance(household, str) else household.name)
             if args.truth:
                 args.truth.parent.mkdir(parents=True, exist_ok=True)
                 args.truth.write_text(json.dumps(truth, indent=1))
