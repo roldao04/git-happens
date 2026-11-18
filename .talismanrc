@@ -1,0 +1,11 @@
+fileignoreconfig:
+- filename: dashboard/package-lock.json
+  checksum: 6036e7cd353d61284b14b3eccda945cdd85656d698a1b71fdc0b057199c4105b
+- filename: dashboard/public/ds/bundle.css
+  checksum: 248001d9fd7fe08dfe47dc2c78ec713dd67ce3070c46196c64c86e3216accc91
+allowed_patterns:
+- 'key=\{'
+- '\{ key: "'
+- 'e\.key'
+- '"keydown"'
+- 'fireEvent\.keyDown\('

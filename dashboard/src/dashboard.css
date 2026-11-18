@@ -1,0 +1,38 @@
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-sans)}
+.al-header h1.al-brand{margin:0}
+.al-header{flex-wrap:wrap}
+.stage{max-width:var(--content-max);margin:0 auto;padding:var(--space-6);display:grid;gap:var(--space-6)}
+.stage-grid{display:grid;gap:var(--space-6);align-items:start}
+@media (min-width:1024px){.stage-grid{grid-template-columns:minmax(0,2fr) minmax(0,3fr)}}
+.devices .al-aside{font:500 20px/24px var(--font-sans);font-variant-numeric:tabular-nums}
+.devices .al-what .changed{font:500 16px/20px var(--font-sans);color:var(--accent)}
+a.al-card{color:inherit;text-decoration:none}
+a.al-card:hover{border-color:var(--accent)}
+a.al-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.al-btn[aria-pressed="true"]{color:var(--text);border-color:var(--accent)}
+.also{margin-top:var(--space-4)}
+.also summary{cursor:pointer;font:500 18px/24px var(--font-sans);color:var(--muted);min-height:44px;display:flex;align-items:center}
+.also summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.scrubber{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:var(--space-3)}
+.scrubber input{width:100%;min-height:44px;accent-color:var(--accent)}
+@media (max-width:600px){.stage{padding:var(--space-4)}}
+.detail{display:grid;gap:var(--space-6)}
+.detail-title{margin:0;font:600 36px/44px var(--font-display)}
+.detail-title.unnamed{color:var(--muted)}
+.detail-evidence{margin:var(--space-2) 0 0;font:400 18px/26px var(--font-sans)}
+.detail-facts{display:grid;gap:var(--space-3)}
+.detail-facts p{margin:0}
+.detail-when strong{font:500 24px/30px var(--font-sans);font-variant-numeric:tabular-nums}
+.readings>li{grid-template-columns:96px minmax(0,1fr) auto}
+.stage>.al-btn.quiet{justify-self:start;min-height:44px;display:inline-flex;align-items:center;text-decoration:none}
+.al-clock .al-sub{font-size:16px;line-height:20px;color:var(--text)}
+.al-card .al-evidence{font-size:18px;line-height:26px}
+.al-card .al-when span{font-size:16px;line-height:20px}
+.al-new{font-size:16px;line-height:20px}
+.devices .al-what b{font-size:18px;line-height:24px}
+.al-card h3{font-size:22px;line-height:28px}
+.al-card .al-foot{font-size:16px}
+.latest{margin:0 0 var(--space-4);padding:var(--space-3) var(--space-4);display:grid;gap:4px;background:var(--accent-soft);border-left:3px solid var(--accent);border-radius:var(--radius-sm)}
+.latest b{font:500 20px/26px var(--font-sans)}
+.latest .al-label{font-size:16px;color:var(--text)}
+.al-empty .al-counter{width:100%}

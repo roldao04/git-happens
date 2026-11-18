@@ -68,6 +68,7 @@ uv run python -m source.simulate --serve                        # the same, from
 uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/ --replace   # simulate + ingest + learn, per day
 uv run python -m source.learn.happenings data/sim/rosa/        # what it found
 uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recording.json --household rosa   # that run, for the dashboard
+cd dashboard && npm install && npm run dev                      # jury dashboard: plays back dashboard/public/recording.json
 ```
 All options, logs and tests: [`docs/event-loop.md`](docs/event-loop.md#running-and-testing-it). The console needs `.mcp.json` in the stdio form, not the HTTP form from step 1: see [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md#connecting).
 
@@ -85,13 +86,14 @@ docs/
   reference/            hardware list, organiser material, research
 deliverables/           report, executive summary, slides (+ organiser templates)
 assets/                 logo and images
-console/                live device page (becomes the dashboard, starting plan part 8)
+console/                live device page (debugging)
+dashboard/              jury dashboard (React + Vite): plays back a recorded simulated run (dashboard/README.md)
 tools/                  connected_home_auth.py (OAuth helper used by .mcp.json), extract_smart_home_a.py (builds the real-house data)
 source/                 event loop: poll the MCP, diff, store, triggers, agent (LangGraph + stub), logs, show
   learn/                learners: kinds, links, habits, sensor storage (docs/learners.md)
 tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): the namer · the dashboard in `console/`.
+Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). `dashboard/` (the jury dashboard, on a mock recording). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): the namer · the dashboard on live simulated data.
   ingest.py, clock.py   JSONL snapshots → history at full speed; Lisbon days
   simulate.py           the simulator (+ simulate_web.py, sim_data/)
   learn/                rest.py, happenings.py (starting plan parts 3 and 4)
