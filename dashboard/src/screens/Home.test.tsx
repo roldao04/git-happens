@@ -5,12 +5,12 @@ import { Home } from "./Home";
 
 const door = (value: string) => ({ device: { id: "d", type: "contactSensor", name: "Front door" }, values: { sensorState: value }, changedAt: null, since: null });
 
-test("has the top bar on the Home tab, the headline and the day slider", () => {
+test("is the Home tab with the headline, the summary and the playback pill", () => {
   render(<Home rec={recording()} state={state({ devices: [door("normal")] })} playback={playback()} />);
   expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("heading", { level: 1, name: "All quiet at home." })).toBeInTheDocument();
   expect(screen.getByText("The door is closed. Nothing new was learned today.")).toBeInTheDocument();
-  expect(screen.getByRole("slider", { name: "Simulated day" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Simulated · day 9/ })).toBeInTheDocument();
 });
 
 test("the headline follows the home", () => {
@@ -23,18 +23,23 @@ test("the summary counts what was learned today", () => {
   expect(screen.getByText(/Alfred learned 1 new sensor today\./)).toBeInTheDocument();
 });
 
-test("has the suggestion as coming later, today so far, new from Alfred and the devices", () => {
-  render(<Home rec={recording()} state={state({ cards: [sensorNow()] })} playback={playback()} />);
-  expect(screen.getByRole("heading", { name: "Alfred will suggest, then ask" }).closest(".later")).not.toBeNull();
-  expect(screen.getByRole("heading", { name: "Today so far" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "New from Alfred" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Pattern 2/ })).toHaveAttribute("href", "#/sensor/pattern-2");
-  expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
+test("links to the whole day on the timeline", () => {
+  render(<Home rec={recording()} state={state()} playback={playback()} />);
+  expect(screen.getByRole("link", { name: "See the whole day" })).toHaveAttribute("href", "#/timeline");
 });
 
-test("weak sensors are not listed as new", () => {
-  render(<Home rec={recording()} state={state({ alsoNoticed: [sensorNow()] })} playback={playback()} />);
-  expect(screen.getByText("Nothing learned yet. Alfred is still watching.")).toBeInTheDocument();
+test("draws the home from the devices, with a note from Alfred", () => {
+  render(<Home rec={recording()} state={state({ devices: [door("alarm")], cards: [sensorNow()] })} playback={playback()} />);
+  expect(screen.getByRole("img", { name: "The home: the door is open." })).toBeInTheDocument();
+  const note = screen.getByText(/I know 1 of your habits now\./);
+  expect(note.closest("figure")).toHaveTextContent("Alfred");
+});
+
+test("keeps the page to the headline: no feed, no newest sensors, no device list, no suggestion card", () => {
+  render(<Home rec={recording()} state={state({ cards: [sensorNow()], devices: [door("normal")] })} playback={playback()} />);
+  expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual(["All quiet at home."]);
+  expect(screen.queryByRole("link", { name: /Pattern 2/ })).toBeNull();
+  expect(document.querySelector(".later")).toBeNull();
 });
 
 const hub = { device: { id: "g", type: "gateway", name: "Security hub" }, values: { batteryLevel: 20, cellularConnectionState: "abnormal" }, changedAt: null, since: null };

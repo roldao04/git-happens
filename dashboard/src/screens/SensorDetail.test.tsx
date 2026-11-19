@@ -19,7 +19,7 @@ test("shows the sensor in full", () => {
   expect(screen.getByText("Alfred never turns anything on or off because of this sensor.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "← Learned" })).toHaveAttribute("href", "#/learned");
   expect(screen.getByRole("link", { name: "Learned" })).toHaveAttribute("aria-current", "page");
-  expect(screen.getByRole("slider", { name: "Simulated day" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Simulated · day/ })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Naming comes later" }).closest(".later")).not.toBeNull();
 });
 

@@ -48,7 +48,7 @@ export function Timeline({ rec, state, playback, day }: Props) {
   const date = formatDate(view.dayStart);
   const laterHref = view.day + 1 === state.day ? "#/timeline" : `#/timeline/${view.day + 1}`;
   return (
-    <Shell state={state} playback={playback} tab="timeline">
+    <Shell state={state} playback={playback} tab="home" simulated={rec.meta.simulated}>
       <section className="pg-head" aria-label="Summary">
         <h1>{isToday ? `Today, ${date}` : `${date}, day ${view.day}`}</h1>
         <p>{summary(view.entries)}</p>

@@ -70,7 +70,7 @@ export function SensorDetail({ rec, state, playback, id }: Props) {
   const item = [...state.cards, ...state.alsoNoticed].find((s) => s.sensor.id === id);
   const known = rec.sensors.some((s) => s.id === id);
   return (
-    <Shell state={state} playback={playback} tab="learned">
+    <Shell state={state} playback={playback} tab="learned" simulated={rec.meta.simulated}>
       <Back />
         {item ? (
           <Detail item={item} state={state} />

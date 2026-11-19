@@ -22,12 +22,12 @@ const home = [
 
 const page = (devices: DeviceNow[] = home) => render(<Devices rec={recording()} state={state({ devices })} playback={playback()} />);
 
-test("is the Devices tab, with the count in the headline and the slider", () => {
+test("is the Devices tab, with the count in the headline and the playback pill", () => {
   page();
   expect(screen.getByRole("link", { name: "Devices" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("heading", { level: 1, name: "8 devices, 2 need a look." })).toBeInTheDocument();
   expect(screen.getByText("Alfred only reads them. It never switches anything.")).toBeInTheDocument();
-  expect(screen.getByRole("slider", { name: "Simulated day" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Simulated · day/ })).toBeInTheDocument();
 });
 
 test("needs a look lists each device with its issues", () => {
