@@ -12,6 +12,7 @@ import random
 import sqlite3
 import tempfile
 import unittest
+from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -23,8 +24,8 @@ from source.simulate import generate
 
 FIXTURE = Path(__file__).parent / "fixtures" / "happenings-14d.jsonl"
 FIRST = date(2026, 9, 1)  # a Tuesday
-HABIT_KEYS = ["id", "name", "named_by", "status", "patterns", "steps", "recurrence", "window", "variation",
-              "occurrences", "opportunities", "first_seen", "last_seen", "learned_at", "confidence", "trend"]
+HABIT_KEYS = ["id", "name", "named_by", "status", "person", "patterns", "steps", "recurrence", "window", "windows",
+              "variation", "occurrences", "opportunities", "first_seen", "last_seen", "learned_at", "confidence", "trend"]
 RECURRENCE_KEYS = {"kind", "weekdays", "every_n_days", "anchor", "day_of_month", "every_n_hours", "text"}
 WORK_DAYS = ["mon", "tue", "wed", "thu", "fri"]
 
@@ -322,6 +323,132 @@ class FixtureTest(unittest.TestCase):
         morning = at("08:30")[holding(self.db, tea)["id"]]
         self.assertIn(morning["status"], ("done", "partly", "now"))
         self.assertIn(tea, morning["steps_done"])
+
+
+# ---------- two people with phones (C2 signal names; C3 person and windows) ----------
+
+ANA, JOAO = "c-8f3a", "c-2b71"
+MONDAY = date(2026, 9, 7)
+
+
+def two_people(days: int = 35, ana_name: str = "Ana's phone") -> sqlite3.Connection:
+    """Ana and João, each with a phone the router reports (`phone:<client id>.connected`):
+    - Ana gets home on weekdays about 18:40 and leaves at 08:10;
+    - João gets home about 19:30, on Tuesdays at 21:00, and leaves at 08:30, but works from home on
+      Wednesdays (his phone stays all day);
+    - the door opens a minute after each arrival and before each departure, and a few times at random.
+    Patterns are written by hand, as the habit learner would: each phone's arrival (a kind of its
+    signal) and the door after it; João's Tuesday arrival is a pattern of its own at 21:00.
+    """
+    rng = random.Random(7)
+    db = sqlite3.connect(":memory:")
+    storage.init(db)
+    db.execute("CREATE TABLE devices (device_id TEXT NOT NULL UNIQUE, type TEXT NOT NULL, name TEXT NOT NULL,"
+               " first_ts INTEGER NOT NULL)")
+    db.executemany("INSERT INTO devices VALUES (?, 'phone', ?, 0)", [(ANA, ana_name), (JOAO, "João's phone")])
+    db.executemany("INSERT INTO kinds (id, signal, data) VALUES (?, ?, '{}')",
+                   [(f"phone:{ANA}-A", f"phone:{ANA}.connected"), (f"phone:{JOAO}-A", f"phone:{JOAO}.connected"),
+                    ("contactSensor-A", "contactSensor.sensorState")])
+    rows, readings = [], defaultdict(list)
+
+    def door(at: datetime, pattern: str | None = None):
+        rows.append({"signal": "contactSensor.sensorState", "start": at.isoformat(), "device_id": "door",
+                     "end": (at + timedelta(seconds=40)).isoformat(), "value": "alarm", "kind": "contactSensor-A"})
+        if pattern:
+            readings[pattern].append(at)
+
+    home: dict[str, datetime] = {}  # phone → when it connected
+    for i in range(days):
+        day = datetime.combine(MONDAY + timedelta(days=i), time())
+        wd = day.weekday()
+        at = lambda clock, spread: day + timedelta(minutes=clock + rng.gauss(0, spread))  # noqa: E731
+        leaving = {ANA: at(8 * 60 + 10, 5) if wd < 5 else None,
+                   JOAO: at(8 * 60 + 30, 5) if wd < 5 and wd != 2 else None}
+        for phone, out in leaving.items():
+            if out and phone in home:
+                rows.append({"signal": f"phone:{phone}.connected", "start": home.pop(phone).isoformat(),
+                             "end": out.isoformat(), "value": "on", "device_id": phone, "kind": f"phone:{phone}-A"})
+                door(out - timedelta(minutes=1))
+        if wd < 5:
+            home[ANA] = at(18 * 60 + 40, 5)
+            readings["pattern-1"].append(home[ANA])
+            door(home[ANA] + timedelta(minutes=1), "pattern-2")
+            if wd != 2:
+                home[JOAO] = at(21 * 60 if wd == 1 else 19 * 60 + 30, 5)
+                readings["pattern-5" if wd == 1 else "pattern-3"].append(home[JOAO])
+                door(home[JOAO] + timedelta(minutes=1), "pattern-6" if wd == 1 else "pattern-4")
+        for _ in range(3):
+            door(at(rng.uniform(10 * 60, 17 * 60), 0))
+    storage.add_happenings(db, rows)
+    patterns = {"pattern-1": (f"kind:phone:{ANA}-A", 18 * 60 + 40, WORK_DAYS),
+                "pattern-2": ("kind:contactSensor-A", 18 * 60 + 41, WORK_DAYS),
+                "pattern-3": (f"kind:phone:{JOAO}-A", 19 * 60 + 30, None),
+                "pattern-4": ("kind:contactSensor-A", 19 * 60 + 31, None),
+                "pattern-5": (f"kind:phone:{JOAO}-A", 21 * 60, ["tue"]),
+                "pattern-6": ("kind:contactSensor-A", 21 * 60 + 1, ["tue"])}
+    for sid, (signature, centre, weekdays) in patterns.items():
+        pattern = {"parts": [signature], "time_of_day": f"{centre // 60:02d}:{centre % 60:02d}", "spread_min": 5,
+                   "days_seen": len(readings[sid]), "days_total": days}
+        if weekdays:
+            pattern["weekdays"] = weekdays
+        data = {"id": sid, "name": None, "named_by": None, "focus": "connected_life", "learner": "habit",
+                "pattern": pattern, "learned_at": MONDAY.isoformat(), "confidence": 0.9, "status": "active"}
+        db.execute("INSERT INTO sensors (id, learner, focus, signature, centre_min, width_min, learned_at, status, data)"
+                   " VALUES (?, 'habit', 'connected_life', ?, ?, 20, ?, 'active', ?)",
+                   (sid, signature, centre, MONDAY.isoformat(), json.dumps(data)))
+        db.executemany("INSERT INTO sensor_readings (sensor_id, start, end, value) VALUES (?, ?, ?, NULL)",
+                       [(sid, s.isoformat(timespec="seconds"), (s + timedelta(seconds=40)).isoformat(timespec="seconds"))
+                        for s in readings[sid]])
+    db.commit()
+    return db
+
+
+class PeopleTest(unittest.TestCase):
+    """Whose a habit is (`person`) and its windows by weekday (`windows`): C3 in docs/demo-plan.md."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.db = two_people()
+        learn_habits(cls.db, MONDAY + timedelta(days=34))
+
+    def by_person(self, phone: str, db=None) -> dict:
+        return next(h for h in active(db or self.db) if (h["person"] or {}).get("phone") == phone)
+
+    def test_one_habit_per_person(self):
+        ana, joao = self.by_person(ANA), self.by_person(JOAO)
+        self.assertEqual(ana["person"], {"phone": ANA, "name": "Ana's phone"})
+        self.assertEqual(joao["person"], {"phone": JOAO, "name": "João's phone"})
+        self.assertEqual(set(ana["patterns"]), {"pattern-1", "pattern-2"})  # never joined with João's, 50 min later
+        # his 19:30 and his Tuesday 21:00 are never on the same day: one habit, his coming home
+        self.assertEqual(set(joao["patterns"]), {"pattern-3", "pattern-4", "pattern-5", "pattern-6"})
+
+    def test_a_tuesday_that_stands_out(self):
+        joao = self.by_person(JOAO)
+        tue = next(w for w in joao["windows"] if "tue" in w["days"])
+        other = next(w for w in joao["windows"] if "mon" in w["days"])
+        self.assertEqual(tue["days"], ["tue"])
+        self.assertTrue({"mon", "thu", "fri"} <= set(other["days"]) and "tue" not in other["days"], joao["windows"])
+        self.assertTrue(near(tue["usual"], "21:00", 5) and near(other["usual"], "19:30", 5), joao["windows"])
+        self.assertTrue(tue["earliest"] <= tue["usual"] <= tue["latest"])
+        self.assertEqual(set(joao["variation"]["by_weekday"]), {"tue"})
+
+    def test_no_difference_is_one_window(self):
+        ana = self.by_person(ANA)
+        [w] = ana["windows"]
+        self.assertEqual(w["days"], ana["recurrence"]["weekdays"] or ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+        self.assertTrue(near(w["usual"], "18:40", 5), w)
+        self.assertEqual((w["earliest"], w["latest"]), (ana["window"]["earliest"], ana["window"]["latest"]))
+
+    def test_a_guests_phone_is_nobody(self):
+        db = two_people(ana_name="")  # the router doesn't know it: a guest's
+        learn_habits(db, MONDAY + timedelta(days=34))
+        ana = next(h for h in active(db) if "pattern-1" in h["patterns"])
+        self.assertIsNone(ana["person"])
+
+    def test_habits_without_phones_are_nobodys(self):
+        db = handmade()
+        learn_habits(db, FIRST + timedelta(days=27))
+        self.assertTrue(all(h["person"] is None for h in export_habits(db)["habits"]))
 
 
 class RosaTest(unittest.TestCase):

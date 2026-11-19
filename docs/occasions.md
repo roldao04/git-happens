@@ -18,6 +18,7 @@ Code: `source/learn/occasions.py`. Tests: `tests/test_occasions.py`.
   - light-on minutes: `bulb.power` on (several bulbs add up);
   - plug uses by kind: `plug.instantPower` happenings, one feature per kind from the grouper (`?` for none);
   - camera motion and sound events, when the camera reports any;
+  - guests' phones: arrivals (`phone:<client id>.connected` happenings, C2) of phones that aren't the household's, a count like door openings. A phone is a guest's when the `devices` table gives it no name (C1); one the table doesn't list is a guest's if it came on fewer than `MIN_OCCURRENCES` days. Five guests arriving where none ever do is far beyond the home's history, so a gathering is matched live from its first arrivals;
   - awake minutes: from the end of last night's quiet to the start of tonight's. Tonight's quiet is the longest quiet stretch (people's devices all at rest, as in the habit learner) that starts in the second half of the day. This is "how late the night's quiet starts".
 - **What counts as usual:** only counted days (`run.counted_days`: watched, someone in), so holidays and outages are left out. Minutes with no poll for 30 minutes are left out, and so are stretches that hold an earlier episode, so a party never becomes part of the usual day.
 - **Weekdays and weekends** are pooled, unless for that stretch and feature the weekend days differ from the weekdays (Mann-Whitney U at `ALPHA`) and the day's own kind has at least `MIN_OCCURRENCES` days.
@@ -35,7 +36,7 @@ Every stretch of whole hours inside one day (300 of them) is compared with the s
 - **When:** a day is judged once it is over. `learn_occasions(db, day)` at the end of `day` judges `day − 1`, whose day ended at the quietest hour of `day`. Several episodes a day are found one by one, most unusual first.
 
 **Fingerprint** (per episode; for an occasion, the median, and the circular mean of `quiet_start`):
-`door_openings`, `light_hours_after_21` (light-hours between 21:00 and the episode's end), `quiet_start` (when tonight's quiet began), `plug_uses`, and `camera_events` when the camera reports.
+`door_openings`, `light_hours_after_21` (light-hours between 21:00 and the episode's end), `quiet_start` (when tonight's quiet began), `plug_uses`, `camera_events` when the camera reports, and `guest_phones` when the home has a router (C5): the most guests' phones connected at once during the episode, from `router.guestPhones`'s peak (its happenings' `peak`), or else from the guests' own phones that overlap. For an occasion it is the median over its episodes, like the others. Guests aren't one of the numbers resemblance compares: the doors and the hours already tell a gathering apart, and a gathering of 4 is like one of 6.
 
 ## 3. Occasions
 - **Resemblance** compares when the episode started and ended and when the night's quiet began (hours into the day; one hour is one unit, the usual day's resolution), and its door openings, light-hours and plug uses (Poisson noise: `|x − y| / √(x + y + 1)`). Each number is measured outside the range the occasion's episodes have shown, minus one unit, so differences within the noise count as none. The squares are added and read as a chi-square with one degree of freedom per number. The result, `similarity`, is 1 for "could be one of them" and near 0 for "clearly not".
@@ -53,19 +54,21 @@ Every stretch of whole hours inside one day (300 of them) is compared with the s
 - **Something is under way** when a stretch of today so far is unusual on one feature (its smallest chance × the number of features) or on several (Fisher), × 2 for asking both, × the start hours tried, below `ALPHA`. Learning asks for two features; live, one is enough, because looking like a known occasion is the second line of evidence. Guests arriving at 20:00 are matched long before the light is on later than ever.
 - **Where it began:** the start hours of unusual stretches that are themselves unusual on their own (an ordinary 11:50 door is no beginning). Each candidate is compared from its first happening up to now with every episode of the occasion, over the same clock window: start, door openings, light-hours and plug uses by then. The best alignment wins. `since` is that first happening.
 - `confidence = similarity × the occasion's confidence`. Occasions it is beyond chance unlike (`similarity < ALPHA`) are left out.
+- **`shifts`** (C5): how the occasion moved habits the next day in its past episodes, dated the day after today's (`[{"habit_id", "date", "minutes"}]`). For each past episode whose next day is over, and each active habit (not hourly) due on the next calendar day: its start that day is the median, over its usual steps (share > ½), of the happening nearest its usual moment (its weekday's usual time, from `windows` or the weekday shift, plus the step's offset), looked for from 3 h before to 6 h after it and after the episode ended, less the offset. A step that is the end of the night's quiet is read from the night after the episode; a quiet's start (bedtime) is left out (`explains` covers it). A habit is listed when, on most of the episodes, it moved the same way by more than twice its `spread_min`; `minutes` is the median shift. So the morning after a Friday gathering: Waking up, +90.
+- **`shifts_now(db, now)`** gives `[{"occasion_id", "confidence", "habit_id", "date", "minutes"}]` for the occasion under way **and** the one matched at the last minute of the day before. The morning after, the stretch under way is ordinary and matches nothing, yet the party of the night before still moves this morning's waking up. The forecast (`forecast.py`) applies a shift once its match's confidence is 0.5 or more (the occasion wake's bar, C8): `expected` and `window` move, and the entry gains `"shifted": {"occasion_id", "minutes", "before": {"expected", "window"}}` (C6).
 - It reads the happenings stored up to `now`. An on/off signal that is away from rest right now (the lamp on since 18:30) is read from `events`, because a happening is only stored once it ends.
 
 ## Shapes
 Tables on the same SQLite file, created by `occasions.py`: `occasions (id, data)` and `occasion_episodes (occasion_id, start, end, features)`.
 ```json
 {"id": "occasion-1", "name": null, "named_by": null, "episodes": 3,
- "fingerprint": {"door_openings": 10, "light_hours_after_21": 4.2, "quiet_start": "01:14", "plug_uses": 1},
+ "fingerprint": {"door_openings": 10, "light_hours_after_21": 4.2, "quiet_start": "01:14", "plug_uses": 1, "guest_phones": 5},
  "usual_hours": ["19:08", "01:14"], "weekdays": ["tue", "fri", "sat"], "confidence": 0.75,
  "explains": ["pattern-4 late"],
  "changes": [{"pattern": "pattern-4", "effect": "late", "usual": "23:07", "seen": "01:14"}],
  "first_seen": "2026-09-11", "last_seen": "2026-09-19", "learned_at": "2026-09-12"}
 ```
-Live match: `{"occasion_id": "occasion-1", "similarity": 1.0, "confidence": 0.75, "since": "2026-09-21T19:10:00", "explains": ["pattern-4 late"]}`.
+Live match: `{"occasion_id": "occasion-1", "similarity": 1.0, "confidence": 0.75, "since": "2026-09-21T19:10:00", "explains": ["pattern-4 late"], "shifts": [{"habit_id": "habit-1", "date": "2026-09-22", "minutes": 90}]}`.
 
 An episode's `features` holds `day`, `fingerprint`, `door`, `light` (hours), `plug`, `quiet_at`, `unusual` (the features beyond history), `p` (combined chance), `stretch` (its whole hours) and `changes`.
 
@@ -73,6 +76,7 @@ An episode's `features` holds `day`, `fingerprint`, `door`, `light` (hours), `pl
 |---|---|---|
 | `learn_occasions(db, day)` | At each day end, after the learners. Re-running a day first forgets what that day and later ones found, so a replay gives the same ids | the occasions first seen that day |
 | `match_now(db, now)` | Live; never raises | matches, most confident first |
+| `shifts_now(db, now)` | Live: what the occasion under way, or the night before's, moves; never raises | `[{"occasion_id", "confidence", "habit_id", "date", "minutes"}]` |
 | `export_occasions(db)` | For the dashboard | `{"occasions": [...], "episodes": [...]}` |
 
 Each returns empty when the tables or data are missing.
@@ -94,6 +98,8 @@ Each returns empty when the tables or data are missing.
 - **Recurring gatherings** (every Sunday lunch) become one occasion with many episodes, not part of the usual day, because episodes are kept out of it.
 - **Bursty sensors:** the counts assume a Poisson rate, so a door that bounces open and shut in seconds counts several times.
 - Occasions never merge, and an episode's occasion isn't re-decided later.
+- **Shifts need the next day over**: a shift is only measured once the day after an episode has ended (6 h past the habit's usual time), and only habits due on the day being forecast are listed. A habit the occasion stopped altogether (no waking up at all) is not a shift.
+- **Phones as activity**: a known phone's `connected` happening lasts as long as the person is home, so if phones count as activity (C2), the night's quiet never starts while someone is in, and the awake minutes and `quiet_start` lose their meaning. Presence signals should be kept out of the quiets (`source.learn.is_activity`, part B), or read only at their edges.
 
 ## Run
 ```
