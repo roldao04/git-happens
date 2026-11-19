@@ -60,7 +60,7 @@ The habit learner comes first because it produces the usual day, which the other
 | 4 | Happening extractor | `source/learn/happenings.py` | Events + rest | Happenings | ✅ Done (#18) |
 | 5 | Grouper | `source/learn/kinds.py` | Happenings | Kinds and combinations | ✅ Done (`feat/grouper-habits`, not merged yet) |
 | 6 | Habit learner | `source/learn/habits.py` | Kinds over many days | Sensors and readings | ✅ Done (`feat/grouper-habits`, not merged yet) |
-| 7 | Namer | `source/learn/namer.py` | A sensor's facts | A name and explanation | ⬜ To do |
+| 7 | Namer | `source/learn/namer.py` | A sensor's facts | A card: name, explanation, what it means, what its absence may mean, importance | ✅ Done (`feat/namer`) |
 | 8 | Dashboard | `console/` | Sensors, readings, device states | What we see | ⬜ To do |
 
 **1. Simulator** ✅ ([`simulator.md`](simulator.md))
@@ -90,9 +90,13 @@ The habit learner comes first because it produces the usual day, which the other
 - Does the same for the long quiet stretch each night. ✅ Done as quiet stretches grouped as happenings of the home: asleep, away and awake are whichever quiets recur when. The room's temperature and humidity are habits too ([`learners.md`](learners.md)).
 - Anything frequent and consistent enough becomes a sensor, with the date it first passed the test and one reading per occurrence.
 
-**7. Namer**
-- Sends the sensor's facts to the LLM and gets back a name and a one-line explanation.
-- Until it runs, or if it fails, the sensor is shown as "Pattern 1". A wrong name never breaks the pattern underneath, and a person can rename it.
+**7. Namer** ✅ (`source/learn/namer.py`, prompt in `source/prompts/namer.md`)
+- Sends all unnamed sensors' facts to the LLM in one call, so it can spot several cards describing the same moment, and stores a card on each:
+  - `name` and `explanation`, for people: *Morning kettle*, not *Morning tea*. Names say only what the data can tell apart (a kettle could be tea, coffee or warm milk).
+  - `means` and `if_missing`, for the agent: what the habit says about the household, and what its absence may mean and what else to check.
+  - `importance` (`high`, `normal`, `low`, `hidden`) and `same_as`: so the agent worries about the morning once, not three times.
+- Until it runs, or if it fails, the sensor is shown as "Pattern 1". A wrong name never breaks the pattern underneath, and a person's name (`named_by: "person"`) is never replaced. A changed pattern loses its card and is named again.
+- Runs at each day end with `source.pipeline ... --name`, or on an existing history with `python -m source.learn.namer --db <home.sqlite3>` (`--again` renames the LLM's names too). Needs `OPENROUTER_API_KEY`.
 
 **8. Dashboard**
 - Shows simulated time advancing, device states changing, and sensor cards appearing on the day they were learned.

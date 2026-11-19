@@ -119,6 +119,8 @@ def save_habits(db: sqlite3.Connection, habits: list[Habit], day: date) -> list[
             data = old["data"]
             if old["signature"] != h.key and data.get("named_by") != "person":
                 data.update(name=None, named_by=None, explanation=None)  # it changed: name it again
+                for k in ("means", "if_missing", "importance", "same_as"):  # the rest of the namer's card
+                    data.pop(k, None)
             if _moved(old, h):
                 after = [o.day for o in h.members if o.day.isoformat() > old["data"]["pattern"]["last_seen"]]
                 pattern["moved_from"] = {"time_of_day": data["pattern"]["time_of_day"], "on": after[0].isoformat()}
@@ -191,9 +193,13 @@ def _moved(old: dict, h: Habit) -> bool:
 
 
 def reset_learned(db: sqlite3.Connection) -> None:
-    """Forget what the learners wrote (kinds, sensors, readings), keeping the history and happenings."""
+    """Forget what the learners wrote (kinds, sensors, habits, occasions and their readings), keeping the
+    history and happenings. Decisions stay: they are what Alfred did, not what it learned."""
     db.executescript("DELETE FROM kinds; DELETE FROM sensors; DELETE FROM sensor_readings;"
                      " UPDATE happenings SET kind = NULL;")
+    for table in ("habits", "habit_readings", "occasions", "occasion_episodes"):  # later layers, if they ran
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone():
+            db.execute(f"DELETE FROM {table}")
     db.commit()
 
 
