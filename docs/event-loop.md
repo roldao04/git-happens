@@ -227,8 +227,9 @@ Config: `OPENROUTER_API_KEY`, `AGENT_MODEL` (any OpenRouter slug with tool calli
 
 **Agent context** ([`source/context.py`](../source/context.py))
 ```
-{now, reasons[], rules_just_ran[], state (trimmed), events_since_last_run[], timeline_today[], baselines: {}}
+{now, reasons[], rules_just_ran[], state (trimmed), events_since_last_run[], timeline_today[], baselines}
 ```
+`baselines` holds what Alfred learned: habits with today's status and the namer's cards, the next 24 h forecast, occasions going on now, and today's decisions ([`anticipation.md`](anticipation.md)). Each tick, before the triggers, the loop also plans decisions every 5 minutes and runs the due `do` ones (lamp only, through the guard).
 **Agent output**: `{notes, trigger_updates[], actions[]}`. `actions` are the executed write calls and their results (empty for the stub and for replays), logged with the run.
 
 ## 6. What plugs in next
