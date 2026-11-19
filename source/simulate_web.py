@@ -154,16 +154,21 @@ def _day_request(query: dict[str, str]) -> tuple[str, int, int, date]:
     return name, day, seed, start
 
 
-def day_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START) -> dict:
+def day_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START, writes: list | None = None) -> dict:
     """Day `day` (from 1) of the file `generate` writes for this household, cut down for the 3D view.
 
     `frames` is one [ts, changes] per snapshot. The first carries every device's state; the others only
     what changed since the one before: {device index: {capability: value}}. The index after the last
     device is the home's security. A frame with no changes still says the home reported then.
     """
+    if writes is None:
+        ready = (demo_run(name, seed, start) or {}).get("day_views", {}).get(str(day))
+        if ready:  # pre-computed by source/demo.py, with Alfred's writes
+            return ready
+        writes = _writes(name, seed, start)  # Alfred at the thermostat (source/demo.py)
     first = start + timedelta(days=day - 1)
     day_start, day_end = _at(first, 0), _at(first + timedelta(days=1), 0)
-    writes = [w for w in _writes(name, seed, start) if w[0] < day_end]  # Alfred at the thermostat (source/demo.py)
+    writes = [w for w in writes if w[0] < day_end]
     lines, truth = generate(_household(name), day, start=start, seed=seed, thermostat_writes=writes)
     devices, frames, last = [], [], None
     for line in lines:
@@ -911,6 +916,9 @@ def _match(entry: dict, k: dict) -> dict:
     if not wanted and _minute(entry.get("usual")) is not None:
         wanted = [{"usual": entry["usual"], "days": sorted(days)}]
     best = None
+    signals = [str(s) for s in entry.get("signals") or []]
+    plugs = {s.split(".", 1)[0] for s in signals} if signals and all(s.startswith("plug:") for s in signals) else set()
+    devices = _habit_devices(k) if plugs else {}
     for habit in habits:
         who = (habit.get("person") or {}).get("phone") if isinstance(habit.get("person"), dict) else None
         if phone and who and who != phone:
@@ -931,6 +939,7 @@ def _match(entry: dict, k: dict) -> dict:
             continue
         score = sum(covered) / len(covered) + 120 * (len(gaps) - len(covered)) / len(gaps)
         score += 0 if not phone or who == phone else 60
+        score += 60 if plugs and not plugs & devices.get(habit.get("id"), set()) else 0  # an appliance: its own plug
         if best is None or score < best[0]:
             best = (score, habit, windows, len(covered) == len(gaps))
     if best is None or best[0] > 90:
@@ -938,6 +947,22 @@ def _match(entry: dict, k: dict) -> dict:
     score, habit, windows, whole = best
     return {"found": habit.get("id"), "found_text": _habit_text(habit, windows),
             "match": "yes" if score <= 30 and whole else "partly"}
+
+
+def _habit_devices(k: dict) -> dict[str, set[str]]:
+    """habit id -> the device parts of its steps' signals ("plug:washing-machine"), from the knowledge's kinds and
+    its patterns' signatures (each pattern's `key` is "<id>|<signature>")."""
+    kinds = {x.get("id"): x.get("signal") for x in k.get("kinds", []) if isinstance(x, dict)}
+    signatures = {p.get("id"): str(p.get("key") or "").partition("|")[2] for p in k.get("patterns", []) if isinstance(p, dict)}
+    out: dict[str, set[str]] = {}
+    for h in k.get("habits", []):
+        mine = set()
+        for st in h.get("steps") or []:
+            how, _, rest = signatures.get(st.get("pattern") if isinstance(st, dict) else st, "").partition(":")
+            for part in rest.split(">", 1) if how == "link" else [rest]:
+                mine.add(str(kinds.get(part, part)).split(".", 1)[0])
+        out[h.get("id")] = mine
+    return out
 
 
 def _habit_text(habit: dict, windows) -> str:

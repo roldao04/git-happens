@@ -603,6 +603,21 @@ class PlantedTest(unittest.TestCase):
         self.assertEqual(joao["found"], "habit-5")
         self.assertEqual(rows["The house warms 1 °C in about 12 min"]["match"], "yes")
 
+    def test_an_appliance_by_its_own_plug(self):
+        """João home on Mondays at 19:30 and the washing machine on Mondays at 19:30: the plug's row is the plug's."""
+        k = {"habits": [
+            {"id": "habit-9", "status": "active", "person": {"phone": "c-2b71"}, "steps": [{"pattern": "pattern-18"}],
+             "windows": [{"days": ["mon"], "usual": "19:28"}]},
+            {"id": "habit-11", "status": "active", "steps": [{"pattern": "pattern-50"}],
+             "windows": [{"days": ["mon"], "usual": "19:35"}]}],
+            "patterns": [{"id": "pattern-18", "key": "pattern-18|link:phone:c-2b71.connected>contactSensor-B"},
+                         {"id": "pattern-50", "key": "pattern-50|kind:plug-D"}],
+            "kinds": [{"id": "plug-D", "signal": "plug:washing-machine.instantPower"},
+                      {"id": "contactSensor-B", "signal": "contactSensor.sensorState"}]}
+        row = {"planted": "Washing machine Mondays 19:30", "windows": [{"days": ["mon"], "usual": "19:30"}],
+               "signals": ["plug:washing-machine.instantPower"]}
+        self.assertEqual(web._match(row, k)["found"], "habit-11")
+
     def test_none_without_an_answer_key(self):
         out = web.planted_view("rosa", 3, 1, START)
         self.assertEqual((out["rows"], out["source"]), ([], "none"))
