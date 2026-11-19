@@ -815,7 +815,11 @@ def _thought(wake: dict, decision: dict | None = None) -> dict:
     key = str(wake.get("key") or "")
     parts = key.split(":")
     kind = wake.get("kind") or (parts[0] if parts[0] in THOUGHT_KINDS else None)
-    card = lambda what: wake.get(what) if isinstance(wake.get(what), dict) else {}  # noqa: E731
+    inner = wake.get("data") if isinstance(wake.get("data"), dict) else {}  # part D's row: {kind, ..., data: {...}}
+
+    def card(what: str) -> dict:
+        got = wake.get(what) if isinstance(wake.get(what), dict) else inner.get(what)
+        return got if isinstance(got, dict) else {}
     habit_id = wake.get("habit_id") or card("habit").get("id") or (
         parts[1] if kind in ("habit_soon", "habit_missing") and len(parts) > 1 else None)
     occasion_id = wake.get("occasion_id") or card("occasion").get("id") or (
@@ -823,7 +827,8 @@ def _thought(wake: dict, decision: dict | None = None) -> dict:
     d = decision or {}
     confidence = d.get("confidence", wake.get("confidence"))
     return {"at": _clock(wake.get("at")), "kind": kind, "key": key or None, "habit_id": habit_id, "occasion_id": occasion_id,
-            "subject": wake.get("subject") or card("habit").get("name") or card("occasion").get("name"),
+            "subject": wake.get("subject") or card("habit").get("name") or card("occasion").get("name")
+            or card("phone").get("name"),  # an arrival or a departure: whose phone
             "sentence": d.get("reason") or wake.get("sentence"),
             "confidence": confidence if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) else None,
             "mode": d.get("mode", wake.get("mode")), "status": d.get("status", wake.get("status")),

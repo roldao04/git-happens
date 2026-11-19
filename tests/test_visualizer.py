@@ -474,6 +474,15 @@ class ThoughtsTest(unittest.TestCase):
              "occasion_id": None, "subject": None, "sentence": None, "confidence": None, "mode": None, "status": None,
              "action": None, "due": None}])
 
+    def test_the_card_inside_the_wakes_data(self):
+        """source/wake.py stores {kind, reason, base, habit_id, ..., data: {habit, phone, ...}}."""
+        db = _demo_db([("habit_soon:habit-1:2026-11-19", _ms(2026, 11, 19, 17, 55),
+                        json.dumps({"kind": "habit_soon", "habit_id": "habit-1", "data": {"habit": {"id": "habit-1", "name": "Ana gets home"}}})),
+                       ("departure:c-2b71:2026-11-19:08", _ms(2026, 11, 19, 8, 25),
+                        json.dumps({"kind": "departure", "data": {"phone": {"id": "c-2b71", "name": "João's phone"}}}))], [])
+        out = web.read_thoughts(db, date(2026, 11, 19))
+        self.assertEqual([(t["kind"], t["subject"]) for t in out], [("departure", "João's phone"), ("habit_soon", "Ana gets home")])
+
     def test_one_entry_per_decision(self):
         db = _demo_db([("occasion:occasion-1:2026-11-13", "2026-11-13T20:35:00", json.dumps({"confidence": 0.8}))],
                       [{"id": "d-1", "wake": "occasion:occasion-1:2026-11-13", "mode": "do", "reason": "Lower it."},
