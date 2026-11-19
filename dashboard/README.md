@@ -40,7 +40,7 @@ The current file is a 21-day simulated run of the `rosa` household, written by `
 uv run python -m source.pipeline --household rosa --days 21 --out data/sim/rosa/ --replace --recording dashboard/public/recording.json
 ```
 
-Camera motion is left out. `src/data/mock.test.ts` checks this file (21 days, ten sensors, five strong enough for a card), so update it when the run changes.
+Camera motion is left out. `src/data/mock.test.ts` checks this file (21 days, eleven sensors, five strong enough for a card), so update it when the run changes.
 
 ## Watch the real home
 

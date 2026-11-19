@@ -11,8 +11,8 @@ test("is a 21-day simulated run", () => {
   expect(rec.meta.simulated).toBe(true);
 });
 
-test("holds all ten sensors the run learned, each with readings", () => {
-  expect(rec.sensors).toHaveLength(10);
+test("holds all eleven sensors the run learned, each with readings", () => {
+  expect(rec.sensors).toHaveLength(11);
   expect(rec.sensors.every((s) => rec.readings.some((r) => r.sensor_id === s.id))).toBe(true);
 });
 
