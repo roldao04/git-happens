@@ -43,6 +43,7 @@ test.each([
   ".real-badge",
   ".zoom label",
   ".detail-note p",
+  ".lanes-legend li",
 ])("%s is readable from the back of a room", (selector) => {
   expect(fontSize(selector)).toBeGreaterThanOrEqual(16);
 });

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { LanesLegend } from "../components/LanesLegend";
 import { DayLanes } from "../components/DayLanes";
 import { Shell } from "../components/Shell";
 import { sensorHref } from "../components/sensorHref";
@@ -93,7 +94,8 @@ export function Timeline({ rec, state, playback, day }: Props) {
       <section className="sec lanes-sec" aria-labelledby="h-lanes">
         <div className="sec-t"><h2 id="h-lanes">The day, device by device</h2></div>
         <DayChart key={view.day} view={view} />
-        <p className="note">A bar is the lamp on, in its color, or the plug in use. A tick is the door opening. A diamond is a habit Alfred recognized; a hollow one is not a sensor yet. The hatched part has not happened yet. Drag across the chart to see some hours closer.</p>
+        <LanesLegend view={view} />
+        <p className="note">Drag across the chart to see some hours closer.</p>
       </section>
       <section className="sec" aria-labelledby="h-read">
         <div className="sec-t"><h2 id="h-read">What Alfred read</h2></div>

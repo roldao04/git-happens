@@ -171,3 +171,44 @@ test("a drag keeps following the pointer when it leaves the chart", () => {
   expect(capture).toHaveBeenCalledWith(7);
   Reflect.deleteProperty(HTMLElement.prototype, "setPointerCapture");
 });
+
+const legendItems = () => within(screen.getByRole("list", { name: "Chart legend" })).getAllByRole("listitem");
+
+test("the chart has a legend with a sample of each mark it draws, and a short hint to drag", () => {
+  page(at(2, "20:00"), 2);
+  const items = legendItems();
+  expect(items.map((li) => li.textContent)).toEqual([
+    "Lamp on, in its color", "Plug in use", "Door open", "Habit Alfred recognized", "Not a sensor yet", "Not happened yet",
+  ]);
+  expect(items.every((li) => li.querySelector("[aria-hidden='true']") !== null)).toBe(true);
+  expect(screen.queryByText(/^A bar is/)).toBeNull();
+  expect(screen.getByText("Drag across the chart to see some hours closer.")).toBeInTheDocument();
+});
+
+test("a past day's legend leaves out what has not happened yet", () => {
+  page(at(3, "12:00"), 2);
+  expect(legendItems().map((li) => li.textContent)).not.toContain("Not happened yet");
+});
+
+test("a day with unwatched hours adds them to the legend", () => {
+  const gapped = { ...rec, gaps: [{ start: iso(at(2, "12:05")), end: iso(at(2, "14:30")) }] };
+  render(<Timeline rec={gapped} state={stateAt(gapped, at(3, "12:00"))} playback={playback()} day={2} />);
+  expect(legendItems().map((li) => li.textContent).at(-1)).toBe("Not watched");
+});
+
+test("the legend lists only the marks this home's chart can have", () => {
+  const lampOnly = recording({ devices: [{ id: "lamp", type: "bulb", name: "Light" }], events: [], sensors: [], readings: [] });
+  render(<Timeline rec={lampOnly} state={stateAt(lampOnly, at(2, "20:00"))} playback={playback()} day={2} />);
+  expect(legendItems().map((li) => li.textContent)).toEqual(["Lamp on, in its color", "Not happened yet"]);
+});
+
+test("the door is a bar from when it opened to when it closed", () => {
+  page(at(2, "20:00"), 2);
+  const lane = screen.getByText("Contact sensor", { selector: ".lane-l" }).closest(".lane") as HTMLElement;
+  const bars = lane.querySelectorAll<HTMLElement>(".bar.door");
+  expect(bars).toHaveLength(1);
+  expect(lane.querySelector(".tick")).toBeNull();
+  const bar = bars[0] as HTMLElement;
+  expect(parseFloat(bar.style.left)).toBeCloseTo(((8 * 60 + 5) / 1440) * 100, 3);
+  expect(parseFloat(bar.style.width)).toBeCloseTo((1 / 1440) * 100, 3);
+});
