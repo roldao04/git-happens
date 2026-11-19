@@ -45,7 +45,8 @@ uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recordin
 
 ## To do
 - **Readable cards:** plain parts ("door opened → smart plug about 2,100 W") and "12 days, where chance gives about 1".
-- **Agent hook (later):** `today.baselines()` is ready for the agent's `baselines` (see the note in `source/context.py`), but not wired in: no AI on this side yet.
+- **Agent hook:** done. The agent's `baselines` carry the habits, forecast, occasions and decisions ([`anticipation.md`](anticipation.md)).
+- **Above the patterns:** `learn_day` also learns habits ([`habits.md`](habits.md)) and occasions ([`occasions.md`](occasions.md)) each night; `reset_learned` clears them too.
 - **What is on the plug** (Connectivity): appliance cards from plug kinds. The team must agree a learner value.
 - **Drift learner** ("kettle getting slower") and the **usual day** profile for the event learner.
 - **3-part chains:** rosa's lamp → door → kettle is two cards today.
@@ -56,7 +57,7 @@ uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recordin
   - the prototype on the simulator: 7 states per house; the room's daily swing splits the night ("quiet + cooling" vs "quiet + steady"); a quiet afternoon at home looks like the night
   - it needs `rest.py` to learn the room's usual rate per time of day first
 - **Known limits:**
-  - **Clutter:** short and middle quiets (minutes to ~2 h) become cards too ("the end of a 1.7 h quiet at 19:30" is the evening light coming on). Ranking or hiding cards is for the dashboard and namer.
+  - **Clutter:** short and middle quiets (minutes to ~2 h) become cards too ("the end of a 1.7 h quiet at 19:30" is the evening light coming on). The namer ranks them (`importance`, `same_as`).
   - **Slow fading:** a habit polluted by random noise in its window fades slowly (a rate-change test would fix it).
   - **Per-device watching** isn't done: a stale plug hides plug habits.
 - **Link chance model:** `rhythm` is the default, `other_day` the strict option; both agree on the fixtures. The team picks one.

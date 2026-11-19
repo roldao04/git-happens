@@ -1,7 +1,8 @@
-"""The event loop: poll → normalize → diff → store → triggers → (maybe) agent.
+"""The event loop: poll → normalize → diff → store → anticipation → triggers → (maybe) agent.
 
-See docs/event-loop.md. Later steps (action ledger + expectation checker, attribution) slot in
-between diff and triggers.
+See docs/event-loop.md. Anticipation (docs/anticipation.md) plans Alfred's own decisions ahead
+of the learned habits and runs the due ones, before the triggers. Later steps (action ledger +
+expectation checker, attribution) slot in between diff and triggers.
 """
 import asyncio
 import logging
@@ -11,13 +12,22 @@ from datetime import datetime
 from .actions import Actuator, DryRunActuator, resolve_targets, run_actions
 from .context import build_context
 from .diff import diff, initially_stale
-from .model import Event
+from .model import Event, State
 from .normalize import device_types, fresh_by_type, normalize
 from .sources import Source, SourceError
 from .store import Store
 from .triggers import Triggers, missing_fresh
 
 log = logging.getLogger("source.loop")
+
+try:  # anticipation must never stop the loop, not even by failing to import
+    from . import anticipate
+    from .learn import to_local
+except Exception:
+    anticipate = None
+    log.exception("anticipation unavailable: the loop runs without it")
+
+PLAN_EVERY_MS = 5 * 60_000  # the plan is redone this often; due decisions are checked every tick
 
 
 async def run(source: Source, store: Store, triggers: Triggers, agent, *,
@@ -28,6 +38,7 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
     prev = None
     prev_now: int | None = None
     last_run_ms: int | None = None
+    last_plan_ms: int | None = None
     in_gap = False
     blind: list[str] = []  # safety device types with no fresh device
     ticks = 0
@@ -77,8 +88,11 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
 
         types = device_types(state)
         fresh = fresh_by_type(state, now, stale_ms)
-        fired = triggers.match(events, now, types)
         rules_ran: list[dict] = []
+        if anticipate is not None:  # Alfred's own decisions ahead of habits; replays get the dry-run actuator
+            last_plan_ms = await _anticipate(store, now, last_plan_ms, actuator, types, fresh, state,
+                                             rules_ran, readback_delay_s)
+        fired = triggers.match(events, now, types)
         for r in fired:  # hard rules first: code runs their actions, no LLM
             t = triggers.triggers[r.trigger_id]
             if not t.actions:
@@ -119,6 +133,31 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
 
         prev, prev_now = state, now
         await _sleep(source, poll_seconds, started)
+
+
+async def _anticipate(store: Store, now: int, last_plan_ms: int | None, actuator: Actuator,
+                      types: dict[str, str], fresh: dict[str, list[str]], state: State,
+                      rules_ran: list[dict], readback_delay_s: float) -> int | None:
+    """Re-plans every PLAN_EVERY_MS, then runs the due "do" decisions (each write through the
+    guard). Writes are stored as rule runs and told to the agent like hard rules, since its
+    `state` was read before them. Never raises: the triggers after it include smoke."""
+    try:
+        local = to_local(now)
+        if last_plan_ms is None or now - last_plan_ms >= PLAN_EVERY_MS:
+            last_plan_ms = now
+            anticipate.plan_decisions(store.db, local)
+        for r in await anticipate.run_due(store.db, local, actuator, types, fresh, state=state,
+                                          readback_delay_s=readback_delay_s):
+            if not r["actions"]:
+                continue  # an expectation, or skipped before any write: nothing changed in the home
+            tid = f"decision:{r['decision']['id']}"
+            store.log_rule_run(now, tid, r["actions"])
+            rules_ran.append({"trigger_id": tid, "actions": [
+                {"deviceId": a["args"].get("deviceId"), "body": a["args"].get("body"),
+                 "status": a["status"], "verified": a["verified"]} for a in r["actions"]]})
+    except Exception:
+        log.exception("anticipation failed this tick")
+    return last_plan_ms
 
 
 def _hhmmss(ms: int) -> str:

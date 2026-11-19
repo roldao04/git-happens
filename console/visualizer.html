@@ -72,7 +72,12 @@
   #learned .what { display: grid; flex: 1; min-width: 0; }
   #learned .title { font-weight: 600; overflow-wrap: anywhere; }
   #learned small { color: var(--muted); font-size: 12px; }
-  #learned li.off { opacity: .6; }
+  #learned li.off, #learned li.later { opacity: .6; }
+  #learned .explain { color: var(--text); }
+  #learned .more { display: grid; gap: 4px; margin-top: 4px; }
+  #learned .more b { font-weight: 600; color: var(--text); }
+  #learned .tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-left: 6px; color: var(--muted); }
+  #learned .tag.high { color: var(--accent); }
   .chip { flex: none; min-width: 74px; text-align: center; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px;
           margin-top: 1px; background: var(--chip); color: var(--muted); white-space: nowrap; }
   .chip.done { background: var(--ok-soft); color: var(--ok); }
@@ -98,36 +103,136 @@
     #tools { top: auto; bottom: 208px; }
     #keys { display: none; }
   }
+
+  /* The two tabs, and the controls they share: at the top of the left panel, or of the knowledge page. */
+  #head { display: grid; gap: 12px; }
+  #tabs { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--chip); }
+  #tabs button { flex: 1; min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  #tabs button:hover { color: var(--text); }
+  #tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(20, 28, 45, .16); }
+
+  /* What Alfred knows: a page to read, with no 3D. The page scrolls, so keyboard and wheel work as usual. */
+  body.knowing { overflow: auto; }
+  body.knowing #scene, body.knowing #panel, body.knowing #habits, body.knowing #tools, body.knowing #bar { display: none; }
+  #k-head { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .k-wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+  #k-top { display: flex; gap: 16px; align-items: flex-start; padding-top: 12px; padding-bottom: 12px; }
+  #k-top #head { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title tabs" "house day"; gap: 10px 24px; align-items: center; }
+  #k-top #title-row { grid-area: title; justify-content: flex-start; gap: 14px; }
+  #k-top #tabs { grid-area: tabs; }
+  #k-top #tabs button { padding: 0 14px; }
+  #k-top #household-row { grid-area: house; max-width: 440px; }
+  #k-top #day-row { grid-area: day; }
+  #k-theme { flex: none; }
+  #k-body { display: grid; gap: 32px; padding-top: 24px; padding-bottom: 72px; }
+  #knowledge h2 { font-size: 20px; line-height: 1.25; color: var(--text); text-transform: none; letter-spacing: -.01em; font-weight: 650; }
+  #knowledge h3 { font-size: 15px; line-height: 1.3; margin: 0; font-weight: 600; }
+  #k-intro { display: grid; gap: 8px; }
+  #k-sub, .k-section > header p { color: var(--muted); max-width: 74ch; }
+  #k-status.busy::before { content: ""; display: inline-block; width: 11px; height: 11px; margin-right: 8px; vertical-align: -1px;
+                           border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: k-spin .8s linear infinite; }
+  #k-status.bad { color: var(--bad); }
+  @keyframes k-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #k-status.busy::before { animation: none; } }
+  #k-body[aria-busy="true"] #k-sections { opacity: .45; transition: opacity .2s; }
+  #k-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  #k-nav a { display: inline-flex; align-items: baseline; gap: 7px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px;
+             background: var(--panel); color: var(--text); text-decoration: none; font-weight: 500; }
+  #k-nav a:hover { border-color: var(--accent); }
+  #k-nav .num { color: var(--muted); font-size: 12px; }
+  #k-sections { display: grid; gap: 44px; }
+  .k-section { display: grid; gap: 12px; scroll-margin-top: 128px; }
+  .k-section > header { display: grid; gap: 4px; }
+  .k-subhead { margin-top: 6px !important; font-size: 12px !important; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .k-list { display: grid; gap: 10px; }
+  .k-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); align-items: start; }
+  .k-grid > .k-empty { grid-column: 1 / -1; }
+  .k-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 6px;
+            align-content: start; scroll-margin-top: 128px; min-width: 0; overflow-wrap: anywhere; }
+  .k-card:target { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .k-card.off { opacity: .68; }
+  .k-title { display: flex; align-items: baseline; gap: 6px 8px; flex-wrap: wrap; }
+  .k-title h3 { margin-right: auto !important; }
+  .k-lead { font-size: 15px; }
+  .k-card .tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .k-card .tag.high { color: var(--accent); }
+  .k-more { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 2px 0 0; font-size: 13px; }
+  .k-more dt { color: var(--muted); }
+  .k-more dd { margin: 0; }
+  .k-steps { margin: 4px 0 0; padding: 0; list-style: none; counter-reset: k-step; display: grid; gap: 5px; }
+  .k-steps li { counter-increment: k-step; display: flex; gap: 10px; align-items: baseline; }
+  .k-steps li::before { content: counter(k-step); flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--chip); color: var(--muted);
+                        font-size: 11px; font-weight: 600; display: inline-grid; place-items: center; }
+  .k-steps li > span:first-of-type { flex: 1; min-width: 0; }
+  .k-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .k-facts b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .k-num { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pill { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+  .pill.done { background: var(--ok-soft); color: var(--ok); }
+  .pill.do { background: var(--accent-soft); color: var(--accent); }
+  .pill.new { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .sure { display: inline-flex; align-items: center; gap: 6px; }
+  .meter { position: relative; width: 48px; height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+  .meter > span { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--muted); }
+  .sure.act .meter > span { background: var(--accent); }
+  .meter::after { content: ""; position: absolute; left: 75%; top: 0; bottom: 0; width: 1px; background: var(--text); opacity: .55; }  /* from here Alfred acts */
+  .k-empty { margin: 0; padding: 14px 16px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); max-width: 74ch; }
+  .k-rows { display: grid; gap: 7px; }
+  .k-rows li { display: flex; gap: 4px 10px; align-items: baseline; flex-wrap: wrap; }
+  .k-rows .k-desc { flex: 1 1 14ch; }
+  .k-card code { font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .k-older > summary { cursor: pointer; color: var(--muted); padding: 6px 0; width: fit-content; }
+  .k-older > .k-grid { margin-top: 6px; }
+  @media (max-width: 720px) {
+    #k-head { position: static; }
+    .k-wrap { padding: 0 16px; }
+    #k-top { position: relative; }
+    #k-theme { position: absolute; top: 6px; right: 16px; }  /* beside the title, so the controls get the whole width */
+    #k-top #head { grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "tabs" "house" "day"; }
+    #k-top #household-row { max-width: none; }
+    #k-body { gap: 24px; padding-top: 18px; }
+    #k-sections { gap: 34px; }
+    .k-grid { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>
 </head>
 <body>
 <canvas id="scene" aria-label="The house in 3D. Drag to turn it, scroll to zoom."></canvas>
 
 <aside id="panel" class="float" aria-label="Readings">
-  <div class="row spread">
-    <h1>House visualizer</h1>
-    <a href="/">Simulator</a>
-  </div>
-  <div class="row">
-    <label class="hide" for="household">Household</label>
-    <select id="household">
-      <optgroup label="Households">
-        <option value="rosa">rosa</option>
-        <option value="couple">couple</option>
-        <option value="students">students</option>
-        <option value="home-a">home-a (a real kitchen)</option>
-      </optgroup>
-      <optgroup label="Made-up houses (the form's zip)" id="made-up"></optgroup>
-    </select>
-    <button id="open" type="button" title="Open a .jsonl file from a downloaded zip">Open file</button>
-    <input id="file" type="file" accept=".jsonl,.json,.txt" hidden>
-  </div>
-  <div class="row">
-    <button id="day-prev" type="button" aria-label="Previous day"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5 5 8l5.5 5.5 1-1L7 8l4.5-4.5z"/></svg></button>
-    <label for="day">Day</label>
-    <input id="day" type="number" min="1" max="365" value="1">
-    <button id="day-next" type="button" aria-label="Next day"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5.5 2.5-1 1L9 8l-4.5 4.5 1 1L11 8z"/></svg></button>
-    <span id="date" class="muted num"></span>
+  <!-- The tabs and the controls both tabs share. They move to the top of whichever tab shows (setTab). -->
+  <div id="head">
+    <div id="title-row" class="row spread">
+      <h1>House visualizer</h1>
+      <a href="/">Simulator</a>
+    </div>
+    <div id="tabs" role="tablist" aria-label="What to show">
+      <button id="tab-house" type="button" role="tab" data-tab="house" aria-selected="true" aria-controls="scene">House</button>
+      <button id="tab-knowledge" type="button" role="tab" data-tab="knowledge" aria-selected="false" aria-controls="knowledge" tabindex="-1">What Alfred knows</button>
+    </div>
+    <div id="household-row" class="row">
+      <label class="hide" for="household">Household</label>
+      <select id="household">
+        <optgroup label="Households">
+          <option value="rosa">rosa</option>
+          <option value="couple">couple</option>
+          <option value="students">students</option>
+          <option value="rosa-plus">rosa-plus (rarer rhythms, parties)</option>
+          <option value="home-a">home-a (a real kitchen)</option>
+        </optgroup>
+        <optgroup label="Made-up houses (the form's zip)" id="made-up"></optgroup>
+      </select>
+      <button id="open" type="button" title="Open a .jsonl file from a downloaded zip">Open file</button>
+      <input id="file" type="file" accept=".jsonl,.json,.txt" hidden>
+    </div>
+    <div id="day-row" class="row">
+      <button id="day-prev" type="button" aria-label="Previous day"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5 5 8l5.5 5.5 1-1L7 8l4.5-4.5z"/></svg></button>
+      <label for="day">Day</label>
+      <input id="day" type="number" min="1" max="365" value="1">
+      <button id="day-next" type="button" aria-label="Next day"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5.5 2.5-1 1L9 8l-4.5 4.5 1 1L11 8z"/></svg></button>
+      <span id="date" class="muted num"></span>
+    </div>
   </div>
   <div>
     <div id="clock" class="num">--:--:--</div>
@@ -179,6 +284,64 @@
   <label class="hide" for="scrub">Time of day</label>
   <input id="scrub" type="range" min="0" max="86400" step="1" value="0">
 </section>
+
+<!-- The second tab (GET /knowledge): everything Alfred knows once the day is over. No 3D. -->
+<main id="knowledge" hidden>
+  <header id="k-head">
+    <div id="k-top" class="k-wrap">
+      <button id="k-theme" class="quiet" type="button">Dark</button>
+    </div>
+  </header>
+  <div id="k-body" class="k-wrap">
+    <section id="k-intro" aria-labelledby="k-title">
+      <h2 id="k-title">What Alfred knows</h2>
+      <p id="k-sub" hidden></p>
+      <p id="k-status" role="status" hidden></p>
+      <p id="k-named" class="muted" hidden>Not named: set OPENROUTER_API_KEY to let the namer name these. Until then each one is shown by what it is made of.</p>
+      <nav id="k-nav" aria-label="Sections" hidden></nav>
+    </section>
+    <div id="k-sections" hidden>
+      <section id="k-habits" class="k-section" aria-labelledby="k-habits-h">
+        <header>
+          <h2 id="k-habits-h">Habits</h2>
+          <p>Patterns that come back together in a rhythm (every day, on some weekdays, every other weekend, monthly or every few hours), with when they happen and how that varies.</p>
+        </header>
+        <div id="k-habits-list" class="k-list"></div>
+      </section>
+      <section id="k-occasions" class="k-section" aria-labelledby="k-occasions-h">
+        <header>
+          <h2 id="k-occasions-h">Occasions</h2>
+          <p>Rare days that depart from the usual one, such as a dinner with friends, recognised by how much they look like past ones.</p>
+        </header>
+        <div id="k-occasions-list" class="k-list"></div>
+      </section>
+      <section id="k-tomorrow" class="k-section" aria-labelledby="k-tomorrow-h">
+        <header>
+          <h2 id="k-tomorrow-h">Tomorrow</h2>
+          <p>What each habit will probably do in the 24 hours after this day, and what Alfred plans for it. From 75 % sure it acts (the lamp only; it never switches the plug on). Below that it only suggests.</p>
+        </header>
+        <h3 class="k-subhead">Forecast</h3>
+        <div id="k-forecast-list" class="k-list"></div>
+        <h3 class="k-subhead">Decisions</h3>
+        <div id="k-decisions-list" class="k-list"></div>
+      </section>
+      <section id="k-patterns" class="k-section" aria-labelledby="k-patterns-h">
+        <header>
+          <h2 id="k-patterns-h">Patterns</h2>
+          <p>One event type, or two that follow each other, coming back at a consistent time of day. Habits are made of these.</p>
+        </header>
+        <div id="k-patterns-list" class="k-list"></div>
+      </section>
+      <section id="k-kinds" class="k-section" aria-labelledby="k-kinds-h">
+        <header>
+          <h2 id="k-kinds-h">Event types</h2>
+          <p>The kinds of things each device does, told apart by how big and how long they are. Patterns are made of these.</p>
+        </header>
+        <div id="k-kinds-list" class="k-grid"></div>
+      </section>
+    </div>
+  </div>
+</main>
 
 <script>
 'use strict';
@@ -893,7 +1056,8 @@ function drawLanes(canvas, day, t, css, learned, habit) {
 
 // --- the page ----------------------------------------------------------------------------------------
 const view = { day: null, t: 0, index: -1, playing: false, selected: null, fileDays: null, plot: { x0: 51, x1: 100 },
-               learned: null, habit: null, frame: -2 };
+               learned: null, habit: null, frame: -2,
+               tab: 'house', loaded: null, knowledge: null, knowScroll: 0 };  // loaded: the house tab's "household|day"
 const status = $('status');
 const say = (text, bad) => { status.textContent = text; status.className = bad ? 'bad' : 'muted'; };
 const house = window.THREE ? houseScene(window.THREE, $('scene')) : null;
@@ -903,7 +1067,7 @@ function readColors() {
   const style = getComputedStyle(document.documentElement);
   for (const k of ['bg', 'ground', 'panel', 'line', 'text', 'muted', 'accent', 'chip', 'lamp', 'door', 'plug', 'temp', 'bad']) css[k] = style.getPropertyValue('--' + k).trim();
   if (house) house.setColors(css);
-  $('theme').textContent = style.colorScheme.includes('dark') ? 'Light' : 'Dark';
+  $('theme').textContent = $('k-theme').textContent = style.colorScheme.includes('dark') ? 'Light' : 'Dark';
 }
 // reading() names some colours as CSS variables; the canvases need the real value.
 const real = (color) => (color && color.startsWith('var(') ? css[color.slice(6, -1)] : color);
@@ -941,7 +1105,10 @@ function render(force) {
 // A sensor's parts name kinds, such as "bulb-A (power on, about 44 min)" or "end of home-A (quiet after bulb
 // until bulb, …)". Shown with the devices' own names; "home" is the whole home being quiet.
 function partText(part) {
-  const names = deviceNames();
+  return partTextIn(part, deviceNames());
+}
+
+function partTextIn(part, names) {  // names: device type -> its name
   return part
     .replace(/^(end of )?(\w+?)-[A-Z]+\b/, (_, end, type) => {
       const what = type === 'home' ? 'Quiet' : names[type] || type;
@@ -958,9 +1125,13 @@ function deviceNames() {
 
 // The same part, short: "Light on", "Plug about 2,100 W", "Quiet after light until light". The size stays, the duration goes.
 function partShort(part) {
+  return partShortIn(part, deviceNames());
+}
+
+function partShortIn(part, names) {
   const m = part.match(/^(end of )?(\w+?)-[A-Z]+\b(?: \((.*)\))?$/);
   if (!m) return part;
-  const [, end, type] = m, names = deviceNames();
+  const [, end, type] = m;
   let what = (m[3] || '').split(', ').filter((x) => !/^about [\d.,]+ (s|min|h)$/.test(x)).join(', ');
   what = what.replace(/^(power|sensorState) /, '').replace(/^quiet /, '')
     .replace(/\b(after|until) (\w+)/g, (x, word, t) => (names[t] ? `${word} ${names[t].toLowerCase()}` : x));
@@ -1001,19 +1172,46 @@ function clearLearned(note) {
 // One row per sensor: a status chip that follows the time, what it is, and how sure Alfred is.
 function showLearned() {
   const learned = view.learned, fmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
-  const rank = (s) => (s.tonight === 'learned' ? 1 : s.status === 'active' ? 0 : 2);
-  const sensors = [...learned.sensors].sort((a, b) => rank(a) - rank(b) || a.time_of_day.localeCompare(b.time_of_day));
+  // In the order they happen on this day: when it occurred (its reading), else its usual time.
+  const usual = (s) => { const [h, m] = s.time_of_day.split(':').map(Number); return h * 60 + m; };
+  const when = (s) => {
+    const r = learned.readings.find(([id, a]) => id === s.id && a >= view.day.start && a < view.day.end);
+    return r ? (r[1] - view.day.start) / 60000 : usual(s);
+  };
+  const sensors = [...learned.sensors].sort((a, b) => when(a) - when(b) || usual(a) - usual(b) || a.id.localeCompare(b.id));
   const known = learned.sensors.filter((s) => s.tonight !== 'learned').length, fresh = learned.sensors.length - known;
   $('learned-count').textContent = `${known} known${fresh ? ` · +${fresh} tonight` : ''}`;
-  learnedNote(learned.sensors.length ? ''
+  learnedNote(learned.sensors.length ? (learned.named ? '' : 'Not named: set OPENROUTER_API_KEY to let the namer name these.')
     : 'Nothing learned yet. A habit needs at least 5 occurrences that beat chance in this home, so the first ones appear after about a week.');
   $('learned').replaceChildren(...sensors.map((s) => {
     const li = document.createElement('li'), button = document.createElement('button');
     li.dataset.id = s.id;
-    li.classList.toggle('off', s.status !== 'active' && s.tonight !== 'learned');
+    li.classList.toggle('off', (s.status !== 'active' && s.tonight !== 'learned') || s.importance === 'hidden');
     button.type = 'button';
-    button.innerHTML = '<span class="chip"></span><span class="what"><span class="title"></span><small class="meta"></small><small class="change"></small></span>';
+    button.innerHTML = '<span class="chip"></span><span class="what"><span class="title"></span><small class="explain"></small>'
+      + '<small class="meta"></small><small class="change"></small><span class="more" hidden></span></span>';
     button.querySelector('.title').textContent = s.name || s.parts.map(partShort).join(' → ');
+    if (s.name && s.importance) {
+      const tag = document.createElement('span');
+      tag.className = `tag ${s.importance}`;
+      tag.textContent = s.importance;
+      tag.title = { high: 'Its absence is worth checking', normal: 'A real habit; its absence alone means little',
+                    low: 'Weak, rare or minor', hidden: 'Repeats another card' }[s.importance] || '';
+      button.querySelector('.title').append(tag);
+    }
+    button.querySelector('.explain').textContent = s.explanation || '';
+    button.querySelector('.explain').hidden = !s.explanation;
+    const more = button.querySelector('.more'), sameAs = learned.sensors.find((x) => x.id === s.same_as);
+    for (const [label, text] of [['Means', s.means], ['If missing', s.if_missing],
+                                 ['Same as', sameAs ? sameAs.name || sameAs.id : null], ['Seen as', s.parts.map(partText).join(' → ')]]) {
+      if (!text) continue;
+      const line = document.createElement('small');
+      line.innerHTML = '<b></b> ';
+      line.firstChild.textContent = label + ':';
+      line.append(text);
+      more.append(line);
+    }
+    more.hidden = view.habit !== s.id;
     button.title = s.parts.map(partText).join(' → ');
     const days = s.weekdays && s.weekdays.length ? ` · ${s.weekdays.map((w) => w[0].toUpperCase() + w.slice(1)).join(', ')}` : '';
     const range = s.earliest && s.latest && s.earliest !== s.latest ? ` (${s.earliest}–${s.latest})` : '';
@@ -1037,20 +1235,24 @@ function showLearned() {
 function updateLearned(force) {
   const learned = view.learned;
   if (!learned) return;
-  const k = frameAt(learned, view.t);
-  if (k === view.frame && !force) return;
-  view.frame = k;
+  // The learners run when the day is over: until then, tonight's new habits aren't known yet.
+  const night = view.t >= view.day.end - 60000;
+  const k = frameAt(learned, view.t), key = `${k}${night ? 'n' : ''}`;
+  if (key === view.frame && !force) return;
+  view.frame = key;
   const row = k >= 0 ? learned.statuses.frames[k][1] : [], byId = {};
   learned.statuses.ids.forEach((id, n) => { byId[id] = row[n]; });
   for (const li of $('learned').children) {
     const s = learned.sensors.find((x) => x.id === li.dataset.id), chip = li.querySelector('.chip'), st = byId[s.id];
     let text, cls = '', tip = '';
-    if (s.tonight === 'learned') { text = 'new tonight'; cls = 'new'; tip = 'Alfred did not know this habit yet during this day.'; }
+    li.classList.toggle('later', s.tonight === 'learned' && !night);
+    if (s.tonight === 'learned' && night) { text = 'new tonight'; cls = 'new'; tip = 'Learned now, at the end of this day.'; }
+    else if (s.tonight === 'learned') { text = 'not yet'; tip = 'Alfred does not know this habit yet: it learns it tonight, when this day is over.'; }
     else if (st) {
       const [status, at] = st;
       text = STATUS_WORDS[status] + (at ? ` ${at}` : '');
       cls = status === 'done' ? 'done' : status === 'now' ? 'now' : status === 'late' ? 'late' : '';
-      tip = status === 'late' ? `Later than ever seen: usually by ${s.late_after}.` : status === 'expected' ? `Usually by ${s.late_after}.` : '';
+      tip = status === 'late' ? `Later than ever seen: usually by ${s.late_after}.${s.if_missing ? ' ' + s.if_missing : ''}` : status === 'expected' ? `Usually by ${s.late_after}.` : '';
     } else text = STATUS_WORDS[s.status] || s.status;
     chip.textContent = text;
     chip.className = `chip ${cls}`;
@@ -1061,7 +1263,10 @@ function updateLearned(force) {
 // Click a habit: mark it and its devices, and go to when it happened that day (or its usual time).
 function pickHabit(s) {
   view.habit = view.habit === s.id ? null : s.id;
-  for (const li of $('learned').children) li.firstChild.setAttribute('aria-pressed', String(li.dataset.id === view.habit));
+  for (const li of $('learned').children) {
+    li.firstChild.setAttribute('aria-pressed', String(li.dataset.id === view.habit));
+    li.querySelector('.more').hidden = li.dataset.id !== view.habit;
+  }
   const type = view.habit ? s.devices[0] || null : null;
   view.selected = type;
   if (house) house.select(type);
@@ -1169,23 +1374,426 @@ async function load(household, n, keepTime) {
     $('day').max = body.max_days;
     $('day').value = n;
     show(fromServer(body), keepTime);
+    view.loaded = `${household}|${n}`;
     loadLearned(household, n);
-    history.replaceState(null, '', `?household=${encodeURIComponent(household)}&day=${n}`);
+    setUrl();
   } catch (err) {
     say(err instanceof TypeError ? 'Could not reach the simulator. Start it (uv run python -m source.simulate --serve), or open a .jsonl file.' : err.message, true);
   }
 }
 
-// The day picker works on the open file's days when there is one, else it asks the simulator.
+// The day picker works on the open file's days when there is one, else it asks the simulator: for the house,
+// or for what Alfred knows, whichever tab shows. The other tab catches up when it is opened (setTab).
 function go(n, keepTime) {
   n = Math.max(1, Math.min(Number($('day').max) || 1, Math.round(n) || 1));
   $('day').value = n;
   if (view.fileDays) {
     learnToken++;
     clearLearned('Learning runs on the simulator\'s households, not on an opened file.');
+    knowFile();
     return show(view.fileDays[n - 1], keepTime);
   }
+  if (view.tab === 'knowledge') return loadKnowledge($('household').value, n);
   load($('household').value, n, keepTime);
+}
+
+// The address says what shows, so a reload or a shared link opens the same: ?household=&day=[&tab=knowledge].
+function setUrl() {
+  const q = new URLSearchParams(location.search);
+  if (!view.fileDays) { q.set('household', $('household').value); q.set('day', $('day').value); }
+  if (view.tab === 'knowledge') q.set('tab', 'knowledge'); else q.delete('tab');
+  history.replaceState(null, '', `?${q}`);
+}
+
+// --- the tabs: the house in 3D, or what Alfred knows ------------------------------------------------------
+// One set of controls (household, day) for both: it moves to the top of the tab that shows. A tab catches up
+// with the household and day when it is opened; the other one is left as it was.
+function setTab(tab, load = true) {
+  const knowing = tab === 'knowledge', focused = document.activeElement;
+  if (view.tab === 'knowledge' && !knowing) view.knowScroll = window.scrollY;
+  view.tab = knowing ? 'knowledge' : 'house';
+  document.body.classList.toggle('knowing', knowing);
+  $('knowledge').hidden = !knowing;
+  for (const b of $('tabs').querySelectorAll('[role=tab]')) {
+    b.setAttribute('aria-selected', String(b.dataset.tab === view.tab));
+    b.tabIndex = b.dataset.tab === view.tab ? 0 : -1;
+  }
+  (knowing ? $('k-top') : $('panel')).prepend($('head'));
+  if (focused instanceof HTMLElement && $('head').contains(focused)) focused.focus({ preventScroll: true });  // moving it lost the focus
+  if (knowing) {
+    play(false);
+    if (house) house.stop();  // no 3D drawn while it is hidden
+    if (view.knowledge && !view.fileDays) $('day').max = view.knowledge.max_days;
+    window.scrollTo(0, view.knowScroll);
+  } else {
+    $('day').max = view.fileDays ? view.fileDays.length : (view.day && view.day.maxDays) || 365;
+    if (house) house.start();
+  }
+  if (!load) return;
+  const household = $('household').value, n = Number($('day').value);
+  const behind = knowing ? !view.knowledge || view.knowledge.household !== household || view.knowledge.day !== n
+    : view.loaded !== `${household}|${n}`;
+  if (view.fileDays) { if (knowing) knowFile(); }
+  else if (behind) go(n, true);
+  else if (!knowing) render(true);
+  setUrl();
+}
+
+$('tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('[role=tab]');
+  if (tab && tab.dataset.tab !== view.tab) setTab(tab.dataset.tab);
+});
+$('tabs').addEventListener('keydown', (e) => {  // arrows, Home and End move between the tabs
+  const tabs = [...$('tabs').querySelectorAll('[role=tab]')], i = tabs.indexOf(e.target);
+  const to = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (i < 0 || to == null) return;
+  e.preventDefault();
+  const tab = tabs[(to + tabs.length) % tabs.length];
+  tab.focus();
+  if (tab.dataset.tab !== view.tab) setTab(tab.dataset.tab);
+});
+
+// --- what Alfred knows (GET /knowledge): a page to read, plain sentences first and numbers second ---------
+const ACT = 0.75;  // from this confidence Alfred acts; below it, it only suggests (docs/habits-plan.md)
+const WEEK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
+const PART_NAMES = { habits: 'The habit learner', occasions: 'The occasion learner', forecast: 'The forecast', decisions: 'Anticipation' };
+const IMPORTANCE = { high: 'Its absence is worth checking', normal: 'A real habit; its absence alone means little',
+                     low: 'Weak, rare or minor', hidden: 'Repeats another card' };
+const DEVICE_ORDER = ['bulb', 'contactSensor', 'plug', 'home', 'smokeSensor', 'gateway', 'temperatureSensor'];  // people's first
+const DECISION_STATUS = { done: 'done', failed: 'bad' };
+const shortDate = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' });
+const dayMonth = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: 'numeric', month: 'short' });
+const noon = (iso) => Date.parse(`${String(iso).slice(0, 10)}T12:00:00Z`);  // a local date: at noon UTC it is that day in Lisbon too
+const onDay = (iso, fmt = dayMonth) => (iso ? fmt.format(noon(iso)) : '');
+const hhmm = (iso) => String(iso || '').slice(11, 16);
+const pct = (x) => `${Math.round(Number(x) * 100)} %`;
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
+const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? '' : 's'}`;
+const listText = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+const numbered = (id, word) => { const m = /-(\d+)$/.exec(id || ''); return m ? `${word} ${m[1]}` : id || word; };
+
+// A small element builder: h('p', { class: 'x' }, 'text', child, …). Text always goes in as text, never as HTML.
+function h(tag, attrs, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v != null && v !== false) node.setAttribute(k, v === true ? '' : v);
+  node.append(...kids.flat(Infinity).filter((x) => x != null && x !== false && x !== ''));
+  return node;
+}
+const pill = (text, cls, title) => h('span', { class: `pill ${cls || ''}`, title }, text);
+const tag = (importance) => h('span', { class: `tag ${importance}`, title: IMPORTANCE[importance] }, importance);
+const cardHead = (title, ...chips) => h('div', { class: 'k-title' }, h('h3', {}, title), chips);
+const sentence = (...parts) => { const text = parts.filter(Boolean).join(', '); return text ? h('p', { class: 'k-lead' }, `${cap(text)}.`) : null; };
+const fact = (before, value, after) => (value ? h('span', {}, before ? `${before} ` : '', h('b', {}, String(value)), after ? ` ${after}` : '') : null);
+const facts = (...items) => { const shown = items.filter(Boolean); return shown.length ? h('p', { class: 'k-facts' }, shown) : null; };
+
+// Minutes in words: "8 min", "1.5 h". `step` rounds them (a weekday's shift to 5 min).
+function minutes(m, step = 1) {
+  m = Math.abs(Number(m));
+  if (m >= 90) return `${(m / 60).toFixed(1).replace(/\.0$/, '')} h`;
+  return `${Math.max(step, Math.round(m / step) * step)} min`;
+}
+
+function weekdaysText(days) {
+  const set = new Set((days || []).map((d) => String(d).slice(0, 3).toLowerCase()));
+  const on = WEEK.filter((d) => set.has(d)).join();
+  if (!on || on === WEEK.join()) return 'every day';
+  if (on === 'mon,tue,wed,thu,fri') return 'on weekdays';
+  if (on === 'sat,sun') return 'at weekends';
+  return `on ${listText(on.split(',').map((d) => `${DAY_NAMES[d]}s`))}`;
+}
+
+// {"sat": 50, "sun": 55} -> "later at weekends by 50–55 min"
+function variationText(variation) {
+  const by = (variation && variation.by_weekday) || {};
+  return [['later', 1], ['earlier', -1]].map(([word, sign]) => {
+    const days = Object.keys(by).filter((d) => Number(by[d]) * sign >= 2.5);
+    if (!days.length) return '';
+    const sizes = days.map((d) => Math.abs(Number(by[d]))), lo = minutes(Math.min(...sizes), 5), hi = minutes(Math.max(...sizes), 5);
+    const by_ = lo === hi ? `~${lo}` : lo.endsWith(' min') && hi.endsWith(' min') ? `${lo.slice(0, -4)}–${hi}` : `${lo}–${hi}`;
+    return `${word} ${weekdaysText(days)} by ${by_}`;
+  }).filter(Boolean).join(', ');
+}
+
+function trendWords(trend) {
+  const m = Number(trend && trend.minutes_per_week);
+  if (!trend || !Number.isFinite(m)) return '';
+  return Math.abs(m) < 1 ? 'steady' : `${m > 0 ? 'later' : 'earlier'} by ~${minutes(m)} a week`;
+}
+
+function rhythmText(r) {
+  if (!r) return '';
+  return r.text || { daily: 'every day', weekly: weekdaysText(r.weekdays), monthly: 'every month',
+                     every_n_days: r.every_n_days ? `every ${r.every_n_days} days` : '',
+                     hourly: r.every_n_hours ? `every ${r.every_n_hours} h` : '' }[r.kind] || '';
+}
+
+// How sure Alfred is, as a bar with a mark at 75 %: from there it acts, below it only suggests.
+function sure(confidence, what) {
+  const c = Math.max(0, Math.min(1, Number(confidence)));
+  if (confidence == null || !Number.isFinite(c)) return null;
+  return h('span', { class: `sure${c >= ACT ? ' act' : ''}`, title: `${what || 'How sure Alfred is'}. From 75 % (the mark) Alfred acts; below, it only suggests.` },
+    h('span', { class: 'meter', 'aria-hidden': 'true' }, h('span', { style: `width: ${Math.round(c * 100)}%` })), h('b', {}, pct(c)), ' sure');
+}
+
+// The namer's card, when there is one (patterns now; habits and occasions once the namer names them).
+// `extra`: more [label, text or nodes] rows to show with it.
+function namerLines(x, extra = []) {
+  const more = [...extra, ['Means', x.means], ['If missing', x.if_missing]].filter(([, text]) => text && text.length);
+  return [x.explanation ? h('p', {}, x.explanation) : null,
+          more.length ? h('dl', { class: 'k-more' }, more.map(([label, text]) => [h('dt', {}, label), h('dd', {}, text)])) : null];
+}
+
+const joined = (items, sep) => items.flatMap((x, i) => (i ? [sep, x] : [x]));
+// "habit-5 late" (an occasion's or a match's `explains`) -> "Habit 5 late"
+const explained = (k, items) => (Array.isArray(items) ? items : []).map((s) => String(s).replace(/habit-\d+/g, (id) => habitName(k, id)));
+// An occasion's `changes`: [{pattern, effect, usual, seen}] -> "Night's sleep came later (usually 23:09, seen 01:21); …"
+function changesText(k, changes) {
+  const list = (Array.isArray(changes) ? changes : []).filter((c) => c && c.pattern);
+  return joined(list.map((c) => [patternLink(k, c.pattern), ` ${{ late: 'came later', early: 'came earlier' }[c.effect] || c.effect || 'changed'}`,
+                                 c.usual && c.seen ? ` (usually ${c.usual}, seen ${c.seen})` : '']), '; ');
+}
+
+const patternWords = (p, names) => p.parts.map((part) => partShortIn(part, names)).join(' → ');
+const habitName = (k, id) => { const x = k.habits.find((y) => y.id === id); return x ? x.name || numbered(x.id, 'Habit') : numbered(id, 'Habit'); };
+const occasionName = (k, id) => { const o = k.occasions.find((y) => y.id === id); return o ? o.name || numbered(o.id, 'Occasion') : numbered(id, 'Occasion'); };
+const cardLink = (k, id, text) => ([...k.habits, ...k.occasions].some((x) => x.id === id) ? h('a', { href: `#k-${id}` }, text) : text);
+function patternLink(k, id) {
+  const p = k.patterns.find((x) => x.id === id);
+  return p ? h('a', { href: `#k-${p.id}` }, p.name || patternWords(p, k.devices)) : id || 'a pattern';
+}
+
+function stepsList(x, k) {
+  const steps = Array.isArray(x.steps) && x.steps.length ? x.steps : (x.patterns || []).map((pattern) => ({ pattern }));
+  let last = null;
+  return steps.length ? h('ol', { class: 'k-steps', 'aria-label': 'Its steps, in order' }, steps.map((s, i) => {
+    const at = Number(s.offset_min), gap = i > 0 && Number.isFinite(at) && last != null ? at - last : null;
+    if (Number.isFinite(at)) last = at;
+    const when = gap == null ? '' : Math.round(gap) <= 0 ? ', at the same time' : `, ~${minutes(gap)} later`;
+    return h('li', {}, h('span', {}, i ? 'then ' : '', patternLink(k, s.pattern), when),
+             s.share != null ? h('span', { class: 'k-num', title: 'How often this step is part of the habit' }, pct(s.share)) : null);
+  })) : null;
+}
+
+function habitCard(x, k) {
+  const w = x.window || {}, drift = trendWords(x.trend), spread = x.variation && x.variation.spread_min;
+  const between = w.earliest && w.latest && w.earliest !== w.latest ? `usually between ${w.earliest} and ${w.latest}`
+    : w.usual || w.earliest ? `usually around ${w.usual || w.earliest}` : '';
+  const vary = [variationText(x.variation), drift && drift !== 'steady' ? `drifting ${drift}` : ''].filter(Boolean).join('; ');
+  const age = x.first_seen && k.date ? Math.round((noon(k.date) - noon(x.first_seen)) / 864e5) + 1 : 0;
+  const tried = Number(x.opportunities) > 0 && x.occurrences != null;
+  return h('article', { class: `k-card${x.status && x.status !== 'active' ? ' off' : ''}`, id: `k-${x.id}` },
+    cardHead(x.name || numbered(x.id, 'Habit'), x.name && x.importance ? tag(x.importance) : null,
+             x.status && x.status !== 'active' ? pill(x.status) : null),
+    sentence(rhythmText(x.recurrence), between),
+    vary ? h('p', {}, `${cap(vary)}.`) : null,
+    namerLines(x),
+    stepsList(x, k),
+    facts(tried && fact('', `${x.occurrences} of ${x.opportunities}`, `times (${pct(x.occurrences / x.opportunities)})`),
+          sure(x.confidence),
+          spread != null && fact('give or take', `${Math.round(spread)} min`),
+          fact('trend', drift),
+          fact('learned', onDay(x.learned_at)), fact('first seen', onDay(x.first_seen)), fact('last seen', onDay(x.last_seen)),
+          age > 0 && fact('', plural(age, 'day'), 'old')));
+}
+
+const FINGERPRINT = {  // the occasion learner's features, in words; any other feature is shown by its own name
+  door_openings: (v) => plural(v, 'door opening'),
+  light_hours_after_21: (v) => `the light on for ${v} h after 21:00`,
+  quiet_start: (v) => `quiet only from ${v}`,
+  plug_uses: (v) => `the plug used ${plural(v, 'time')}`,
+};
+function fingerprintWords(f) {
+  return Object.entries(f && typeof f === 'object' ? f : {}).filter(([, v]) => v != null && typeof v !== 'object').map(([key, v]) => {
+    const n = typeof v === 'number' && !Number.isInteger(v) ? v.toFixed(1) : v;
+    return FINGERPRINT[key] ? FINGERPRINT[key](n) : `${key.replace(/_/g, ' ')}: ${n}`;
+  });
+}
+
+function episodeText(e) {
+  if (!e || !e.start) return '';
+  const a = hhmm(e.start), b = hhmm(e.end);
+  return `${onDay(e.start, shortDate)}${a ? ` (${a}${b ? `–${b}` : ''})` : ''}`;
+}
+
+function occasionCard(o, k) {
+  const list = Array.isArray(o.episode_list) ? o.episode_list : [], dates = list.map(episodeText).filter(Boolean);
+  const count = o.episodes != null && Number.isFinite(Number(o.episodes)) ? Number(o.episodes) : list.length;
+  const hours = Array.isArray(o.usual_hours) && o.usual_hours.length === 2 ? `usually from ${o.usual_hours[0]} to ${o.usual_hours[1]}` : '';
+  const looks = fingerprintWords(o.fingerprint);
+  return h('article', { class: 'k-card', id: `k-${o.id}` },
+    cardHead(o.name || numbered(o.id, 'Occasion'), o.name && o.importance ? tag(o.importance) : null,
+             count === 1 ? pill('seen once', 'bad', 'One example only: Alfred is at most 50 % sure, so it only suggests.') : pill(`seen ${count} times`)),
+    sentence(hours, o.weekdays && o.weekdays.length ? weekdaysText(o.weekdays) : ''),
+    looks.length ? h('p', {}, `Looks like ${listText(looks)}.`) : null,
+    count === 1 ? h('p', {}, `Seen once${dates.length ? `, on ${dates[0]}` : ''}. With a single example Alfred is at most 50 % sure, so it only suggests.`)
+      : dates.length ? h('p', {}, `Seen on ${listText(dates)}.`) : null,
+    namerLines(o, [['What it changes', changesText(k, o.changes)], ['Explains', listText(o.changes && o.changes.length ? [] : explained(k, o.explains))]]),
+    facts(sure(o.confidence), fact('', plural(count, 'episode')), fact('learned', onDay(o.learned_at)),
+          fact('first seen', onDay(o.first_seen)), fact('last seen', onDay(o.last_seen))));
+}
+
+// match_now at the day's end: an occasion that seems to be going on.
+function matchCard(m, k) {
+  const alike = m.similarity != null ? `${pct(m.similarity)} alike${m.since ? `, since ${hhmm(m.since) || m.since}` : ''}` : '';
+  const explains = explained(k, m.explains);
+  return h('article', { class: 'k-card' },
+    h('p', { class: 'k-lead' }, 'As this day ended, it looked like ', cardLink(k, m.occasion_id, occasionName(k, m.occasion_id)),
+      alike ? ` (${alike})` : '', '.'),
+    explains.length ? h('p', {}, `That would explain: ${listText(explains)}.`) : null,
+    facts(sure(m.confidence)));
+}
+
+function forecastCard(f, k) {
+  const win = Array.isArray(f.window) && f.window.length === 2 ? ` (${f.window[0]}–${f.window[1]})` : '';
+  const other = f.date && f.date !== k.tomorrow ? ` on ${onDay(f.date, shortDate)}` : '';
+  const likely = f.probability != null ? `${pct(f.probability)} likely` : 'Expected';
+  return h('article', { class: 'k-card' },
+    cardHead(cardLink(k, f.habit_id, habitName(k, f.habit_id))),
+    h('p', { class: 'k-lead' }, `${likely}${f.expected ? `, around ${f.expected}${win}` : ''}${other}.`),
+    f.basis ? h('p', { class: 'muted' }, f.basis) : null,
+    facts(sure(f.confidence, 'How sure Alfred is of this forecast')));
+}
+
+function actionText(d, k) {
+  const a = d.action;
+  if (!a) return d.kind === 'adapt' ? 'Expect a different day' : 'Get ready';
+  const body = (a.args && (a.args.body || a.args)) || {}, what = String((k.devices || {})[a.target] || a.target || 'device').toLowerCase();
+  if (body.type === 'power') return `Turn the ${what} ${body.value}`;
+  if (body.type === 'brightness') return `Set the ${what} to ${body.value} %`;
+  if (body.type === 'temperature') return `Set the ${what}'s warmth to ${body.value}`;
+  if (body.type === 'color_rgb') return `Change the ${what}'s colour`;
+  return `${a.tool || 'Act'} on the ${what}`;
+}
+
+function decisionCard(d, k) {
+  const doIt = d.mode === 'do', day = String(d.at || '').slice(0, 10);
+  const at = !d.at ? '' : hhmm(d.at) ? `${day && day !== k.tomorrow ? ` on ${onDay(day, shortDate)}` : ''} at ${hhmm(d.at)}` : ` at ${d.at}`;
+  const why = d.habit_id ? ['ahead of ', cardLink(k, d.habit_id, habitName(k, d.habit_id))]
+    : d.occasion_id ? ['because of ', cardLink(k, d.occasion_id, occasionName(k, d.occasion_id))] : null;
+  const expects = d.expectation && typeof d.expectation === 'object'
+    ? Object.entries(d.expectation).map(([key, v]) => `${key.replace(/_/g, ' ')} ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ')
+    : d.expectation;
+  return h('article', { class: 'k-card' },
+    cardHead(`${actionText(d, k)}${at}`,
+             pill(doIt ? 'Alfred does it' : 'suggestion', doIt ? 'do' : '',
+                  doIt ? 'At 75 % sure or more: Alfred does it, and reports it.' : 'Under 75 % sure: shown and logged, never sent.'),
+             d.status ? pill(d.status, DECISION_STATUS[d.status]) : null),
+    d.reason ? h('p', { class: 'k-lead' }, d.reason) : null,
+    expects ? h('p', { class: 'muted' }, `Expects: ${String(expects).replace(/habit-\d+/g, (id) => habitName(k, id))}.`) : null,
+    facts(sure(d.confidence), why && h('span', {}, why)));
+}
+
+function patternCard(p, k) {
+  const range = p.earliest && p.latest && p.earliest !== p.latest ? ` (${p.earliest}–${p.latest})` : '';
+  const lag = p.lag_min != null && p.parts.length > 1 ? `, ~${minutes(p.lag_min)} apart` : '';
+  const moved = p.moved_from && `moved from around ${p.moved_from.time_of_day}${p.moved_from.on ? ` on ${onDay(p.moved_from.on)}` : ''}`;
+  return h('article', { class: `k-card${p.status !== 'active' || p.importance === 'hidden' ? ' off' : ''}`, id: `k-${p.id}` },
+    cardHead(p.name || numbered(p.id, 'Pattern'), p.name && p.importance ? tag(p.importance) : null,
+             p.learned_at === k.date ? pill('new tonight', 'new', 'Learned at the end of this day.') : null,
+             p.status === 'fading' ? pill('fading', '', 'Not seen enough lately. It is kept, not forgotten.') : null,
+             p.status === 'merged' ? pill('merged', '', 'Its occurrences now belong to another pattern.') : null),
+    h('p', { class: 'k-lead' }, `${cap(patternWords(p, k.devices))}${lag}.`),
+    h('p', {}, `${cap(`around ${p.time_of_day}${range}${p.until ? `, until about ${p.until}` : ''}, ${weekdaysText(p.weekdays)}`)}.`),
+    namerLines(p),
+    p.status === 'merged' && p.merged_into ? h('p', { class: 'muted' }, 'Merged into ', patternLink(k, p.merged_into), '.') : null,
+    facts(fact('seen on', `${p.days_seen} of ${p.days_total}`, 'days'), p.confidence != null && fact('', pct(p.confidence), 'sure'),
+          fact('learned', onDay(p.learned_at)), fact('first seen', onDay(p.first_seen)), fact('last seen', onDay(p.last_seen)),
+          moved && h('span', {}, moved), p.same_as && h('span', {}, 'same as ', patternLink(k, p.same_as))));
+}
+
+// Event types, one card per device: people's devices first, then the quiet home, then the room's slow signals.
+function kindCards(k) {
+  const groups = new Map(), rank = (d) => (DEVICE_ORDER.includes(d) ? DEVICE_ORDER.indexOf(d) : DEVICE_ORDER.length);
+  for (const x of k.kinds) groups.set(x.device, [...(groups.get(x.device) || []), x]);
+  return [...groups].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b)).map(([device, kinds]) => h('article', { class: 'k-card' },
+    cardHead(device === 'home' ? 'Quiet home' : kinds[0].device_name || device, pill(plural(kinds.length, 'type'))),
+    device === 'home' ? h('p', { class: 'muted' }, 'Stretches when none of the people\'s devices is in use.') : null,
+    h('ul', { class: 'k-rows' }, kinds.map((x) => h('li', {}, h('span', { class: 'k-desc' }, cap(x.description)),
+      h('span', { class: 'k-num' }, plural(x.count, 'time')), h('code', {}, `${x.id} · ${x.signal}`))))));
+}
+
+// An empty section says why: the part isn't there yet, it failed, or there is nothing to know yet.
+function nothing(k, part, text) {
+  const state = part && (k.modules || {})[part];
+  return h('p', { class: 'k-empty' }, state === 'missing' ? `${PART_NAMES[part]} isn't in this version yet, so there is nothing to show here.`
+    : state === 'failed' ? `${PART_NAMES[part]} failed on this run, so this stays empty. The simulator's log says why.` : text);
+}
+const fill = (id, nodes, empty) => $(id).replaceChildren(...(nodes.length ? nodes : [empty]));
+const byTime = (ps) => [...ps].sort((a, b) => a.time_of_day.localeCompare(b.time_of_day) || a.id.localeCompare(b.id, 'en', { numeric: true }));
+
+function showKnowledge() {
+  const k = view.knowledge, active = k.patterns.filter((p) => p.status === 'active'), older = k.patterns.filter((p) => p.status !== 'active');
+  $('date').textContent = dateFmt.format(noon(k.date));
+  $('k-title').textContent = `What Alfred knows about ${k.household}`;
+  $('k-sub').textContent = `After day ${k.day} (${onDay(k.start)} to ${onDay(k.date)}), once its night's learning is done. `
+    + 'All of it is worked out by code from the home\'s own data; only the names come from the namer, an LLM.';
+  $('k-sub').hidden = false;
+  $('k-named').hidden = k.named || !(k.patterns.length || k.habits.length || k.occasions.length);
+  $('k-tomorrow-h').textContent = `Tomorrow, ${onDay(k.tomorrow, shortDate)}`;
+  fill('k-habits-list', [...k.habits].sort((a, b) => (a.status !== 'active') - (b.status !== 'active')).map((x) => habitCard(x, k)),
+       nothing(k, 'habits', 'No habits yet. A habit is patterns that come back together, so habits appear after about a week, once there are patterns to group.'));
+  fill('k-occasions-list', [...k.matches.map((m) => matchCard(m, k)), ...k.occasions.map((o) => occasionCard(o, k))],
+       nothing(k, 'occasions', 'No occasions yet. Alfred first needs to know the usual days; then a day that stands out, such as a dinner with friends, becomes an occasion it can recognise when it comes back.'));
+  fill('k-forecast-list', k.forecast.map((f) => forecastCard(f, k)),
+       nothing(k, 'forecast', k.habits.length ? 'No habit is expected in the 24 hours after this day.' : 'No forecast yet: there are no habits to forecast.'));
+  fill('k-decisions-list', k.decisions.map((d) => decisionCard(d, k)),
+       nothing(k, 'decisions', 'Nothing planned for tomorrow. Alfred plans ahead of the habits it forecasts, and adapts to occasions.'));
+  fill('k-patterns-list', [active.length ? h('div', { class: 'k-grid' }, byTime(active).map((p) => patternCard(p, k))) : null,
+                          older.length ? h('details', { class: 'k-older' }, h('summary', {}, `${plural(older.length, 'older pattern')}, fading or merged`),
+                                           h('div', { class: 'k-grid' }, byTime(older).map((p) => patternCard(p, k)))) : null].filter(Boolean),
+       h('p', { class: 'k-empty' }, 'No patterns yet. A pattern needs at least 5 occurrences that beat chance in this home, so the first ones appear after about a week.'));
+  fill('k-kinds-list', kindCards(k),
+       h('p', { class: 'k-empty' }, 'No event types yet. Alfred sorts what each device does into types once it has seen 5 alike, usually after a day or two.'));
+  $('k-nav').replaceChildren(...[['habits', 'Habits', k.habits.length], ['occasions', 'Occasions', k.occasions.length],
+                                 ['tomorrow', 'Tomorrow', k.forecast.length + k.decisions.length], ['patterns', 'Patterns', active.length],
+                                 ['kinds', 'Event types', k.kinds.length]]
+    .map(([id, label, n]) => h('a', { href: `#k-${id}` }, label, h('span', { class: 'num' }, String(n)))));
+  $('k-nav').hidden = $('k-sections').hidden = false;
+}
+
+function knowSay(text, kind) {
+  $('k-status').textContent = text;
+  $('k-status').className = kind || '';
+  $('k-status').hidden = !text;
+}
+
+function knowFile() {
+  knowToken++;
+  clearTimeout(knowTimer);
+  view.knowledge = null;
+  $('k-body').removeAttribute('aria-busy');
+  $('k-nav').hidden = $('k-sections').hidden = $('k-sub').hidden = $('k-named').hidden = true;
+  $('k-title').textContent = 'What Alfred knows';
+  knowSay('Learning runs on the simulator\'s households, not on an opened file. Pick a household to see what Alfred knows about it.');
+}
+
+let knowToken = 0, knowTimer = 0;
+function loadKnowledge(household, n) {
+  const token = ++knowToken;
+  clearTimeout(knowTimer);
+  view.knowledge = null;
+  $('k-body').setAttribute('aria-busy', 'true');  // what shows is dimmed: it is another day's
+  knowSay(`Alfred is learning from day 1 to day ${n}… The first time takes a few seconds for each week.`, 'busy');
+  knowTimer = setTimeout(async () => {  // a moment's wait, so clicking through days only asks for the last one
+    try {
+      const res = await fetch(`/knowledge?household=${encodeURIComponent(household)}&day=${n}`);
+      const body = await res.json().catch(() => ({}));
+      if (token !== knowToken) return;  // another day was picked meanwhile
+      if (!res.ok) throw new Error(body.error || `Failed (${res.status})`);
+      view.knowledge = body;
+      $('day').max = body.max_days;
+      knowSay('');
+      showKnowledge();
+      setUrl();
+    } catch (err) {
+      if (token !== knowToken) return;
+      $('k-nav').hidden = $('k-sections').hidden = $('k-sub').hidden = $('k-named').hidden = true;  // another day's knowledge would mislead
+      knowSay(err instanceof TypeError ? 'Could not reach the simulator. Start it: uv run python -m source.simulate --serve' : err.message, 'bad');
+    } finally {
+      if (token === knowToken) $('k-body').removeAttribute('aria-busy');
+    }
+  }, 150);
 }
 
 $('household').addEventListener('change', () => { if ($('household').value !== 'file') { view.fileDays = null; go(Number($('day').value), true); } });
@@ -1200,6 +1808,7 @@ $('file').addEventListener('change', async () => {
   try {
     const { days, bad } = await readFile(file, (done) => say(`Reading ${file.name}… ${Math.round(done * 100)} %`));
     view.fileDays = days;
+    view.loaded = null;  // the house shows the file now: picking a household again loads it afresh
     let option = $('household').querySelector('option[value=file]');
     if (!option) $('household').prepend(option = new Option('', 'file'));
     option.textContent = `File: ${file.name}`;
@@ -1223,13 +1832,15 @@ $('labels').addEventListener('click', () => {
   if (house) house.setLabels(on);
 });
 $('reset').addEventListener('click', () => house && house.resetView());
-$('theme').addEventListener('click', () => {
+function toggleTheme() {
   const next = getComputedStyle(document.documentElement).colorScheme.includes('dark') ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
   try { localStorage.setItem('alfred-visualizer-theme', next); } catch { /* private window: the choice lasts until reload */ }
   readColors();
   render(true);
-});
+}
+$('theme').addEventListener('click', toggleTheme);
+$('k-theme').addEventListener('click', toggleTheme);
 
 // Dragging on the lanes moves the time, like the slider under them.
 const lanes = $('lanes');
@@ -1244,6 +1855,7 @@ lanes.addEventListener('pointermove', (e) => { if (view.day && lanes.hasPointerC
 window.addEventListener('keydown', (e) => {
   const on = (selector) => e.target instanceof Element && e.target.matches(selector);
   if (e.metaKey || e.ctrlKey || e.altKey || on('select, input[type=number]')) return;
+  if (view.tab !== 'house' || on('[role=tab]')) return;  // the knowledge page scrolls with these keys; the tabs have their own
   const arrow = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
   if (arrow) {
     e.preventDefault();
@@ -1285,6 +1897,7 @@ else say('The 3D library did not load (it comes from cdnjs.cloudflare.com): the 
 requestAnimationFrame(advance);
 const asked = new URLSearchParams(location.search);
 if ([...$('household').options].some((o) => o.value === asked.get('household'))) $('household').value = asked.get('household');
+setTab(asked.get('tab'), false);
 go(Number(asked.get('day')) || 1);
 </script>
 </body>

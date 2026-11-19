@@ -7,7 +7,9 @@ The CLI replays a history one day at a time, so sensors appear on the day they'r
 pipeline (source/pipeline.py) calls learn_day itself at each simulated day end.
 """
 import argparse
+import importlib
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -17,6 +19,8 @@ from . import SLOW_CAPABILITIES, Happening, is_activity, storage
 from .habits import HOLE_MIN, Habit, find_habits, quiet_happenings
 from .kinds import Kind, Link, find_kinds, find_links
 from .rhythm import Rhythm, Watched
+
+log = logging.getLogger("source.learn.run")
 
 
 @dataclass
@@ -69,14 +73,25 @@ def counted_days(activity: list[Happening], first: date, last: date, watched: Wa
 
 
 def learn_day(db: sqlite3.Connection, day: date, link_null: str = "rhythm") -> list[dict]:
-    """Run at the end of each (simulated) day. Returns the sensors first learned that day."""
+    """Run at the end of each (simulated) day. Returns the sensors (patterns) first learned that day.
+
+    Then, on top of the patterns: habits (source/learn/grouping.py) and occasions (source/learn/occasions.py,
+    which reads the habits to say what an occasion moves). Each is a layer on what is already stored, so a
+    failure in one is logged and never loses the patterns.
+    """
     storage.init(db)
     until = datetime.combine(day + timedelta(days=1), time())
     hs = storage.load_happenings(db, until)
     result = learn(hs, day, storage.load_kinds(db), link_null, polls=storage.load_polls(db, until))
     storage.save_kinds(db, result.kinds)
     storage.save_happening_kinds(db, hs)
-    return storage.save_habits(db, result.habits, day)
+    new = storage.save_habits(db, result.habits, day)
+    for module, step in ((".grouping", "learn_habits"), (".occasions", "learn_occasions")):
+        try:  # imported here, not at the top: they import this module
+            getattr(importlib.import_module(module, __package__), step)(db, day)
+        except Exception:
+            log.exception("%s failed on %s", step, day)
+    return new
 
 
 def describe(sensor: dict) -> str:

@@ -35,6 +35,11 @@ class ContextTest(unittest.TestCase):
         self.assertEqual(ctx["rules_just_ran"], ran)
         self.assertEqual(build_context(LIVE_TS, [], normalize(LIVE), self.store, None, STALE_MS)["rules_just_ran"], [])
 
+    def test_baselines_empty_when_nothing_is_learned(self):
+        """Habits, forecast, occasions and decisions arrive once learned (tests/test_anticipate.py)."""
+        ctx = build_context(LIVE_TS, [], normalize(LIVE), self.store, None, STALE_MS)
+        self.assertEqual(ctx["baselines"], {})
+
     def test_smoke_marked_stale(self):
         smoke = self.state_of(LIVE)[SMOKE]
         self.assertIs(smoke["fresh"], False)

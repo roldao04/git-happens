@@ -13,6 +13,8 @@ Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimag
 | [`docs/synapse.md`](docs/synapse.md) | Earlier concept under the old name (rules, verification, memories); not yet rewritten around Alfred | For background only |
 | [`docs/simulator.md`](docs/simulator.md) | **The simulator:** how to generate a household's history, the presets, the real house | Before generating data |
 | [`docs/learners.md`](docs/learners.md) | **The learners:** how the grouper and habit learner find sensors, and how to run them | Before touching `source/learn/` |
+| [`docs/habits-plan.md`](docs/habits-plan.md) | **Habits, anticipation, occasions:** the words, the 0.75 do/suggest rule, the shared shapes | Before touching habits, forecasts or decisions |
+| [`docs/habits.md`](docs/habits.md) · [`docs/occasions.md`](docs/occasions.md) · [`docs/anticipation.md`](docs/anticipation.md) | How habits and their rhythms are found; occasions recognised by resemblance; forecasts and decisions | With the plan above |
 | [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how the learners plug in | Before writing the poller or agent |
 | [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; device IDs | Before writing code |
 | [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules | Before the pitch or report |
@@ -93,7 +95,7 @@ source/                 event loop: poll the MCP, diff, store, triggers, agent (
   learn/                learners: kinds, links, habits, sensor storage (docs/learners.md)
 tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). `dashboard/` (the jury dashboard, playing a simulated run written by `source/recording.py`). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): the namer.
+Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). `dashboard/` (the jury dashboard, playing a simulated run written by `source/recording.py`). `source/learn/namer.py` (the namer: names patterns, habits and occasions and says what they mean, `--name` on the pipeline). `source/learn/grouping.py` + `recurrence.py` (habits and their rhythms), `source/learn/occasions.py` (occasions), `source/learn/forecast.py` + `source/anticipate.py` (forecast and decisions, run by the loop). The visualizer's "What Alfred knows" tab shows all of it (`uv run python -m source.simulate --serve`, then `/visualizer?tab=knowledge`).
   ingest.py, clock.py   JSONL snapshots → history at full speed; Lisbon days
   simulate.py           the simulator (+ simulate_web.py, sim_data/)
   learn/                rest.py, happenings.py (starting plan parts 3 and 4)
@@ -101,7 +103,6 @@ Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator
   recording.py          a run's history as the dashboard's recording (one JSON file)
 tests/                  replay and simulated-data tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): `source/learn/` (kinds, habits, namer) · sensor storage · the dashboard in `console/`.
 
 ## Conventions
 - **Never commit secrets:** `.mcp.json`, `.env` and tokens stay local (see `.gitignore`).
