@@ -80,15 +80,21 @@ def login():
     print(f"Login OK. Tokens saved to {TOKEN_FILE} (refresh token: {'yes' if tok.get('refresh_token') else 'no'})")
 
 
-def headers():
+class NotLoggedIn(Exception):
+    pass
+
+
+def bearer():
+    """A valid access token, refreshed when it's about to expire. Shared by Claude Code (headers) and
+    the loop (source/sources.py), so both use this one sign-in."""
     try:
         with open(TOKEN_FILE) as f:
             tok = json.load(f)
     except FileNotFoundError:
-        sys.exit("Not logged in: run python3 tools/connected_home_auth.py login")
+        raise NotLoggedIn("Not logged in: run python3 tools/connected_home_auth.py login") from None
     if time.time() > tok["obtained_at"] + tok.get("expires_in", 300) - 60:
         if not tok.get("refresh_token"):
-            sys.exit("Token expired: run python3 tools/connected_home_auth.py login")
+            raise NotLoggedIn("Token expired: run python3 tools/connected_home_auth.py login")
         old_refresh = tok["refresh_token"]
         tok = post_token({"grant_type": "refresh_token", "client_id": CLIENT_ID,
                           "refresh_token": old_refresh})
@@ -96,7 +102,15 @@ def headers():
             tok["refresh_token"] = old_refresh
             with open(TOKEN_FILE, "w") as f:
                 json.dump(tok, f)
-    print(json.dumps({"Authorization": f"Bearer {tok['access_token']}"}))
+    return tok["access_token"]
+
+
+def headers():
+    try:
+        token = bearer()
+    except NotLoggedIn as e:
+        sys.exit(str(e))
+    print(json.dumps({"Authorization": f"Bearer {token}"}))
 
 
 if __name__ == "__main__":

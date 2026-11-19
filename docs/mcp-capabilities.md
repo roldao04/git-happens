@@ -9,7 +9,7 @@ What the `connected-home` MCP lets us **see**, **change**, and what it **can't**
 - Server: `https://cognitive-home.futurelabsinnovations.com` (HTTP), configured in `.mcp.json` at the repo root
 - `.mcp.json` holds our API key, so it's **gitignored**. To set it up, copy `.mcp.example.json` to `.mcp.json`, then add the key and the absolute path to the helper
 - Login once with `python3 tools/connected_home_auth.py login`. After that, tokens refresh automatically
-- The poller (`source/sources.py`) and the console (`console/server.mjs`) instead start `mcp-remote@0.16.6` over stdio and share its sign-in (`~/.mcp-auth/`). The console reads `command`/`args` from `.mcp.json`, so for it `.mcp.json` must use that stdio form with the same args as `sources.py`. Only one sign-in can run at a time (callback port 5435)
+- The poller (`source/sources.py`) uses the same HTTP connection and sign-in as Claude Code: it asks `tools/connected_home_auth.py` for a fresh token on every request. The console (`console/server.mjs`) instead starts `mcp-remote@0.16.6` over stdio, with its own sign-in in `~/.mcp-auth/`. The console reads `command`/`args` from `.mcp.json`, so for it `.mcp.json` must use that stdio form with the same args as `sources.py`. Only one sign-in can run at a time (callback port 5435)
 
 ## Tools (18)
 | Tool | What it does | Type |
