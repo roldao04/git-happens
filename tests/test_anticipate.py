@@ -658,11 +658,14 @@ class DecideTest(Isolated):
         self.assertEqual(self.home.writes, [])
 
     def test_one_write_per_10_min(self):
+        """The second step comes a tick early: it waits, planned, and runs once 10 min have passed."""
         anticipate.decide(self.db, THURSDAY, [proposal(19), proposal("eco", typ="mode", at="2026-11-19T18:15:00")])
         self.run_at(THURSDAY)
-        (r,) = self.run_at(datetime(2026, 11, 19, 18, 15))
-        self.assertIn("10 min", r["why"])
+        self.assertEqual(self.run_at(datetime(2026, 11, 19, 18, 15)), [])  # 5 min after the first: it waits
         self.assertEqual(len(self.home.writes), 1)
+        (r,) = self.run_at(datetime(2026, 11, 19, 18, 21))
+        self.assertEqual(r["decision"]["status"], "done")
+        self.assertEqual(len(self.home.writes), 2)
 
     def test_a_person_changed_it_alfred_waits_2_h(self):
         self.db.execute("INSERT INTO events (ts, device_id, device, capability, kind, old, new) VALUES"

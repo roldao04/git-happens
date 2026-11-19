@@ -56,6 +56,7 @@ NIGHT_QUIET_H = 4  # a quiet that starts when the light goes off and lasts this 
 LLM_HORIZON_H = 24  # a proposal further ahead than this is dropped (the wake will come again)
 LLM_WRITABLE = ("bulb", "plug", "thermostat")  # what an llm decision may change (the guard has the rules)
 ALFRED_WRITE_LAG_MIN = 15  # a thermostat change this soon after Alfred wrote that value was Alfred's
+WAIT_FOR = "blocked: at most one thermostat change every"  # the guard's rate limit: wait, don't give up
 
 
 @dataclass(frozen=True)
@@ -506,6 +507,9 @@ async def run_due(db: sqlite3.Connection, now: datetime, actuator: Actuator, typ
                     statuses = habit_statuses(db, now)
                 status, why, actions = await _run_one(d, m, now, actuator, types, fresh, state, statuses or {},
                                                       readback_delay_s, db)
+            if status == "skipped" and why.startswith(WAIT_FOR):  # the second step of a warm-up came a tick
+                log.info("decision %s waits: %s", _id, why)       # early: it stays planned (until MAX_LATE_MIN)
+                continue
             d["status"] = status
             m["ran"] = {"at": _iso(now), "why": why, "actions": actions}
             db.execute("UPDATE decisions SET data = ?, meta = ? WHERE id = ?", (json.dumps(d), json.dumps(m), _id))

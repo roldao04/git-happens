@@ -112,10 +112,10 @@ Built for [`demo-plan.md`](demo-plan.md) (C7–C10). The code above only ever to
 
 | `kind` | Fires when | `key` | `base` (the confidence code gives it) |
 |---|---|---|---|
-| `habit_soon` | a forecast entry with probability ≥ 0.5 is expected within the lead time + 5 min, and there is something to prepare: `heating` (a thermostat whose target, or the room, is below the warm target) or `lamp` (the habit's steps include the light) | `habit_soon:<habit>:<forecast date>` | habit confidence × probability × n/(n+1) |
+| `habit_soon` | a forecast entry with probability ≥ 0.5 is expected within the lead time + 10 min, and there is something to prepare: `heating` (the thermostat is down, a target of 18 °C or less, and the room is below the warm target) or `lamp` (the habit's steps include the light) | `habit_soon:<habit>:<forecast date>` | habit confidence × probability × n/(n+1) |
 | `arrival` | a known phone connected in the last 10 min and is still connected | `arrival:<phone>:<date>:<hh>` | 0.8 |
 | `departure` | a known phone left in the last 10 min and no known phone is home | `departure:<phone>:<date>:<hh>` | 0.8 |
-| `habit_missing` | a habit (importance normal or high; none yet counts as normal) is 20 min past its weekday window's `latest`, not done, someone known is home; for 3 h at most | `habit_missing:<habit>:<date>` | habit confidence × n/(n+1) |
+| `habit_missing` | a habit (importance normal or high; none yet counts as normal) is 20 min past its weekday window's `latest`, not done, someone known is home; for 3 h at most. Never while an occasion is matched (≥ 0.5), nor for a habit an occasion moved that day | `habit_missing:<habit>:<date>` | habit confidence × n/(n+1) |
 | `occasion` | `match_now` confidence ≥ 0.5 | `occasion:<occasion>:<the evening it started>` | the match's confidence, capped by e/(e+1) |
 
 - **Lead time**: `warmup.lead_minutes(db, now, room °C, warm target)` (part C, C4). The warm target is the most common target above 18 °C set in the last 30 days (21 °C until there is one). Without a measured warm-up: 30 min; a lamp alone: 10 min. The wake carries `lead_minutes`, `expected_at` and `prepare_at` (expected − lead).
@@ -131,6 +131,13 @@ Built for [`demo-plan.md`](demo-plan.md) (C7–C10). The code above only ever to
 **Thermostat limits** (C7, in the guard, from `Heat` built by `heat_now`): target 16–23 °C; at most 3 °C from the current target per write; never above 18 °C when no known phone is home, **unless the write prepares a forecast arrival due within 2 h** (otherwise "warm the house before Ana gets home" could never run; the arrival is the habit_soon wake's `expected_at`); at most one of Alfred's thermostat writes per 10 min; none for 2 h after a person changed it. A person's change is a `targetTemperature` or `mode` change in `events` that no write of Alfred's explains (same value, within 15 min after it). Without a `Heat` the thermostat is never written: the LLM's own tool calls carry none, so it proposes instead. A person asking (`allow_plug_on`) skips the rate limit and the 2 h hold.
 
 **Choices where the plan was open**: arrival and departure base 0.8 (seen, but a phone is only a proxy for a person); habit_missing base without the forecast probability (the occurrence is past); the 18 °C rule's exception for a forecast arrival; doubt rules above; the 3 °C rule means 16 → 21 °C takes two writes 10 min apart, which the prompt teaches.
+
+**What the integration (part F) changed, after running the demo house end to end**
+- **Two steps need a head start**: `EXTRA_LEAD_MIN` is 10 (was 5). From a cooled room, 16 → 21 °C is two writes at least 10 min apart; with 5 min the second step landed when Ana walked in.
+- **A step that comes a tick early waits**: an `llm` decision the guard blocks only for its 10-min rate limit stays `planned` and runs at the next tick after the limit (until the 15-min lateness rule), instead of being skipped.
+- **Heating is prepared only when it is down** (a target of 18 °C or less). A target between, like the gathering's 19 °C, was chosen: no `habit_soon` (the TV at 21:00) undoes it.
+- **No "missing" during an occasion** (the gathering explains the TV and the bedtime) **or for a habit it moved** (the morning after's wake-up is late, not missing).
+- **The morning after is sure enough to act on**: a forecast slot an occasion shifts uses the habit's overall rate, not that weekday's own (which counts the earlier mornings after, all late, as misses).
 
 ## Reading the other parts
 Every other part is read defensively: a missing table or module only leaves its piece empty.

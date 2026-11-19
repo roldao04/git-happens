@@ -95,11 +95,11 @@ class Isolated(unittest.TestCase):
 
 
 class HabitSoonTest(Isolated):
-    def test_fires_once_lead_time_plus_5_before(self):
+    def test_fires_once_lead_time_plus_10_before(self):
         db = db_with(ana_home_habit())
         with mock.patch.object(forecast_module, "forecast", ana_forecast()):
-            self.assertEqual(wake.learned_wakes(db, NOW - timedelta(minutes=1), state()), [])  # 31 min ahead
-            (w,) = wake.learned_wakes(db, NOW, state())  # 30 min ahead: 25 min warm-up + 5
+            self.assertEqual(wake.learned_wakes(db, NOW - timedelta(minutes=6), state()), [])  # 36 min ahead
+            (w,) = wake.learned_wakes(db, NOW - timedelta(minutes=5), state())  # 35 min: 25 min warm-up + 10
             self.assertEqual(wake.learned_wakes(db, NOW + timedelta(minutes=1), state()), [])  # once per key
 
         self.assertEqual((w.trigger_id, w.kind, w.key), ("habit_soon", "habit_soon", "habit_soon:habit-4:2026-11-19"))
@@ -134,8 +134,8 @@ class HabitSoonTest(Isolated):
     def test_without_the_warmup_the_lead_is_30_min(self):
         db = db_with(ana_home_habit())
         with part("source.learn.warmup"), mock.patch.object(forecast_module, "forecast", ana_forecast()):
-            self.assertEqual(wake.learned_wakes(db, datetime(2026, 11, 19, 18, 4), state()), [])  # 36 min
-            (w,) = wake.learned_wakes(db, datetime(2026, 11, 19, 18, 5), state())  # 35 = 30 + 5
+            self.assertEqual(wake.learned_wakes(db, datetime(2026, 11, 19, 17, 59), state()), [])  # 41 min
+            (w,) = wake.learned_wakes(db, datetime(2026, 11, 19, 18, 0), state())  # 40 = 30 + 10
         self.assertEqual((w.data["lead_minutes"], w.data["warmup"]), (30, None))
 
     def test_past_occurrence_never_wakes(self):

@@ -31,13 +31,14 @@ from datetime import date, datetime, timedelta
 
 from . import anticipate
 from .learn import to_local, to_ms
-from .learn.forecast import active_habits, as_local, clip, clock, habit_name, has_table, hhmm, number, parse_moment
+from .learn.forecast import (active_habits, as_local, clip, clock, habit_name, has_table, hhmm, number, occasion_shifts,
+                             parse_moment)
 from .model import State, WakeReason
 
 log = logging.getLogger("source.wake")
 
 SOON_PROBABILITY = 0.5  # a forecast habit this likely may wake the agent ahead of it
-EXTRA_LEAD_MIN = 5  # wake this much before the lead time, so a proposal can still be on time
+EXTRA_LEAD_MIN = 10  # wake this much before the lead time: warming 16 → 21 °C takes two writes 10 min apart (C7)
 DEFAULT_LEAD_MIN = 30  # the heating's lead while the warm-up isn't measured yet (C4: < 5 samples)
 LAMP_LEAD_MIN = 10  # a lamp only needs a moment (anticipate's soft lamp: 10 min)
 FORECAST_H = 6  # how far ahead habit_soon looks
@@ -235,12 +236,15 @@ def _habit_soon(db: sqlite3.Connection, now: datetime, home: dict) -> list[dict]
 
 
 def _heating_helps(home: dict) -> bool:
-    """There is a thermostat, and its target or the room is below the warm target."""
+    """There is a thermostat, its heating is down (a night or away target, 18 °C or less) and the room is below
+    the warm target. A target set between the two (a gathering's 19 °C) was chosen: no habit undoes it."""
     if not home.get("thermostat"):
         return False
     comfort = home.get("comfort_c") or COMFORT_C
     target, room = home.get("target_c"), home.get("room_c")
-    return (target is not None and target < comfort) or (room is not None and room < comfort - 0.5)
+    if target is not None:
+        return target <= WARM_FROM_C and (room is None or room < comfort - 0.5)
+    return room is not None and room < comfort - 0.5
 
 
 def _lead(db: sqlite3.Connection, now: datetime, home: dict) -> float:
@@ -333,6 +337,9 @@ def _habit_missing(db: sqlite3.Connection, now: datetime, home: dict) -> list[di
     habits = active_habits(db)
     if not habits:
         return []
+    if any(clip(number(m.get("confidence")) or 0.0) >= OCCASION_AT for m in anticipate.occasion_matches(db, now)):
+        return []  # an occasion going on is the departure from the rhythm: nothing is "missing" during it
+    moved = occasion_shifts(db, now)  # (habit, date) an occasion moved: late, not missing (the morning after)
     statuses = anticipate.habit_statuses(db, now)
     is_on = anticipate.optional("source.learn.recurrence", "is_on")
     out = []
@@ -344,6 +351,8 @@ def _habit_missing(db: sqlite3.Connection, now: datetime, home: dict) -> list[di
         if deadline is None:
             continue
         day = deadline.date()
+        if (h["id"], day.isoformat()) in moved:
+            continue
         st = statuses.get(h["id"])
         if statuses:
             if (st or {}).get("status") not in ("late", "expected"):
