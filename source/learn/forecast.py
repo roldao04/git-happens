@@ -264,6 +264,8 @@ def _habit_slots(h: dict, rs: list[Reading], now: datetime, hours: float, end: d
         if not now <= expected < horizon:
             continue
         p = _rate(counts, kind, p0)
+        if move:  # that weekday's own rate counts the earlier mornings after the occasion, all late, as misses
+            p = max(p, p0)
         if p < MIN_PROBABILITY:
             continue
         words = _basis(rhythm, kind, counts, weekday, h)

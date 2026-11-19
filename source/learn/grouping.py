@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from statistics import median
 
-from . import ALPHA, MAX_LAG_MIN, MIN_OCCURRENCES, is_activity, storage
+from . import ALPHA, MAX_LAG_MIN, MIN_OCCURRENCES, SLOW_CAPABILITIES, activity_edges, is_activity, storage
 from .habits import HOLE_MIN
 from .kinds import LAG_WINDOWS
 from .recurrence import (drift, evenly_spaced, find_recurrence, hourly_rhythm, is_on, on_days, weekday_shift,
@@ -173,7 +173,7 @@ def habit_today(db: sqlite3.Connection, now: datetime) -> list[dict]:
 def _home(db: sqlite3.Connection, until: datetime) -> Home:
     from .run import counted_days  # run.py will call learn_habits: imported here, not at the top
     hs = storage.load_happenings(db, until)
-    activity = [h for h in hs if is_activity(h)]
+    activity = activity_edges([h for h in hs if is_activity(h)])  # as run.learn sees it
     watched = Watched(storage.load_polls(db, until), HOLE_MIN)
     last = (until - timedelta(days=1)).date()
     counted = counted_days(activity, min(h.start for h in hs).date(), last, watched) if hs else []
@@ -226,6 +226,8 @@ def _patterns(db: sqlite3.Connection, until: datetime, home: Home) -> list[Patte
     kinds = dict(db.execute("SELECT id, signal FROM kinds")) if _has(db, "kinds") else {}
     out = []
     for sid, signature, centre in rows:
+        if _slow(signature, kinds):
+            continue
         by_day: dict[date, Step] = {}
         for start, end in readings.get(sid, []):
             step = _step(sid, signature, start, end, home)
@@ -236,6 +238,16 @@ def _patterns(db: sqlite3.Connection, until: datetime, home: Home) -> list[Patte
             out.append(Pattern(sid, signature, centre, sorted(by_day.values(), key=lambda s: s.start),
                                _pattern_phones(signature, kinds)))
     return out
+
+
+def _slow(signature: str, kinds: dict[str, str]) -> bool:
+    """A pattern with a part the house does by itself, not a person: the room's temperature drifting, the
+    thermostat switching its heating. It stays a pattern, but no habit's step: its start (a warming that began
+    before anyone woke) would only blur when the habit begins. Its causes are in the habit (the person setting
+    the thermostat), and the warm-up learner (warmup.py) reads the heating itself."""
+    kind, _, rest = signature.partition(":")
+    parts = rest.split(">", 1) if kind == "link" else [rest]
+    return any(kinds.get(p, p).rsplit(".", 1)[-1] in SLOW_CAPABILITIES for p in parts)
 
 
 def _pattern_phones(signature: str, kinds: dict[str, str]) -> frozenset[str]:
@@ -249,7 +261,8 @@ def _step(pattern: str, signature: str, start: datetime, end: datetime | None, h
     kind, _, rest = signature.partition(":")
     if kind == "link" and end is not None:  # its second part ended at `end`; find when it began
         moment = home.second_parts.get((rest.split(">", 1)[-1], end), start)
-        return Step(pattern, start, moment, end, end)
+        # it reaches as far as its second part's start: door → lamp ends when the lamp goes on, not at bedtime
+        return Step(pattern, start, moment, end, max(moment, start))
     return Step(pattern, start, start, end, start)
 
 
@@ -289,14 +302,19 @@ def _merge_together(patterns: list[Pattern], home: Home) -> list[list[Pattern]]:
     def together(i: int, j: int) -> float:
         # two people's rhythms stay two habits: groups about different phones never join
         phones = set().union(*(x.phones for x in groups[i] + groups[j]))
-        return 1.0 if len(phones) > 1 else _together(occ[i], occ[j], home)
+        if len(phones) > 1:
+            return 1.0
+        # one person's arrival joins what the house does then only when they go together on most days of both:
+        # João home on Tuesdays at 21:00 is not a step of the TV at 21:00 every day
+        one = bool(set().union(*(x.phones for x in groups[i]))) != bool(set().union(*(x.phones for x in groups[j])))
+        return _together(occ[i], occ[j], home, mutual=one)
 
     p = {(i, j): together(i, j) for i in range(len(groups)) for j in range(i + 1, len(groups))}
     alive = set(range(len(groups)))
     while True:
         best = min(((v, k) for k, v in p.items() if k[0] in alive and k[1] in alive), default=None)
         if best is None or best[0] * tries >= ALPHA:
-            return _one_person([groups[i] for i in sorted(alive)])
+            return _alternatives(_one_person([groups[i] for i in sorted(alive)]))
         _, (i, j) = best
         groups[i] += groups[j]
         alive.discard(j)
@@ -328,9 +346,49 @@ def _one_person(groups: list[list[Pattern]]) -> list[list[Pattern]]:
         del out[j]
 
 
-def _together(a: list[Occurrence], b: list[Occurrence], home: Home) -> float:
+ALTERNATIVE_H = 3  # one routine at another time on other days (waking up at weekends) starts within this of the other
+
+
+def _alternatives(groups: list[list[Pattern]]) -> list[list[Pattern]]:
+    """One routine at another time on other days is one habit: waking up at 07:10 on weekdays and 08:45 at
+    weekends. Two groups join when they are the same things (most of the smaller one's kinds of pattern are in
+    the other: the end of the night's quiet, light → kettle), on mostly other days (alternatives, as in
+    _one_person), within ALTERNATIVE_H of each other, and not about two phones. Their weekday windows
+    (recurrence.weekday_windows) then say when, which day."""
+    out = list(groups)
+
+    def things(g: list[Pattern]) -> set[str]:
+        return {p.signature for p in g}
+
+    def phones(g: list[Pattern]) -> set[str]:
+        return set().union(*(p.phones for p in g))
+
+    def days(g: list[Pattern]) -> set[date]:
+        return {o.day for o in _occurrences(g)}
+
+    def centre(g: list[Pattern]) -> float:
+        return circular_mean_std([p.centre for p in g])[0]
+
+    def alike(a: list[Pattern], b: list[Pattern]) -> bool:
+        shared = len(things(a) & things(b))
+        da, db = days(a), days(b)
+        gap = abs(_wrap(centre(a) - centre(b)))
+        return (2 * shared >= min(len(things(a)), len(things(b))) and shared > 0 and len(phones(a) | phones(b)) <= 1
+                and 2 * len(da & db) < min(len(da), len(db)) and gap <= ALTERNATIVE_H * 60)
+
+    while True:
+        pair = next(((i, j) for i in range(len(out)) for j in range(i + 1, len(out)) if alike(out[i], out[j])), None)
+        if pair is None:
+            return out
+        i, j = pair
+        out[i] = out[i] + out[j]
+        del out[j]
+
+
+def _together(a: list[Occurrence], b: list[Occurrence], home: Home, mutual: bool = False) -> float:
     """p-value of the two happening together this often by chance, at the best window; 1 when
-    most of the rarer one's occurrences aren't with the other (they don't recur together).
+    most of the rarer one's occurrences aren't with the other (they don't recur together), or, `mutual`,
+    when they aren't together on most of the commoner one's days either.
 
     Together on a day: all their steps start within w minutes. Chance, per occurrence of
     the rarer one: the other, at its own rate per counted day, landing within ±w if it followed
@@ -349,7 +407,7 @@ def _together(a: list[Occurrence], b: list[Occurrence], home: Home) -> float:
             near = big[bisect_left(starts, o.start - window):bisect_right(starts, o.start + window)]
             k += any(max(o.last, x.last) - min(o.start, x.start) <= window for x in near)
             chance.append(1 - math.exp(-rate * home.rhythm.share(clock_min(o.start) - w, 2 * w)))
-        if k >= MIN_OCCURRENCES and 2 * k > len(small):
+        if k >= MIN_OCCURRENCES and 2 * k > len(small) and (not mutual or 2 * k > len(big)):
             best = min(best, poisson_binomial_sf(k, chance))
     return best
 

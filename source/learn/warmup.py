@@ -26,7 +26,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from statistics import median
 
-from . import MIN_OCCURRENCES, to_ms
+from . import MIN_OCCURRENCES, device_type, to_ms
 
 log = logging.getLogger("source.learn.warmup")
 
@@ -78,7 +78,7 @@ def _samples(db: sqlite3.Connection, now: datetime) -> tuple[list[float], list[f
     for signal, dev, s, e, cut in db.execute(
             "SELECT signal, device_id, start_ms, end_ms, cut FROM happenings WHERE capability = 'heatingState'"
             " AND value = 'on' AND start_ms >= ? AND end_ms <= ? ORDER BY start_ms", (since, end)):
-        if _device_type(signal) == "thermostat":
+        if device_type(signal) == "thermostat":
             stretches.setdefault(dev, []).append((s, e, bool(cut)))
     rates, losses = [], []
     for dev, runs in stretches.items():
@@ -134,11 +134,6 @@ def _rise(temps: list[tuple[int, float]], start: int, end: int) -> float | None:
     if top <= t0 or hours * 60 < MIN_RISE_MIN:
         return None
     return (top - t0) / hours
-
-
-def _device_type(signal: str) -> str:
-    """"thermostat.heatingState" → "thermostat" (C2; a local copy of source.learn.device_type)."""
-    return signal.split(".", 1)[0].split(":", 1)[0]
 
 
 def _has(db: sqlite3.Connection, table: str) -> bool:

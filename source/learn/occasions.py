@@ -31,20 +31,23 @@ only fixed numbers are the knobs in source/learn/__init__.py (ALPHA, MIN_OCCURRE
   uv run python -m source.learn.occasions --db data/sim/rosa/home.sqlite3 --at 2026-09-21T22:30
 """
 import argparse
+import copy
 import json
 import logging
 import math
 import sqlite3
 from bisect import bisect_left
-from collections import Counter
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
 import numpy as np
 from scipy.stats import chi2, nbinom, norm
 
-from . import ALPHA, MIN_OCCURRENCES, Happening, is_activity, to_local, to_ms
+from . import (ALPHA, MIN_OCCURRENCES, Happening, activity_edges, device_type, is_activity, signal_devices, to_local,
+               to_ms)
 from .forecast import day_window
+from . import storage
 from .habits import HOLE_MIN, QUIET, WEEKDAYS, quiet_happenings
 from .recurrence import is_on
 from .rhythm import DAY_MIN, Watched, circular_mean_std, hhmm
@@ -116,11 +119,6 @@ class History:
         return AMOUNTS if any(f.startswith("camera:") for f in self.features) else AMOUNTS[:-1]
 
 
-def _device_type(signal: str) -> str:
-    """"plug:kettle.instantPower" → "plug" (C2; a local copy of source.learn.device_type)."""
-    return signal.split(".", 1)[0].split(":", 1)[0]
-
-
 def _feature(h: Happening, guests: frozenset[str]) -> str | None:
     """feature(), plus the arrivals of guests' phones (a count, like door openings)."""
     return GUESTS if h.signal in guests else feature(h)
@@ -134,7 +132,7 @@ def guest_phones(db: sqlite3.Connection, hs: list[Happening]) -> frozenset[str]:
     days: dict[str, set[date]] = {}
     listed: dict[str, bool] = {}
     for h in hs:
-        if _device_type(h.signal) == "phone" and h.capability == "connected":
+        if device_type(h.signal) == "phone" and h.capability == "connected":
             days.setdefault(h.signal, set()).add(h.start.date())
             if h.device_id in names:
                 listed[h.signal] = bool(names[h.device_id])
@@ -163,7 +161,7 @@ def history(db: sqlite3.Connection, until: datetime, episodes: list["Row"] = (),
     """
     hs = _load_happenings(db, until)
     if live:
-        hs += _ongoing(db, until, hs)
+        hs += storage.ongoing_happenings(db, until, hs)
     activity = sorted((h for h in hs if is_activity(h)), key=lambda h: h.start)
     if not activity:
         return None
@@ -191,7 +189,8 @@ def history(db: sqlite3.Connection, until: datetime, episodes: list["Row"] = (),
         elif f is not None and origin <= h.start < origin + timedelta(minutes=total):
             counts[int(at(h.start)), col[f]] += 1
 
-    quiets = quiet_happenings(activity, watched)  # in start order
+    moments = activity_edges(activity)  # a phone at home all night is only its edges: the night stays quiet
+    quiets = quiet_happenings(moments, watched)  # in start order
     q_starts, a_starts = [q.start for q in quiets], [h.start for h in activity]
     nights = []
     for j in range(n):  # tonight's quiet: the longest one starting in the second half of the day
@@ -227,7 +226,7 @@ def history(db: sqlite3.Connection, until: datetime, episodes: list["Row"] = (),
         _span(held, at(r.start), at(r.end))
 
     from .run import counted_days  # here, not at the top: run.py imports this module to run it daily
-    counted = set(counted_days(activity, activity[0].start.date(), last, watched))
+    counted = set(counted_days(moments, activity[0].start.date(), last, watched))
     days = [first + timedelta(days=j) for j in range(n)]
     return History(first, hour, features, [f not in (LIGHT, AWAKE) for f in features], cum,
                    _running(blind, n), _running(held, n), np.array([d in counted for d in days]),
@@ -242,7 +241,7 @@ def _guest_counts(db: sqlite3.Connection, until: datetime) -> list[tuple[datetim
     rows = db.execute("SELECT signal, start_ms, end_ms, COALESCE(peak, size) FROM happenings"
                       " WHERE capability = 'guestPhones' AND start_ms < ?", (to_ms(until),)).fetchall()
     return [(to_local(s), to_local(e), float(v)) for sig, s, e, v in rows
-            if _device_type(sig) == "router" and v is not None]
+            if device_type(sig) == "router" and v is not None]
 
 
 def quietest_hour(activity: list[Happening]) -> int:
@@ -702,8 +701,41 @@ def shifts_now(db: sqlite3.Connection, now: datetime) -> list[dict]:
         return []
 
 
+_matched: "OrderedDict[tuple, tuple[sqlite3.Connection, list[dict], History | None]]" = OrderedDict()
+MATCH_CACHE = 8
+
+
 def _match(db: sqlite3.Connection, now: datetime) -> tuple[list[dict], History | None]:
-    """match_now, and the history it read (None when there was nothing to read)."""
+    """match_now, and the history it read (None when there was nothing to read). Remembered for the same
+    store, moment and learned state: one tick of the loop asks it several times (the forecast's shifts, the
+    occasion wakes, the plan), each a read of the whole history."""
+    try:
+        key = (id(db), now, *_state(db, now))
+    except sqlite3.Error:
+        key = None
+    if key is not None and key in _matched and _matched[key][0] is db:  # the entry keeps its db: the id is its own
+        _matched.move_to_end(key)
+        return copy.deepcopy(_matched[key][1]), _matched[key][2]
+    out = _match_once(db, now)
+    if key is not None:
+        _matched[key] = (db, copy.deepcopy(out[0]), out[1])
+        while len(_matched) > MATCH_CACHE:
+            _matched.popitem(last=False)
+    return out
+
+
+def _state(db: sqlite3.Connection, now: datetime) -> tuple:
+    """What a match at `now` reads, in a few numbers: the happenings, the events up to then (live) and the
+    occasions as stored. Later events change nothing, so yesterday's last minute is read once a day."""
+    if not all(_has(db, t) for t in ("occasions", "occasion_episodes", "happenings", "events")):
+        return (None,)
+    return (db.execute("SELECT max(id), count(*) FROM happenings").fetchone()
+            + db.execute("SELECT max(id) FROM events WHERE ts <= ?", (to_ms(now),)).fetchone()
+            + db.execute("SELECT count(*), max(rowid) FROM occasion_episodes").fetchone()
+            + (db.execute("SELECT group_concat(length(data)) FROM occasions").fetchone()[0],))
+
+
+def _match_once(db: sqlite3.Connection, now: datetime) -> tuple[list[dict], History | None]:
     try:
         if not all(_has(db, t) for t in ("occasions", "occasion_episodes", "happenings")):
             return [], None
@@ -955,35 +987,6 @@ def _load_polls(db: sqlite3.Connection, until: datetime) -> list[datetime] | Non
         return None
     rows = db.execute("SELECT ts FROM snapshots WHERE ts < ? ORDER BY ts", (to_ms(until),)).fetchall()
     return [to_local(ts) for (ts,) in rows] or None
-
-
-def _ongoing(db: sqlite3.Connection, now: datetime, hs: list[Happening]) -> list[Happening]:
-    """On/off signals away from rest at `now` and not stored yet (a happening is written once it ends),
-    read from the events table. Their non-rest value is the one their stored happenings hold."""
-    if not (_has(db, "events") and _has(db, "devices")):
-        return []
-    held: dict[tuple, Counter] = {}
-    last: dict[tuple, datetime] = {}
-    for x in hs:
-        key = (x.device_id, x.capability)
-        if x.value is not None and x.device_id:
-            held.setdefault(key, Counter())[x.value] += 1
-        last[key] = max(last.get(key, x.end), x.end)
-    types = dict(db.execute("SELECT device_id, type FROM devices"))
-    out = []
-    for (dev, cap), values in held.items():
-        row = db.execute("SELECT ts, new FROM events WHERE device_id = ? AND capability = ? AND ts <= ?"
-                         " AND kind IN ('initial', 'change') ORDER BY ts DESC LIMIT 1", (dev, cap, to_ms(now))).fetchone()
-        if not row:
-            continue
-        try:
-            value = json.loads(row[1])
-        except (TypeError, ValueError):
-            continue
-        start = to_local(row[0])
-        if value == values.most_common(1)[0][0] and start >= last.get((dev, cap), start):
-            out.append(Happening(f"{types.get(dev, dev)}.{cap}", start, now, None, value, None, None, dev))
-    return out
 
 
 def _patterns(db: sqlite3.Connection) -> tuple[list[dict], set[str]]:

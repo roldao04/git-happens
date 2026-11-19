@@ -110,7 +110,7 @@ uv run python -m source.learn.occasions --db data/sim/rosa-plus/home.sqlite3 --a
 
 ## For the integration step
 1. Call `learn_occasions(db, day)` at each day end, right after `learn_day` (in `run.learn_day` or the pipeline's `on_day_end`). `occasions.py` imports `run.counted_days` inside a function, so `run.py` may import `occasions` at the top. Replays need nothing: re-running a day forgets that day and later ones. For a clean start, add `DELETE FROM occasions; DELETE FROM occasion_episodes;` to `storage.reset_learned`.
-2. Live (part B): `match_now(db, now)` at each poll. Today's happenings must be stored as they end, for example `save_happenings(store, now)` at each poll; today they are saved only at the pipeline's day end.
+2. Live (part B): `match_now(db, now)` at each poll. Today's happenings must be stored as they end, for example `save_happenings(store, now)` at each poll; the loop now does this at each re-plan (every 5 min), and a state still held (a guest's phone) is read from the events (`storage.ongoing_happenings`). `_match` is remembered per store, moment and learned state: one tick asks it several times (the forecast's shifts, the wakes, the plan).
 3. The namer names occasions from `fingerprint`, `usual_hours`, `weekdays`, `episodes` and `changes`. Names should say "looks like". `name` and `named_by` are kept when an occasion gains episodes.
 4. The knowledge tab and dashboard read `export_occasions(db)`.
 

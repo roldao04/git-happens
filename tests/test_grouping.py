@@ -496,24 +496,25 @@ class CoupleTest(unittest.TestCase):
         cls.sensors = Sensors(cls.db)
 
     def test_a_weekday_habit(self):
-        weekday = holding(self.db, self.sensors.find("1,300 W", at="06:50", steps=2)["id"])
-        self.assertEqual(weekday["recurrence"]["weekdays"], WORK_DAYS)
-        self.assertEqual(weekday["recurrence"]["text"], "every weekday")
-        self.assertTrue(near(weekday["window"]["usual"], "06:50", 15), weekday["window"])
-        self.assertGreaterEqual(weekday["confidence"], 0.75)
+        """Up at 06:50 on weekdays: the weekday window of the habit (docs/demo-plan.md, C3)."""
+        waking = holding(self.db, self.sensors.find("1,300 W", at="06:50", steps=2)["id"])
+        weekday = next(w for w in waking["windows"] if "mon" in w["days"])
+        self.assertEqual(weekday["days"], WORK_DAYS)
+        self.assertTrue(near(weekday["usual"], "06:50", 15), weekday)
+        self.assertGreaterEqual(waking["confidence"], 0.75)
 
     def test_and_a_weekend_variant(self):
-        """The same steps 90 minutes later at weekends: a habit of its own, or a shift of the weekday one."""
-        weekday = holding(self.db, self.sensors.find("1,300 W", at="06:50", steps=2)["id"])
+        """The same steps 90 minutes later at weekends: the same habit, with a weekend window (C3), so the
+        forecast and the wakes know Saturday's time as well as Monday's."""
+        waking = holding(self.db, self.sensors.find("1,300 W", at="06:50", steps=2)["id"])
         later = [s for s in self.sensors.all if "1,300 W" in s["pattern"]["parts"][-1]
                  and near(s["pattern"]["time_of_day"], "08:20", 30)]
         if later:
-            weekend = holding(self.db, later[0]["id"])
-            self.assertNotEqual(weekend["id"], weekday["id"])
-            self.assertEqual(weekend["recurrence"]["weekdays"], ["sat", "sun"])
-            self.assertEqual(weekend["recurrence"]["text"], "every weekend")
-        else:
-            self.assertEqual(set(weekday["variation"]["by_weekday"]), {"sat", "sun"})
+            self.assertEqual(holding(self.db, later[0]["id"])["id"], waking["id"])
+        weekend = next(w for w in waking["windows"] if "sat" in w["days"])
+        self.assertEqual(weekend["days"], ["sat", "sun"])
+        self.assertTrue(near(weekend["usual"], "08:20", 30), weekend)
+        self.assertEqual(waking["recurrence"]["text"], "every day")
 
     def test_ids_stay(self):
         """Habits learned apart that turn out to be one keep their ids: the absorbed ones are `merged`."""

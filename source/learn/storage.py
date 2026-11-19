@@ -6,9 +6,10 @@ it); the grouper only fills `kind`, and reads its epoch-ms times as the home's c
 """
 import json
 import sqlite3
+from collections import Counter
 from datetime import date, datetime
 
-from . import Happening, to_local, to_ms
+from . import Happening, signal_devices, to_local, to_ms
 from .habits import Habit
 from .happenings import SCHEMA as HAPPENINGS_SCHEMA
 from .kinds import Kind
@@ -219,3 +220,36 @@ def export(db: sqlite3.Connection, as_of: date | None = None, now: datetime | No
         from .today import sensor_today  # today.py reads this module's tables
         out["today"] = sensor_today(db, now)
     return out
+
+
+def ongoing_happenings(db: sqlite3.Connection, now: datetime, hs: list[Happening]) -> list[Happening]:
+    """On/off signals away from rest at `now` and not stored yet (a happening is written once it ends),
+    read from the events table. Their non-rest value is the one their stored happenings hold."""
+    if not (_table(db, "events") and _table(db, "devices")):
+        return []
+    held: dict[tuple, Counter] = {}
+    last: dict[tuple, datetime] = {}
+    for x in hs:
+        key = (x.device_id, x.capability)
+        if x.value is not None and x.device_id:
+            held.setdefault(key, Counter())[x.value] += 1
+        last[key] = max(last.get(key, x.end), x.end)
+    types = signal_devices(db.execute("SELECT device_id, type, name FROM devices"))  # "phone:c-8f3a", "plug:tv"
+    out = []
+    for (dev, cap), values in held.items():
+        row = db.execute("SELECT ts, new FROM events WHERE device_id = ? AND capability = ? AND ts <= ?"
+                         " AND kind IN ('initial', 'change') ORDER BY ts DESC LIMIT 1", (dev, cap, to_ms(now))).fetchone()
+        if not row:
+            continue
+        try:
+            value = json.loads(row[1])
+        except (TypeError, ValueError):
+            continue
+        start = to_local(row[0])
+        if value == values.most_common(1)[0][0] and start >= last.get((dev, cap), start):
+            out.append(Happening(f"{types.get(dev, dev)}.{cap}", start, now, None, value, None, None, dev))
+    return out
+
+
+def _table(db: sqlite3.Connection, name: str) -> bool:
+    return db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone() is not None

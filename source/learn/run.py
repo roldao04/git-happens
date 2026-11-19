@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from . import SLOW_CAPABILITIES, Happening, is_activity, storage
+from . import SLOW_CAPABILITIES, Happening, activity_edges, is_activity, storage
 from .habits import HOLE_MIN, Habit, find_habits, quiet_happenings
 from .kinds import Kind, Link, find_kinds, find_links
 from .rhythm import Rhythm, Watched
@@ -45,7 +45,9 @@ def learn(happenings: list[Happening], as_of: date, known_kinds: list[Kind] | No
     # People's devices (not the room's slow signals, which move by themselves) say whether someone
     # is in and when the home is quiet. Everything else treats all signals alike: the room's daily
     # swing is a recurring fact too, so it is grouped and can become a habit like any other.
-    activity = [h for h in hs if is_activity(h, slow)]
+    # A phone at home all evening is activity only where it connects and leaves (activity_edges): else it would
+    # leave no quiet night at all, and no "Waking up".
+    activity = activity_edges([h for h in hs if is_activity(h, slow)])
     days = counted_days(activity, min(h.start for h in hs).date(), as_of, watched)
     rhythm = Rhythm([h.start for h in hs] + [h.end for h in hs])
     everything = hs + quiet_happenings(activity, watched)

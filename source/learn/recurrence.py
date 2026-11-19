@@ -26,7 +26,7 @@ from datetime import date, timedelta
 from statistics import median
 
 import numpy as np
-from scipy.stats import hypergeom, linregress, mannwhitneyu
+from scipy.stats import binom, hypergeom, linregress, mannwhitneyu
 
 from . import ALPHA, MIN_OCCURRENCES
 from .habits import WEEKDAY_GROUPS, WEEKDAYS
@@ -165,11 +165,27 @@ def _weekly(seen: set[date], counted: list[date]) -> dict | None:
         return p * tries < ALPHA
 
     singles = [g[0] for g in WEEKDAY_GROUPS if len(g) == 1 and significant(g)]
-    choices = ([singles] if singles else []) + [list(g) for g in WEEKDAY_GROUPS if len(g) > 1 and significant(g)]
+    choices = ([singles] if singles else []) + [_without_absent(seen, counted, list(g))
+                                                 for g in WEEKDAY_GROUPS if len(g) > 1 and significant(g)]
     for days in choices:
         if len(seen.intersection(on(days))) >= MIN_OCCURRENCES:
             return rhythm("weekly", [WEEKDAYS[d] for d in sorted(days)])
     return None
+
+
+def _without_absent(seen: set[date], counted: list[date], group: list[int]) -> list[int]:
+    """The group's weekdays without those it is missing on far more than its rate on the others allows (binomial
+    lower tail, corrected for the weekdays tried): João comes home on weekdays, but never on Wednesdays."""
+    out = list(group)
+    for wd in group:
+        mine = [d for d in counted if d.weekday() == wd]
+        rest = [d for d in counted if d.weekday() in out and d.weekday() != wd]
+        if not mine or not rest:
+            continue
+        rate = (len(seen.intersection(rest)) + 1) / (len(rest) + 2)  # rule of succession: one miss isn't news
+        if binom.cdf(len(seen.intersection(mine)), len(mine), rate) * len(group) < ALPHA:
+            out.remove(wd)
+    return out
 
 
 def _finer(seen: set[date], parent: list[date], candidates: list[Candidate]) -> dict | None:

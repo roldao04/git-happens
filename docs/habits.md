@@ -52,6 +52,16 @@ confidence = hit rate × evidence × timing
 - **`windows`**: from `weekday_windows`, over the same unwrapped start times as `window` (so a habit around midnight works). `usual` is each group's median, `earliest` and `latest` its extremes. The days of the main window are the rhythm's days (`recurrence.weekdays`, all seven for a daily habit) minus the shifted ones. `window` (overall) and `variation.by_weekday` are kept as before.
 - The forecast (`forecast.py`) uses a habit's `windows` when it has them: the day's own `usual` and `earliest`–`latest`, instead of the usual time plus the weekday shift and ± twice the spread.
 
+## What the demo house taught (part F of [`demo-plan.md`](demo-plan.md))
+On 60 days of the demo house the first version found "Waking up" anchored on the room warming (05:38–07:16), no weekend window, Ana's arrival with no person and João's Tuesdays inside the TV habit. Four changes, each plain code:
+- **No steps the house does by itself.** A pattern with a slow part (the room's temperature drifting, the thermostat's own `heatingState`: `SLOW_CAPABILITIES`) stays a pattern but is no habit's step (`grouping._slow`). A warming that began before anyone woke only blurred when the habit begins; its cause, the person at the thermostat, is a step, and `warmup.py` reads the heating itself.
+- **A link reaches as far as its second part's start.** Door → lamp ends when the lamp goes on, not at bedtime when it goes off. Before, the evening lamp stretched "Ana gets home" over João's arrival, two phones qualified and the habit had no person.
+- **One person's arrival joins what the house does then only on most days of both** (`_together(..., mutual=True)` when exactly one side is about a phone). João home at 21:00 on Tuesdays is not a step of the TV at 21:00 every day; "Ana gets home" still takes the door and the thermostat, there on most of her days.
+- **Alternatives are one habit** (`grouping._alternatives`): two groups that are mostly the same kinds of pattern (the end of the night's quiet, light → kettle), on mostly other days, within 3 h of each other: waking up at 07:08 on weekdays and 08:53 at weekends. `windows` then say when, which day. The couple's weekend morning is now a window of its weekday habit, not a habit of its own.
+- **A weekday it never happens on leaves the rhythm** (`recurrence._without_absent`): of a chosen weekday group, a weekday whose hits are far below the others' rate (binomial lower tail with the rule of succession's rate, corrected for the weekdays tried). João: "every Monday, Tuesday, Thursday and Friday".
+
+Day 60 of `demo` (seed 1): Waking up every day, weekdays 07:08 (06:42–07:26), weekends 08:53 (08:25–09:15), confidence 0.90 · Ana gets home every weekday 18:38 (18:17–18:53), Ana's phone, 0.94 · João gets home Mon, Tue, Thu, Fri 19:28 (19:08–19:44), Tuesdays 20:54 (20:45–21:01), João's phone, 0.93 · TV every day 20:56 · washing machine Mondays 19:35 · bedtime 23:29 · warm-up 4.9 °C/h (1 °C in about 12 min), 100 samples.
+
 ## Warm-up (C4 of [`demo-plan.md`](demo-plan.md))
 `source/learn/warmup.py`, plain code like the rest:
 ```python
@@ -66,7 +76,7 @@ lead_minutes(db, now, from_c, to_c) -> float | None   # None until there are 5 s
 
 ## Simulator, 21 days
 - **rosa:** light → kettle, the end of the night's quiet and light → door are one habit, Waking up: every day, usually 07:45 (07:19–08:27), 42 min later on Saturdays and 39 on Sundays; the quiet ends, the door 8 min later, the kettle at 19 min; 18 of 19 days; confidence 0.86. The evening lamp (and the quiets it ends) is another habit, the night's quiet another.
-- **couple:** a weekday habit, every weekday, usually 06:46: up, coffee at 10 min, the house quiet at 51, out at 70; 14 of 14; confidence 0.92. Its weekend variant is a habit of its own, every weekend, usually 08:26: up, coffee at 8 min; 6 of 6; 0.84. Coming home is every weekday at 17:03.
+- **couple:** a weekday habit, every weekday, usually 06:46: up, coffee at 10 min, the house quiet at 51, out at 70; 14 of 14; confidence 0.92. Its weekend variant (08:26: up, coffee at 8 min) is now its weekend window: one habit, every day. Coming home is every weekday at 17:03.
 - The hand-made 14 days (`tests/fixtures/happenings-14d.jsonl`): the morning (up 07:00, door → kettle about 07:56) is one daily habit.
 
 ## Use
@@ -91,7 +101,7 @@ uv run python -m unittest tests.test_grouping tests.test_recurrence -v
 - **Short histories:** "every other weekend" needs about 6 weekends (5 read as "every weekend"), a monthly rhythm about 5 months, single weekdays (Monday, Wednesday, Friday) about 10 weeks (before that they read as "every weekday" with a lower hit rate).
 - **Busy hours:** near the home's busiest hour, joining needs more days. At 21 days rosa's quiet after the morning lamp (08:31) is still a habit of its own.
 - **Near, not caused:** two routines within 90 min on the same days are one habit (couple's waking up and leaving for work are one weekday morning).
-- **Alternatives aren't joined:** two patterns that are the same moment in different forms, never on the same day (the evening lamp ending one kind of quiet or another), stay two habits.
+- **Alternatives** are joined only when they share most of their kinds of pattern and are within 3 h: the same moment in different forms (the evening lamp ending one kind of quiet or another) stays two habits.
 - **Borderline groups** can merge and split for a few days while the evidence builds; their ids survive.
 - **Every n hours** needs the pattern learner to find three or more of the slots, and combines only with a daily or weekly rhythm. The nth weekday is the first to fourth (no "last Friday").
 - Everything is worked out again from the whole history each day.
