@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..model import Event
+from ..normalize import CONNECTED
 from ..store import Store
 
 SignalId = tuple[str, str]  # (device_id, capability)
@@ -26,6 +27,9 @@ SKIP = {
 }
 VALUE_KINDS = {"initial", "change", "gone"}
 SLOW = {"temperatureValue", "humidityValue"}
+# Signals whose rest is fixed, not measured: a phone at home most of the day still rests "off" (not connected).
+# A phone's reading that is gone (a history ingested without normalize's prev) also means "off".
+FIXED_REST = {CONNECTED: "off"}
 HOUR_MS = 3600_000
 WOBBLE_COVERS = 0.995  # of the time held in the resting group; the few readings further out are not rest
 
@@ -37,6 +41,7 @@ class Stretch:
     value: Any
     start: int
     end: int
+    source: str = "unknown"  # who caused the event that began it (Event.source)
 
 
 def observed_stretches(events: Iterable[Event], observed_until: int) -> dict[SignalId, list[Stretch]]:
@@ -71,11 +76,12 @@ def observed_stretches(events: Iterable[Event], observed_until: int) -> dict[Sig
     for sig, evs in values.items():
         holes = sorted(gaps + silent.get(sig[0], []))
         for e, nxt in zip(evs, evs[1:] + [None]):
-            if e.new is None:
+            value = FIXED_REST[sig[1]] if e.new is None and sig[1] in FIXED_REST else e.new
+            if value is None:
                 continue
             end = nxt.ts if nxt is not None else observed_until
             for start, stop in _subtract((e.ts, end), holes):
-                out.setdefault(sig, []).append(Stretch(sig, f"{e.device}.{e.capability}", e.new, start, stop))
+                out.setdefault(sig, []).append(Stretch(sig, f"{e.device}.{e.capability}", value, start, stop, e.source))
     return out
 
 
@@ -131,7 +137,11 @@ def find_rest(events: Iterable[Event], observed_until: int) -> dict[SignalId, Re
         observed = sum(held.values())
         if observed == 0:
             continue
-        if sig[1] in SLOW and all(_is_number(v) for v in held):
+        if sig[1] in FIXED_REST:
+            value = FIXED_REST[sig[1]]
+            out[sig] = Rest(sig, stretches[0].signal, "state", value, 0.0, 0.0, None, None,
+                            held.get(value, 0) / observed, observed)
+        elif sig[1] in SLOW and all(_is_number(v) for v in held):
             out[sig] = _slow(sig, stretches, held, observed)
         elif all(_is_number(v) for v in held):
             out[sig] = _level(sig, stretches[0].signal, held, observed)
