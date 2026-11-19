@@ -20,6 +20,8 @@ export interface Sensor {
   learner?: string;
   learned_at: string;
   explanation?: string | null;
+  means?: string | null;
+  if_missing?: string | null;
   confidence: number;
   status: SensorStatus;
   pattern: Pattern;
@@ -150,6 +152,8 @@ function readSensor(o: Obj, path: string): Sensor {
     learner: optStr(o, "learner") ?? undefined,
     learned_at: time(o, "learned_at", path),
     explanation: optStr(o, "explanation"),
+    means: optStr(o, "means"),
+    if_missing: optStr(o, "if_missing"),
     confidence: num(o, "confidence", path),
     status: known,
     pattern: readPattern(o, path),

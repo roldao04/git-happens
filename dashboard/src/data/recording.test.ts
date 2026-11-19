@@ -71,6 +71,13 @@ describe("parseRecording", () => {
     expect(() => parseRecording(raw)).toThrow(/gaps\[0\]\.end/);
   });
 
+  test("keeps what a named sensor means and what its absence could mean, and has none when the namer gave none", () => {
+    const raw = minimal();
+    Object.assign(sensor0(raw), { means: "Someone is waking up.", if_missing: "Could be sleeping in." });
+    expect(parseRecording(raw).sensors[0]).toMatchObject({ means: "Someone is waking up.", if_missing: "Could be sleeping in." });
+    expect(parseRecording(minimal()).sensors[0]).toMatchObject({ means: null, if_missing: null });
+  });
+
   test("rejects a bad time", () => {
     const raw = minimal();
     (raw.meta as Record<string, unknown>).start = "yesterday";

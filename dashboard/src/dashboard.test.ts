@@ -42,6 +42,7 @@ test.each([
   ".alfred-note .sign",
   ".real-badge",
   ".zoom label",
+  ".detail-note p",
 ])("%s is readable from the back of a room", (selector) => {
   expect(fontSize(selector)).toBeGreaterThanOrEqual(16);
 });

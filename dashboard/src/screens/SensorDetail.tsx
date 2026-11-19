@@ -14,6 +14,15 @@ function Back() {
   return <a className="more back" href="#/learned">← Learned</a>;
 }
 
+function Note({ id, title, text }: { id: string; title: string; text: string }) {
+  return (
+    <section className="detail-note" aria-labelledby={id}>
+      <h3 id={id}>{title}</h3>
+      <p>{text}</p>
+    </section>
+  );
+}
+
 function Detail({ item, state }: { item: SensorNow; state: StateAt }) {
   const { sensor, readings } = item;
   const title = sensorTitle(sensor);
@@ -25,8 +34,11 @@ function Detail({ item, state }: { item: SensorNow; state: StateAt }) {
       <header>
         <h1 className={`detail-title${title.unnamed ? " unnamed" : ""}`}>{title.text}</h1>
         <FadingPill sensor={sensor} />
-        {sensor.explanation && <p className="al-looks">{`Looks like ${sensor.explanation}`}</p>}
-        <p className="detail-evidence">{evidence(sensor.pattern.parts)}</p>
+        {title.unnamed ? (
+          <p className="detail-evidence">{evidence(sensor.pattern.parts)}</p>
+        ) : (
+          sensor.explanation && <p className="al-looks">{sensor.explanation}</p>
+        )}
       </header>
       <div className="detail-grid">
         <div className="detail-main">
@@ -55,9 +67,15 @@ function Detail({ item, state }: { item: SensorNow; state: StateAt }) {
               <span className="al-bar" aria-hidden="true"><i style={{ width: `${pct}%` }} /></span>
             </div>
           </section>
+          {sensor.means && <Note id="means" title="What it means" text={sensor.means} />}
+          {sensor.if_missing && <Note id="missing" title="If it doesn't happen" text={sensor.if_missing} />}
           <FoundSteps steps={foundSteps(sensor.pattern.parts, usual, spread)} />
           <p className="never">Alfred never turns anything on or off because of this sensor.</p>
-          <Later title="Naming comes later">Alfred will ask the household what this is and use their word for it.</Later>
+          {title.unnamed ? (
+            <Later title="Naming comes later">Alfred will ask the household what this is and use their word for it.</Later>
+          ) : (
+            <Later title="Asking the household comes later">Alfred guessed this name; it will ask the household and use their word.</Later>
+          )}
         </aside>
       </div>
     </article>
