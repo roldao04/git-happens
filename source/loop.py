@@ -11,7 +11,7 @@ slot in between diff and triggers.
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from .actions import Actuator, DryRunActuator, resolve_targets, run_actions
 from .context import build_context
@@ -28,8 +28,9 @@ try:  # anticipation must never stop the loop, not even by failing to import
     from . import anticipate, wake
     from .learn import to_local
     from .learn.happenings import save_happenings
+    from .learn.run import learn_day
 except Exception:
-    anticipate = wake = save_happenings = None
+    anticipate = wake = save_happenings = learn_day = None
     log.exception("anticipation unavailable: the loop runs without it")
 
 PLAN_EVERY_MS = 5 * 60_000  # the plan is redone this often; due decisions are checked every tick
@@ -39,7 +40,10 @@ OWN_WRITE_MS = 15 * 60_000  # a change to the value Alfred (or a rule) wrote, th
 
 async def run(source: Source, store: Store, triggers: Triggers, agent, *,
               poll_seconds: float, stale_minutes: float, max_ticks: int | None = None,
-              actuator: Actuator | None = None, readback_delay_s: float = 0.0) -> None:
+              actuator: Actuator | None = None, readback_delay_s: float = 0.0, api=None,
+              learn_nightly: bool = False) -> None:
+    """`learn_nightly`: the live home learns its habits by itself, once a night (as source/pipeline.py does
+    for a simulated one). Off for replays and the demo, whose stores are learned beforehand."""
     actuator = actuator or DryRunActuator()
     stale_ms = int(stale_minutes * 60_000)
     prev = None
@@ -52,6 +56,7 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
     ticks = 0
     known: set[str] = set()  # devices already in the store's `devices` table
     writes: list[tuple[int, str, str, object, str]] = []  # (ms, device, capability, value, source) sent recently
+    learned_for: date | None = None  # the last day the nightly learning looked at
     log.info("loop started: %s, poll every %ss, stale after %s min",
              type(source).__name__, poll_seconds, stale_minutes,
              extra={"data": {"source": type(source).__name__, "poll_seconds": poll_seconds,
@@ -66,6 +71,8 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
             log.info("replay finished")
             break
         except SourceError as exc:
+            if api is not None:
+                api.poll_failed(str(exc))
             if not in_gap:  # record the gap once; never treat a failed poll as "all zero"
                 now = int(time.time() * 1000)
                 store.save_events([Event(now, "loop", "Loop", "poll", "gap", None, str(exc))])
@@ -83,6 +90,8 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
 
         state = normalize(home, prev)  # with prev, a phone that left reads "off"
         events = diff(prev, state, now, stale_ms, prev_now) if prev is not None else initially_stale(state, now, stale_ms)
+        if api is not None:  # the phone app's writes since the last poll: the changes they cause are a person's
+            writes += api.take_writes()
         writes = [w for w in writes if now - w[0] <= OWN_WRITE_MS]
         _attribute(events, writes)
         new_devices = {r.device_id: (r.device_type, r.device) for r in state.values() if r.device_id not in known}
@@ -102,8 +111,16 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
                 log.info("safety devices reporting again")
             blind = now_blind
 
+        if learn_nightly and learn_day is not None:
+            yesterday = to_local(now).date() - timedelta(days=1)
+            if yesterday != learned_for:  # the first tick of a day (or of the run)
+                learned_for = yesterday
+                _learn_night(store, now, yesterday)
+
         types = device_types(state)
         fresh = fresh_by_type(state, now, stale_ms)
+        if api is not None:
+            api.update(now, state, types, fresh)
         rules_ran: list[dict] = []
         if anticipate is not None:  # Alfred's own decisions ahead of habits; replays get the dry-run actuator
             last_plan_ms = await _anticipate(store, now, last_plan_ms, actuator, types, fresh, state,
@@ -188,6 +205,29 @@ async def _anticipate(store: Store, now: int, last_plan_ms: int | None, actuator
     return last_plan_ms
 
 
+def _learn_night(store: Store, now: int, day: date) -> None:
+    """The learners on everything up to the end of `day`, once (as source/demo.py's night()): its happenings,
+    then kinds, habits and occasions. Then the plan and the wakes find the habits. Never raises."""
+    from .clock import day_bounds
+
+    try:
+        key = day.isoformat()
+        if store.db.execute("SELECT 1 FROM learned_days WHERE day = ?", (key,)).fetchone():
+            return
+        end = day_bounds(day)[1]
+        if not store.db.execute("SELECT 1 FROM snapshots WHERE ts < ? LIMIT 1", (end,)).fetchone():
+            return  # the loop wasn't watching yet
+        started = time.monotonic()
+        save_happenings(store, end)
+        new = learn_day(store.db, day)
+        store.db.execute("INSERT OR REPLACE INTO learned_days (day, ts) VALUES (?, ?)", (key, now))
+        store.db.commit()
+        log.info("learned %s: %d new pattern(s) (%.1fs)", key, len(new), time.monotonic() - started,
+                 extra={"data": {"day": key, "new": len(new)}})
+    except Exception:
+        log.exception("nightly learning failed for %s", day)
+
+
 def _learned(store: Store, now: int, state: State) -> list:
     """The learned wakes due now (source/wake.py). Never raises."""
     try:
@@ -235,7 +275,8 @@ def _sent(now: int, actions: list[dict], source: str) -> list[tuple[int, str, st
 def _attribute(events: list[Event], writes: list[tuple[int, str, str, object, str]]) -> None:
     """A change to the value Alfred (or a rule) just wrote is theirs, not a person's: Event.source "agent" (or
     "scenario:<id>"), so the learners never learn Alfred's own heating as the home's habit
-    (source/learn/happenings.py, by_person). Each write explains one change."""
+    (source/learn/happenings.py, by_person). A write from the phone app is labelled "app": a person's.
+    Each write explains one change."""
     left = list(writes)
     for e in events:
         if e.kind != "change":

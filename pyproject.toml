@@ -11,6 +11,10 @@ dependencies = [
     "scikit-learn>=1.9.1",
 ]
 
+[project.optional-dependencies]
+# Speech to text for the phone app (source/voice.py): Parakeet TDT 0.6B v3 as ONNX, on the CPU.
+voice = ["onnx-asr[cpu,hub]>=0.12"]
+
 [project.scripts]
 home-loop = "source.__main__:main"
 

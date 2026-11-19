@@ -291,6 +291,32 @@ class LoopTest(unittest.TestCase):
             self.assertEqual(len(stale), len(set(stale)))
             store.close()
 
+    def test_the_live_loop_learns_each_finished_day_once(self):
+        home = copy.deepcopy(FIXTURE)
+        day = 86_400_000
+        frames = [{"ts": T0 + i * STEP, "home": home} for i in range(2)] + \
+                 [{"ts": T0 + day + i * STEP, "home": home} for i in range(3)]
+        with tempfile.TemporaryDirectory() as tmp:
+            rec = Path(tmp) / "rec.jsonl"
+            rec.write_text("\n".join(json.dumps(f) for f in frames))
+            store = Store(Path(tmp) / "data", record=False)
+            with mock.patch("source.loop.learn_day", return_value=[]) as learn, \
+                    mock.patch("source.loop.save_happenings") as happenings:
+                asyncio.run(run(ReplaySource(rec), store, Triggers(seed_triggers(15)), RecordingAgent(),
+                                poll_seconds=20, stale_minutes=60, learn_nightly=True))
+                # the first day had nothing watched before it; the second day learns the first, once
+                from source.learn import to_local
+                first = to_local(T0).date()
+                self.assertEqual([c.args[1] for c in learn.call_args_list], [first])
+                self.assertTrue(happenings.called)
+                self.assertEqual(store.db.execute("SELECT day FROM learned_days").fetchall(), [(first.isoformat(),)])
+                # a restart the same day doesn't learn it again
+                rec.write_text("\n".join(json.dumps(f) for f in frames[2:]))
+                asyncio.run(run(ReplaySource(rec), store, Triggers(seed_triggers(15)), RecordingAgent(),
+                                poll_seconds=20, stale_minutes=60, learn_nightly=True))
+                self.assertEqual(learn.call_count, 1)
+            store.close()
+
     def test_morning_replay_and_logs(self):
         """The demo recording: no stale flapping, camera goes silent once, logs are written."""
         import logging
