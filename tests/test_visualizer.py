@@ -422,13 +422,23 @@ class MomentsTest(unittest.TestCase):
             self.assertTrue(m["title"] and m["say"] and m["focus"])
 
     def test_the_simulators_own_come_first(self):
+        with mock.patch.object(web, "DEMO_RUNS", Path(tempfile.mkdtemp())):  # nothing pre-computed
+            out = web.moments_view("demo", 1, DEMO_START)
+        self.assertEqual(out["source"], "simulator")
+        self.assertEqual([m["id"] for m in out["moments"]], [m["id"] for m in sorted(
+            simulate.DEMO_MOMENTS, key=lambda m: (m["day"], m["time"]))])
+        self.assertEqual(out["moments"][0]["focus"], [])
+
+    def test_a_precomputed_run_comes_first(self):
+        """source/demo.py's moments carry the habits it found for each one (`focus`)."""
+        runs = Path(tempfile.mkdtemp())
         mine = [{"id": "late", "title": "Late", "day": 3, "time": "22:00", "focus": ["habit-2"], "say": "x"},
                 {"id": "early", "title": "Early", "day": 3, "time": "07:00"}]
-        with mock.patch.object(simulate, "MOMENTS", {"rosa": mine}, create=True):
-            out = web.moments_view("rosa", 1, START)
-        self.assertEqual(out["source"], "simulator")
-        self.assertEqual([m["id"] for m in out["moments"]], ["early", "late"])
-        self.assertEqual(out["moments"][0]["focus"], [])
+        (runs / f"{web._names_file('demo', 1, DEMO_START).stem}.json").write_text(json.dumps({"moments": mine}))
+        with mock.patch.object(web, "DEMO_RUNS", runs):
+            out = web.moments_view("demo", 1, DEMO_START)
+        self.assertEqual(out["source"], "precomputed")
+        self.assertEqual([(m["id"], m["focus"]) for m in out["moments"]], [("early", []), ("late", ["habit-2"])])
 
     def test_none_for_a_house_without_any(self):
         self.assertEqual(web.moments_view("rosa", 1, START)["moments"], [])
@@ -494,15 +504,20 @@ class ThoughtsTest(unittest.TestCase):
         self.assertEqual(web.thoughts_view("demo", 3, 1, DEMO_START, simulated=False)["source"], "none")
 
     def test_the_run_first_then_the_fixture(self):
-        run = [{"at": "2026-09-03T07:00:00", "kind": "habit_soon"}]
-        with mock.patch.object(web, "_learned", return_value={"thoughts": run}):
+        """The learning runs don't run the loop, so only source/demo.py's run has wakes; then the fixture."""
+        runs, fixtures = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        stem = web._names_file("rosa", 1, START).stem
+        db = sqlite3.connect(runs / f"{stem}.sqlite3")
+        db.execute("CREATE TABLE wakes (key TEXT, ts INTEGER, data TEXT)")
+        db.commit()
+        db.close()
+        (runs / f"{stem}.json").write_text(json.dumps({"llm": "scripted"}))
+        with mock.patch.object(web, "DEMO_RUNS", runs):
             self.assertEqual(web.thoughts_view("rosa", 3, 1, START), {"household": "rosa", "day": 3, "date": "2026-09-03",
-                                                                       "wakes": run, "source": "run"})
-        with mock.patch.object(web, "_learned", return_value={"thoughts": []}):
-            self.assertEqual(web.thoughts_view("rosa", 3, 1, START)["source"], "run")  # a quiet day is still the real one
-        fixtures = Path(tempfile.mkdtemp())
+                                                                       "wakes": [], "source": "precomputed",
+                                                                       "llm": "scripted"})  # a quiet day is still the run's
         (fixtures / "rosa.json").write_text(json.dumps({"thoughts": {"3": [{"at": "2026-09-03T08:00:00", "key": "habit_soon:habit-1:x"}]}}))
-        with mock.patch.object(web, "_learned", return_value={"thoughts": None}), mock.patch.object(web, "FIXTURES", fixtures):
+        with mock.patch.object(web, "DEMO_RUNS", Path(tempfile.mkdtemp())), mock.patch.object(web, "FIXTURES", fixtures):
             out = web.thoughts_view("rosa", 3, 1, START)
         self.assertEqual((out["source"], out["wakes"][0]["kind"], out["wakes"][0]["habit_id"]), ("fixture", "habit_soon", "habit-1"))
 
@@ -566,14 +581,27 @@ class PlantedTest(unittest.TestCase):
                {"planted": "Warms 5 °C an hour", "kind": "warmup"},
                {"planted": "Already matched", "found": "habit-7", "found_text": "Laundry", "match": "partly"},
                {"no": "planted text"}]
-        with mock.patch.object(simulate, "answer_key", lambda name: key, create=True), \
+        with mock.patch.object(web, "_answer_key", return_value=[r for r in key if r.get("planted")]), \
                 mock.patch.object(web, "knowledge_view", return_value=KNOWS):
             out = web.planted_view("rosa", 20, 1, START)
         self.assertEqual(out["source"], "simulator")
         self.assertEqual([(r["found"], r["match"]) for r in out["rows"]],
                          [("habit-4", "yes"), ("habit-5", "yes"), ("habit-5", "partly"), ("habit-1", "yes"), (None, "no"),
                           ("occasion-1", "yes"), ("warmup", "yes"), ("habit-7", "partly")])
-        self.assertEqual(out["rows"][3]["found_text"], "Waking up · every day · 08:20–09:10")
+        self.assertEqual(out["rows"][3]["found_text"], "Waking up · every day · weekdays 06:55–07:30, weekends 08:20–09:10")
+        self.assertEqual(out["rows"][1]["found_text"], "João gets home · João's phone")
+
+    def test_the_demo_houses_answer_key(self):
+        """simulate.planted's rows, with their weekday windows and the person's phone."""
+        with mock.patch.object(web, "knowledge_view", return_value=KNOWS):
+            rows = {r["planted"]: r for r in web.planted_view("demo", 60, 1, DEMO_START)["rows"]}
+        self.assertEqual(len(rows), len(simulate.planted("demo", DEMO_START)))
+        self.assertEqual((rows["Ana home weekdays 18:40"]["found"], rows["Ana home weekdays 18:40"]["match"]), ("habit-4", "yes"))
+        waking = next(r for p, r in rows.items() if p.startswith("Waking up"))
+        self.assertEqual((waking["found"], waking["match"]), ("habit-1", "yes"))
+        joao = next(r for p, r in rows.items() if p.startswith("João home"))
+        self.assertEqual(joao["found"], "habit-5")
+        self.assertEqual(rows["The house warms 1 °C in about 12 min"]["match"], "yes")
 
     def test_none_without_an_answer_key(self):
         out = web.planted_view("rosa", 3, 1, START)
@@ -676,6 +704,11 @@ class RoutesTest(unittest.TestCase):
         self.assertIn("Learning failed", json.loads(body)["error"])
 
     def test_serves_the_demo_screen(self):
+        with mock.patch.object(web, "DEMO_RUNS", Path(tempfile.mkdtemp())), \
+                mock.patch.object(web, "knowledge_view", return_value=KNOWS):  # no 60-day run in a test
+            self._demo_screen()
+
+    def _demo_screen(self):
         for path, key in (("/moments?household=demo", "moments"), ("/thoughts?household=demo&day=60", "wakes"),
                           ("/planted?household=demo&day=60", "rows"), ("/moments", "moments")):
             status, kind, body = self._get(path)

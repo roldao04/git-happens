@@ -1488,7 +1488,9 @@ function showThoughts() {
   $('thinks-box').hidden = !wakes.length && th.source === 'none';
   $('thinks-count').textContent = wakes.length ? plural(new Set(wakes.map((x) => x.key)).size, 'wake') : '';
   thinksNote(th.source === 'fixture' ? 'Sample thoughts (console/fixtures): the real ones show once Alfred\'s wake-ups run on this house.'
-    : wakes.length ? '' : 'Alfred did not wake its LLM on this day.');
+    : !wakes.length ? 'Alfred did not wake its LLM on this day.'
+    : th.llm === 'scripted' ? 'Scripted replies: no LLM was configured when this demo was pre-computed (source/demo.py). The confidence and what ran are real.'
+    : th.llm ? `Replies from ${th.llm}, cached for the demo.` : '');
   $('thinks').replaceChildren(...wakes.map((x) => {
     const at = localMs(day, x.at), due = localMs(day, x.due), doIt = x.mode === 'do';
     const acts = x.action || x.mode ? [

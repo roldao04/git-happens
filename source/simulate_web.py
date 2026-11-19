@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from .simulate import DEFAULT_START, PRESETS, REAL_HOME, _at, generate, home_a_max_days, houses
+from .simulate import DEFAULT_START, PRESETS, REAL_HOME, _at, generate, home_a_max_days, houses, start_for
 
 log = logging.getLogger("source.simulate_web")
 
@@ -126,18 +126,14 @@ def _household(name: str):
 
 
 def _default_start(name: str) -> date:
-    """A preset's own first day when it has one (the demo house starts on 21 Sept: the preset's `start`,
-    simulate.PRESET_STARTS, or its demo fixture's), else the simulator's."""
-    from . import simulate
-
-    preset, starts = PRESETS.get(name), getattr(simulate, "PRESET_STARTS", None)
-    for value in (getattr(preset, "start", None), starts.get(name) if isinstance(starts, dict) else None,
-                  (_fixture(name) or {}).get("start")):
-        try:
-            return value if isinstance(value, date) else date.fromisoformat(value)
-        except (TypeError, ValueError):
-            continue
-    return DEFAULT_START
+    """A preset's own first day (the demo house starts on 21 Sept: simulate.start_for), else its demo
+    fixture's, else the simulator's."""
+    if name in PRESETS:
+        return start_for(name)
+    try:
+        return date.fromisoformat((_fixture(name) or {}).get("start"))
+    except (TypeError, ValueError):
+        return DEFAULT_START
 
 
 def _day_request(query: dict[str, str]) -> tuple[str, int, int, date]:
@@ -165,9 +161,10 @@ def day_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START) ->
     what changed since the one before: {device index: {capability: value}}. The index after the last
     device is the home's security. A frame with no changes still says the home reported then.
     """
-    lines, truth = generate(_household(name), day, start=start, seed=seed)
     first = start + timedelta(days=day - 1)
     day_start, day_end = _at(first, 0), _at(first + timedelta(days=1), 0)
+    writes = [w for w in _writes(name, seed, start) if w[0] < day_end]  # Alfred at the thermostat (source/demo.py)
+    lines, truth = generate(_household(name), day, start=start, seed=seed, thermostat_writes=writes)
     devices, frames, last = [], [], None
     for line in lines:
         if int(line[6:line.index(",")]) < day_start:  # a line starts {"ts":<ms>, — skip earlier days unparsed
@@ -187,7 +184,7 @@ def day_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START) ->
     iso = first.isoformat()
     return {"household": name, "day": day, "date": iso, "start": day_start, "end": day_end, "seed": seed,
             "max_days": home_a_max_days(start) if name == REAL_HOME else MAX_DAYS,
-            "devices": devices, "frames": frames,
+            "devices": devices, "frames": frames, "alfred_writes": len([w for w in writes if w[0] >= day_start]),
             # The answer key for that day: what the simulator planted. For people, never for the learners.
             "truth": [t for t in truth if t["start"][:10] <= iso <= t.get("end", t["start"])[:10]]}
 
@@ -298,6 +295,9 @@ _running: dict[tuple, threading.Lock] = {}
 def _learned(name: str, day: int, seed: int, start: date) -> dict:
     if not 1 <= day <= MAX_LEARN_DAYS:
         raise ValueError(f"Alfred learns from day 1, so the learned view stops at day {MAX_LEARN_DAYS}")
+    ready = (demo_run(name, seed, start) or {}).get("views", {}).get(str(day))
+    if ready:  # pre-computed by source/demo.py: the moments open at once
+        return {**ready, "thoughts": _precomputed_thoughts(name, seed, start, start + timedelta(days=day - 1))}
     key = (name, day, seed, start)
     with _runs_lock:
         if key in _runs:
@@ -323,43 +323,60 @@ def _learned(name: str, day: int, seed: int, start: date) -> dict:
 
 def _learn_once(name: str, day: int, seed: int, start: date) -> dict:
     """The run itself, not cached: {"learned": learned_view's dict, "knowledge": knowledge_view's dict}."""
-    from .learn import storage, to_ms
-    from .learn.today import sensor_today
     from .pipeline import _parse, run
 
+    # Without Alfred's writes: the learners learn from the people's days (source/demo.py learns the same way).
     lines, _ = generate(_household(name), day, start=start, seed=seed)
     target = start + timedelta(days=day - 1)
     during: dict = {}
-    parts = _Parts()
 
     def before_learn(db: sqlite3.Connection, d: date) -> None:
-        if d != target:
-            return
-        storage.init(db)
-        during["sensors"] = storage.export(db, d)["sensors"]
-        ids, frames, last = None, [], None
-        midnight = datetime.combine(d, clock_time())
-        for m in range(0, 24 * 60, STATUS_STEP_MIN):
-            now = midnight + timedelta(minutes=m)
-            today = sensor_today(db, now)
-            ids = ids or [st["sensor_id"] for st in today]
-            row = [[st["status"], st["at"]] for st in today]
-            if row != last:
-                frames.append([to_ms(now), row])
-                last = row
-        during["statuses"] = {"ids": ids or [], "frames": frames}
+        if d == target:
+            during.update(day_statuses(db, d))
 
     with tempfile.TemporaryDirectory() as tmp:  # habits and occasions learn each night in learn_day
         run(_parse(lines), Path(tmp), before_learn=before_learn)
         db = sqlite3.connect(Path(tmp) / "home.sqlite3")
         try:
-            named = _name(db, _names_file(name, seed, start))
-            after = storage.export(db, target)
-            keys = {sid: f"{sid}|{sig}" for sid, sig in db.execute("SELECT id, signature FROM sensors")}
-            knowledge = _knowledge(db, target, after["sensors"], keys, parts)  # after the namer: reasons use names
-            thoughts = read_thoughts(db, target)
+            return assemble(db, name, day, seed, start, during)
         finally:
             db.close()
+
+
+def day_statuses(db: sqlite3.Connection, d: date) -> dict:
+    """What Alfred knew while day `d` went on, before that night's learning (pipeline.run's before_learn):
+    {"sensors": the learned sensors, "statuses": each habit's status every STATUS_STEP_MIN minutes}."""
+    from .learn import storage, to_ms
+    from .learn.today import sensor_today
+
+    storage.init(db)
+    out = {"sensors": storage.export(db, d)["sensors"]}
+    ids, frames, last = None, [], None
+    midnight = datetime.combine(d, clock_time())
+    for m in range(0, 24 * 60, STATUS_STEP_MIN):
+        now = midnight + timedelta(minutes=m)
+        today = sensor_today(db, now)
+        ids = ids or [st["sensor_id"] for st in today]
+        row = [[st["status"], st["at"]] for st in today]
+        if row != last:
+            frames.append([to_ms(now), row])
+            last = row
+    out["statuses"] = {"ids": ids or [], "frames": frames}
+    return out
+
+
+def assemble(db: sqlite3.Connection, name: str, day: int, seed: int, start: date, during: dict) -> dict:
+    """{"learned", "knowledge", "thoughts"} for day `day`, from a store whose learners have just run that day's
+    night (pipeline.run's after_learn, or the end of the run). `during`: day_statuses of that day."""
+    from .learn import storage, to_ms
+
+    target = start + timedelta(days=day - 1)
+    parts = _Parts()
+    named = _name(db, _names_file(name, seed, start))
+    after = storage.export(db, target)
+    keys = {sid: f"{sid}|{sig}" for sid, sig in db.execute("SELECT id, signature FROM sensors")}
+    knowledge = _knowledge(db, target, after["sensors"], keys, parts)  # after the namer: reasons use names
+    thoughts = read_thoughts(db, target)
 
     before = {s["id"]: s for s in during.get("sensors", [])}
     sensors = []
@@ -391,7 +408,7 @@ def _learn_once(name: str, day: int, seed: int, start: date) -> dict:
     return {"learned": learned,
             "knowledge": {"household": name, "day": day, "date": iso, "start": start.isoformat(), "max_days": most,
                           **knowledge},
-            "thoughts": thoughts}  # None: no wakes table in this run (part D not wired in yet)
+            "thoughts": thoughts}  # None: no wakes table in this run (the pipeline doesn't run the loop)
 
 
 # --- the knowledge tab: the other parts of docs/habits-plan.md, read defensively ---------------------
@@ -447,11 +464,15 @@ def _knowledge(db: sqlite3.Connection, as_of: date, sensors: list[dict], keys: d
 
     tomorrow = as_of + timedelta(days=1)
     now = datetime.combine(tomorrow, clock_time())  # midnight: the day is over and its night's learning done
+    from .learn import signal_devices
+
     devices = {}
-    for kind, name in _rows(db, "SELECT type, name FROM devices ORDER BY first_ts, device_id"):
+    rows = _rows(db, "SELECT device_id, type, name FROM devices ORDER BY first_ts, device_id")
+    signals = signal_devices(rows)
+    for dev_id, kind, name in rows:
         devices.setdefault(kind, name)
-        if name:  # also by the per-device signal name (docs/demo-plan.md, C2): "plug:kettle" -> "Kettle"
-            devices.setdefault(f"{kind}:{_slug(name)}", name)
+        if name:  # also by the per-device signal name (docs/demo-plan.md, C2): "plug:kettle" -> "Kettle",
+            devices.setdefault(signals[dev_id], name)  # "phone:c-8f3a" -> "Ana's phone"
     try:
         kinds = [_kind_card(k, devices) for k in storage.load_kinds(db)]
     except sqlite3.Error:
@@ -628,6 +649,35 @@ def with_names(view: dict, path: Path, items: str = "sensors") -> dict:
 
 FIXTURES = CONSOLE / "fixtures"
 DEMO_RUNS = Path(__file__).resolve().parent.parent / "data" / "demo"  # runs pre-computed by source/demo.py (part F)
+_demo_cache: dict[Path, tuple[float, dict]] = {}
+
+
+def demo_run(name: str, seed: int, start: date) -> dict | None:
+    """What source/demo.py pre-computed for this home (data/demo/<stem>.json), or None: the moments with their
+    focus, Alfred's thermostat writes on the moment days, and the views of those days. Re-read when it changes."""
+    path = DEMO_RUNS / f"{_names_file(name, seed, start).stem}.json"
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    hit = _demo_cache.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    try:
+        out = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        log.warning("could not read %s", path)
+        return None
+    if not isinstance(out, dict):
+        return None
+    _demo_cache[path] = (mtime, out)
+    return out
+
+
+def _writes(name: str, seed: int, start: date) -> list[tuple[int, str, object]]:
+    """Alfred's thermostat writes in the pre-computed run, [(ms, capability, value)], for `generate`."""
+    rows = (demo_run(name, seed, start) or {}).get("writes") or []
+    return [(int(w[0]), str(w[1]), w[2]) for w in rows if isinstance(w, list) and len(w) == 3]
 THOUGHT_KINDS = ("habit_soon", "arrival", "departure", "habit_missing", "occasion")
 MATCHES = ("yes", "partly", "no")
 
@@ -657,8 +707,11 @@ def _demo_request(query: dict[str, str]) -> tuple[str, int, int, date, bool]:
 
 
 def moments_view(name: str, seed: int = 1, start: date = DEFAULT_START, simulated: bool = True) -> dict:
-    """The scripted moments (C12): the simulator's when it has them, else the fixture's."""
-    moments, source = _clean_moments(_sim_moments(name)) if simulated else [], "simulator"
+    """The scripted moments (C12): source/demo.py's (with the habits it found as `focus`), else the simulator's,
+    else the fixture's."""
+    moments, source = _clean_moments((demo_run(name, seed, start) or {}).get("moments")) if simulated else [], "precomputed"
+    if not moments and simulated:
+        moments, source = _clean_moments(_sim_moments(name)), "simulator"
     if not moments:
         fixture = _fixture(name) or {}
         moments, source = _clean_moments(fixture.get("moments")), "fixture"
@@ -668,17 +721,11 @@ def moments_view(name: str, seed: int = 1, start: date = DEFAULT_START, simulate
 
 
 def _sim_moments(name: str):
-    """A preset's moments, wherever part A puts them: simulate.MOMENTS[name], simulate.moments(name), or the
-    preset's own `moments`. Read defensively: anything else is no moments."""
+    """The demo house's moments (simulate.DEMO_MOMENTS, focus not filled yet), or None for another home."""
     from . import simulate
 
     try:
-        table = getattr(simulate, "MOMENTS", None)
-        if isinstance(table, dict) and name in table:
-            return table[name]
-        if callable(getattr(simulate, "moments", None)):
-            return simulate.moments(name)
-        return getattr(PRESETS.get(name), "moments", None)
+        return simulate.DEMO_MOMENTS if name == "demo" else None
     except Exception:
         log.exception("reading the moments of %s failed", name)
         return None
@@ -709,17 +756,19 @@ def thoughts_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_STAR
     no decision when it led to none), by time. From the run's `wakes` and `decisions` tables, a run pre-computed
     in data/demo/, or the fixture."""
     first = start + timedelta(days=day - 1)
-    wakes, source = None, "run"
-    if simulated:
-        wakes = _learned(name, day, seed, start).get("thoughts")  # the run the other views share
-        if wakes is None:
-            wakes, source = _precomputed_thoughts(name, seed, start, first), "precomputed"
+    wakes, source, llm = None, "precomputed", None
+    if simulated:  # the learning runs (/learned) don't run the loop, so only source/demo.py's run has wakes
+        wakes = _precomputed_thoughts(name, seed, start, first)
+        llm = (demo_run(name, seed, start) or {}).get("llm")
     if wakes is None:
         days = (_fixture(name) or {}).get("thoughts")
         rows = days.get(str(day)) if isinstance(days, dict) else None
         wakes, source = ([_thought(r) for r in rows if isinstance(r, dict)] if isinstance(rows, list) else None), "fixture"
-    return {"household": name, "day": day, "date": first.isoformat(), "wakes": wakes or [],
-            "source": source if wakes is not None else "none"}
+    out = {"household": name, "day": day, "date": first.isoformat(), "wakes": wakes or [],
+           "source": source if wakes is not None else "none"}
+    if llm:  # who wrote the sentences: a model's name, or "scripted" (no model when it was pre-computed)
+        out["llm"] = llm
+    return out
 
 
 def _precomputed_thoughts(name: str, seed: int, start: date, day: date) -> list[dict] | None:
@@ -795,21 +844,18 @@ def planted_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START
 
 
 def _answer_key(name: str, seed: int, start: date) -> list[dict]:
-    """The planted rhythms (C12's answer key), wherever part A puts them: simulate.answer_key(name) or
-    simulate.ANSWER_KEYS[name] or the preset's `answer_key`. Each a dict with at least `planted`."""
-    from . import simulate
+    """The planted rhythms (C12's answer key, simulate.planted), for a household of people; else none."""
+    from .simulate import planted
 
+    preset = PRESETS.get(name)
+    if preset is None or not getattr(preset, "people", None):
+        return []
     try:
-        if callable(getattr(simulate, "answer_key", None)):
-            rows = simulate.answer_key(name)
-        elif isinstance(getattr(simulate, "ANSWER_KEYS", None), dict):
-            rows = simulate.ANSWER_KEYS.get(name)
-        else:
-            rows = getattr(PRESETS.get(name), "answer_key", None)
+        rows = planted(name, start)
     except Exception:
         log.exception("reading the answer key of %s failed", name)
         return []
-    return [r for r in rows if isinstance(r, dict) and r.get("planted")] if isinstance(rows, (list, tuple)) else []
+    return [r for r in rows if isinstance(r, dict) and r.get("planted")]
 
 
 def _planted_row(entry: dict, k: dict | None) -> dict:
@@ -825,45 +871,93 @@ def _planted_row(entry: dict, k: dict | None) -> dict:
 
 
 def _match(entry: dict, k: dict) -> dict:
-    """The answer key's hints -> what Alfred found. Hints (all optional): `kind` ("habit", the default,
-    "occasion" or "warmup"), `usual` ("HH:MM"), `days` (["mon", …]), `person` (a phone's client id)."""
+    """The answer key's row -> what Alfred found. Read from the row (all optional): `kind` ("habit", the default,
+    "occasion", "warmup", "note" or "rule"), its weekday `windows` ([{"days", "usual"}]) or `usual` and `days`,
+    and `person` ({"phone"} or a phone's client id)."""
     kind, days = entry.get("kind") or "habit", set(entry.get("days") or [])
     if kind == "warmup":
         w = k.get("warmup") or {}
         rate = w.get("rate_c_per_h")
         return {"found": "warmup" if rate else None, "match": "yes" if rate else "no",
-                "found_text": f"warms {rate} °C an hour" if rate else None}
+                "found_text": f"warms {rate:g} °C an hour: 1 °C in about {round(60 / rate)} min" if rate else None}
     if kind == "occasion":
         found = [o for o in k.get("occasions", []) if not days or not o.get("weekdays") or days & set(o["weekdays"])]
         if not found:
             return {"found": None, "found_text": None, "match": "no"}
         o = max(found, key=lambda o: o.get("episodes") or 0)
         many = isinstance(o.get("episodes"), (int, float)) and o["episodes"] >= 2
-        return {"found": o.get("id"), "found_text": o.get("name") or o.get("id"), "match": "yes" if many else "partly"}
-    usual, person, best = _minute(entry.get("usual")), entry.get("person"), None
-    for habit in k.get("habits", []):
-        if habit.get("status", "active") != "active":
-            continue
+        guests = (o.get("fingerprint") or {}).get("guest_phones")
+        text = " · ".join(str(x) for x in (o.get("name") or o.get("id"), f"seen {o.get('episodes')} times",
+                                            f"{guests} guests' phones" if guests else None) if x)
+        return {"found": o.get("id"), "found_text": text, "match": "yes" if many else "partly"}
+    person = entry.get("person")
+    phone = person.get("phone") if isinstance(person, dict) else person
+    habits = [h for h in k.get("habits", []) if h.get("status", "active") == "active"]
+    if kind == "rule":  # a rule the people follow (the heating): Alfred knows it as steps of their habits
+        signals = [s.rsplit(".", 1)[-1] for s in entry.get("signals") or []]
+        parts = {p.get("id"): " ".join(p.get("parts") or []) for p in k.get("patterns", [])}
+        mine = [h for h in habits if any(sig and sig in parts.get(st.get("pattern") if isinstance(st, dict) else st, "")
+                                         for st in h.get("steps") or [] for sig in signals)]
+        if not mine:
+            return {"found": None, "found_text": None, "match": "no"}
+        return {"found": mine[0].get("id"), "match": "partly",
+                "found_text": "a step of " + ", ".join(h.get("name") or h.get("id") for h in mine)}
+    if kind == "note":  # a fact about a person's days (João at home on Wednesdays): their habit says it, or not
+        mine = [h for h in habits if phone and ((h.get("person") or {}).get("phone") == phone)]
+        if not mine:
+            return {"found": None, "found_text": None, "match": "no"}
+        return {"found": mine[0].get("id"), "match": "partly", "found_text": _habit_text(mine[0], mine[0].get("windows"))}
+    wanted = [w for w in entry.get("windows") or [] if isinstance(w, dict) and _minute(w.get("usual")) is not None]
+    if not wanted and _minute(entry.get("usual")) is not None:
+        wanted = [{"usual": entry["usual"], "days": sorted(days)}]
+    best = None
+    for habit in habits:
         who = (habit.get("person") or {}).get("phone") if isinstance(habit.get("person"), dict) else None
-        if person and who and who != person:
+        if phone and who and who != phone:
             continue
         windows = [w for w in habit.get("windows") or [] if isinstance(w, dict)] or [{**(habit.get("window") or {}),
                    "days": (habit.get("recurrence") or {}).get("weekdays") or []}]
-        for w in windows:
-            on = set(w.get("days") or [])
-            if days and on and not days & on:
+        gaps = []
+        for want in wanted or [{}]:
+            on, usual = set(want.get("days") or []), _minute(want.get("usual"))
+            here = [w for w in windows if not on or not w.get("days") or on & set(w["days"])]
+            if not here:
+                gaps.append(None)  # the planted days the habit doesn't cover
                 continue
-            gap = abs(_minute(w.get("usual")) - usual) if usual is not None and _minute(w.get("usual")) is not None else 0
-            gap = min(gap, 1440 - gap)
-            score = gap + (0 if not person or who == person else 60)
-            if best is None or score < best[0]:
-                best = (score, habit, w)
+            gaps.append(min((min(g, 1440 - g) for w in here if usual is not None and _minute(w.get("usual")) is not None
+                             for g in [abs(_minute(w.get("usual")) - usual)]), default=0))
+        covered = [g for g in gaps if g is not None]
+        if not covered:
+            continue
+        score = sum(covered) / len(covered) + 120 * (len(gaps) - len(covered)) / len(gaps)
+        score += 0 if not phone or who == phone else 60
+        if best is None or score < best[0]:
+            best = (score, habit, windows, len(covered) == len(gaps))
     if best is None or best[0] > 90:
         return {"found": None, "found_text": None, "match": "no"}
-    score, habit, w = best
-    when = f"{w.get('earliest')}–{w.get('latest')}" if w.get("earliest") and w.get("latest") else w.get("usual")
-    text = " · ".join(str(x) for x in (habit.get("name") or habit.get("id"), (habit.get("recurrence") or {}).get("text"), when) if x)
-    return {"found": habit.get("id"), "found_text": text, "match": "yes" if score <= 30 else "partly"}
+    score, habit, windows, whole = best
+    return {"found": habit.get("id"), "found_text": _habit_text(habit, windows),
+            "match": "yes" if score <= 30 and whole else "partly"}
+
+
+def _habit_text(habit: dict, windows) -> str:
+    """"Waking up · every day · mon–fri 06:42–07:26, sat, sun 08:25–09:15"."""
+    when = ", ".join(f"{_days_words(w.get('days'))} {w.get('earliest')}–{w.get('latest')}"
+                     for w in windows or [] if isinstance(w, dict) and w.get("earliest") and w.get("latest"))
+    who = (habit.get("person") or {}).get("name") if isinstance(habit.get("person"), dict) else None
+    return " · ".join(str(x) for x in (habit.get("name") or habit.get("id"), who,
+                                        (habit.get("recurrence") or {}).get("text"), when) if x)
+
+
+def _days_words(days) -> str:
+    days = list(days or [])
+    if days == ["mon", "tue", "wed", "thu", "fri"]:
+        return "weekdays"
+    if days == ["sat", "sun"]:
+        return "weekends"
+    if len(days) == 7:
+        return "every day"
+    return ", ".join(d[:1].upper() + d[1:] for d in days)
 
 
 def _minute(hhmm) -> int | None:
