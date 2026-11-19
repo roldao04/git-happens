@@ -50,6 +50,7 @@ HORIZON_H = 24  # how far ahead decisions are planned
 DO_AT = 0.75  # confidence from which Alfred acts instead of suggesting (docs/habits-plan.md)
 MIN_CONFIDENCE = 0.4  # below this a new decision isn't even suggested (it would be noise)
 MAX_LATE_MIN = 15  # a "do" decision found this late (the loop was down) is skipped, never run late
+PERSON_LATE_MIN = 120  # ...unless a person said yes to it (the phone app): then it may still run this late
 SAME_MOMENT_MIN = 20  # two habits asking for the same lamp action this close together: one decision
 HOLD_H = 12  # an occasion that explains a habit makes its decisions this far ahead less sure
 NIGHT_QUIET_H = 4  # a quiet that starts when the light goes off and lasts this long is the night (or away)
@@ -282,6 +283,11 @@ def _upsert(db: sqlite3.Connection, key: str, decision: dict, meta: dict) -> dic
     if old.data.get("status") != "planned":
         return old.data  # it ran (or was dropped): kept as it was
     new = {**decision, "id": old.id}
+    person = old.meta.get("person")
+    if isinstance(person, dict):  # a person answered it (set_by_person): their answer stands
+        meta = {**meta, "person": person}
+        if person.get("answer") == "yes":
+            new["mode"] = "do"
     if new != old.data:
         db.execute("UPDATE decisions SET ts = ?, data = ?, meta = ? WHERE id = ?",
                    (to_ms(datetime.fromisoformat(new["at"])), json.dumps(new), json.dumps(meta), old.id))
@@ -534,7 +540,8 @@ async def _run_one(d: dict, m: dict, now: datetime, actuator: Actuator, types: d
                    readback_delay_s: float, db: sqlite3.Connection | None = None) -> tuple[str, str, list[dict]]:
     llm = d.get("kind") == "llm"  # the agent's proposal: no recipe, the guard's limits decide
     at, until = datetime.fromisoformat(d["at"]), parse_moment(m.get("until"))
-    if now > at + timedelta(minutes=MAX_LATE_MIN) or (until is not None and now >= until):
+    late = timedelta(minutes=PERSON_LATE_MIN if (m.get("person") or {}).get("answer") == "yes" else MAX_LATE_MIN)
+    if now > at + late or (until is not None and now >= until):
         return "skipped", "skipped: too late", []
     today = (statuses.get(d.get("habit_id") or "") or {})
     if not llm and (today.get("status") or today.get("today")) in ("done", "partly", "now"):  # learn.grouping
@@ -684,6 +691,64 @@ def decisions_between(db: sqlite3.Connection, start: datetime, end: datetime, *,
     except Exception:
         log.exception("reading decisions failed")
         return []
+
+
+def rows_between(db: sqlite3.Connection, start: datetime, end: datetime) -> list[tuple[dict, dict]]:
+    """Decisions due in [start, end) with their meta (what ran, a person's answer), soonest first."""
+    try:
+        if not has_table(db, "decisions"):
+            return []
+        return [(r.data, r.meta) for r in _rows(db, "ts >= ? AND ts < ?", (to_ms(as_local(start)), to_ms(as_local(end))))]
+    except Exception:
+        log.exception("reading decisions failed")
+        return []
+
+
+def decision_row(db: sqlite3.Connection, decision_id: str) -> tuple[dict, dict] | None:
+    """One decision and its meta, or None."""
+    if not has_table(db, "decisions"):
+        return None
+    rows = _rows(db, "id = ?", (decision_id,))
+    return (rows[0].data, rows[0].meta) if rows else None
+
+
+ANSWERS = ("skip", "unskip", "yes", "no", "undo")
+
+
+def set_by_person(db: sqlite3.Connection, decision_id: str, answer: str, now: datetime) -> dict | None:
+    """A person's answer to one of Alfred's decisions, from the phone app (source/phone_api.py):
+    "skip" a planned "do" one (not today), "unskip" it again, "yes" or "no" to a "suggest" one, or
+    "undo" one that ran (the writes back are the app's). Returns the decision with `answer`, or None
+    when there is no such decision or it can't take that answer now (already ran, not a suggestion)."""
+    if answer not in ANSWERS:
+        raise ValueError(f"answer must be one of {', '.join(ANSWERS)}")
+    found = decision_row(db, decision_id)
+    if found is None:
+        return None
+    d, m = found
+    status, mode = d.get("status"), d.get("mode")
+    if answer == "skip" and not (status == "planned" and mode == "do"):
+        return None
+    if answer == "unskip" and not (status == "skipped" and (m.get("person") or {}).get("answer") == "skip"):
+        return None
+    if answer in ("yes", "no") and not (status == "planned" and mode == "suggest"):
+        return None
+    if answer == "undo" and status != "done":
+        return None
+    if answer == "skip" or answer == "no":
+        d["status"] = "skipped"
+        m["ran"] = {"at": _iso(as_local(now)), "why": "skipped by a person" if answer == "skip" else "declined by a person",
+                    "actions": []}
+    elif answer == "unskip":
+        d["status"] = "planned"
+        m.pop("ran", None)
+    elif answer == "yes":
+        d["mode"] = "do"
+    m["person"] = {"at": _iso(as_local(now)), "answer": None if answer == "unskip" else answer}
+    db.execute("UPDATE decisions SET data = ?, meta = ? WHERE id = ?", (json.dumps(d), json.dumps(m), decision_id))
+    db.commit()
+    log.info("decision %s: a person answered %s", decision_id, answer, extra={"data": {"decision": d, "answer": answer}})
+    return {**d, "answer": m["person"]["answer"]}
 
 
 def optional(module: str, name: str):
