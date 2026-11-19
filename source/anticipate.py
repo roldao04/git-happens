@@ -15,10 +15,16 @@ on every tick.
   light step's share × (1 − the confidence of an occasion going on now that explains the habit);
   for adapt, the match's confidence. Both are capped by the evidence factor n / (n + 1). At DO_AT
   (0.75) or more the mode is "do", below it "suggest" (shown and logged, never sent).
+- decide(db, now, proposals): the agent's proposals (docs/demo-plan.md C9) as decisions of kind
+  "llm". Code sets their confidence: the wake's `base` (source/wake.py) × (1 − the LLM's
+  `doubt`), so the LLM can only lower it. 0.75 or more is "do", below is "suggest"; a future
+  `at` is planned and run when due.
 - run_due(db, now, actuator, types, fresh): carries out the due "do" decisions. Each write goes
-  through actions.run_actions → guard.guarded_write, offered only the lamp as a writable device,
-  so a decision can never touch the plug (and the guard never switches it on anyway). Each
-  decision ends done, failed or skipped, with why. Never raises.
+  through actions.run_actions → guard.guarded_write. A prepare decision is offered only the
+  lamp as a writable device, so it can never touch the plug. An llm decision may also switch a
+  plug off or set the thermostat, within the guard's limits (C7, guard.Heat built here by
+  heat_now); the guard never switches a plug on. Each decision ends done, failed or skipped,
+  with why. Never raises.
 
 Missing parts are read defensively: without the `habits` table, `sensors` or the occasions
 learner, the plan is just smaller (or empty).
@@ -32,7 +38,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from .actions import Actuator, resolve_targets, run_actions
-from .guard import READ_TOOL, WRITE_TOOL
+from .guard import PERSON_HOLD_MIN, READ_TOOL, WRITE_TOOL, Heat
 from .learn import to_ms
 from .learn.forecast import (active_habits, as_local, clip, habit_name, has_table, hhmm, number, parse_moment,
                              upcoming)
@@ -47,6 +53,9 @@ MAX_LATE_MIN = 15  # a "do" decision found this late (the loop was down) is skip
 SAME_MOMENT_MIN = 20  # two habits asking for the same lamp action this close together: one decision
 HOLD_H = 12  # an occasion that explains a habit makes its decisions this far ahead less sure
 NIGHT_QUIET_H = 4  # a quiet that starts when the light goes off and lasts this long is the night (or away)
+LLM_HORIZON_H = 24  # a proposal further ahead than this is dropped (the wake will come again)
+LLM_WRITABLE = ("bulb", "plug", "thermostat")  # what an llm decision may change (the guard has the rules)
+ALFRED_WRITE_LAG_MIN = 15  # a thermostat change this soon after Alfred wrote that value was Alfred's
 
 
 @dataclass(frozen=True)
@@ -294,6 +303,70 @@ def _drop_unexpected(db: sqlite3.Connection, now: datetime, keys: set[str]) -> N
         log.info("decision %s dropped: no longer expected", data.get("id"), extra={"data": {"decision": data}})
 
 
+# ---------- the agent's proposals ----------
+
+def decide(db: sqlite3.Connection, now: datetime, proposals: list) -> list[dict]:
+    """The agent's proposals as decisions (kind "llm"), returned as stored. Never raises.
+
+    Proposal: {"action": {"tool", "target", "args": {"body"}}, "at", "reason", "doubt", "wake"}.
+    The confidence is code's: the base of the wake it answers (source/wake.py, `wakes` table) ×
+    (1 − doubt). A proposal that answers no learned wake has base 0: it can only be a suggestion.
+    `at` in the past (or missing) means now; more than LLM_HORIZON_H ahead, the proposal is dropped.
+    An unusable proposal (no write, no target) is logged and dropped.
+    """
+    out: list[dict] = []
+    try:
+        now = as_local(now)
+        init(db)
+        for p in proposals or []:
+            try:
+                item = _proposal(db, now, p)
+            except Exception:
+                log.exception("proposal could not be read: %r", p)
+                continue
+            if item is not None and (d := _upsert(db, *item)):
+                out.append(d)
+        db.commit()
+    except Exception:
+        log.exception("deciding on proposals failed")
+    return out
+
+
+def _proposal(db: sqlite3.Connection, now: datetime, p) -> tuple[str, dict, dict] | None:
+    from .wake import wake_record  # wake.py reads this module: imported here, not at the top
+    action = p.get("action") if isinstance(p, dict) else None
+    args = action.get("args") if isinstance(action, dict) else None
+    body = args.get("body") if isinstance(args, dict) else None
+    target, device = (action or {}).get("target"), (args or {}).get("deviceId")
+    has_target = isinstance(target, str) and bool(target)  # a type, or "type:name" ("plug:tv")
+    if (not isinstance(body, dict) or not body.get("type") or (action or {}).get("tool") != WRITE_TOOL
+            or not (has_target or isinstance(device, str) and device)):
+        log.warning("proposal dropped: not a device write with a target: %r", p)
+        return None
+    clean = {"tool": WRITE_TOOL, "target": target if has_target else None,
+             "args": {"body": body} if has_target else {"deviceId": device, "body": body}}
+    at = parse_moment(p.get("at"))
+    if at is None or at < now:
+        at = now
+    if at > now + timedelta(hours=LLM_HORIZON_H):
+        log.warning("proposal dropped: %s is more than %d h ahead", _iso(at), LLM_HORIZON_H)
+        return None
+    raw = p.get("doubt")
+    doubt = 0.0 if raw is None else clip(number(raw)) if number(raw) is not None else 1.0  # unreadable: no trust
+    key = p.get("wake") if isinstance(p.get("wake"), str) else None
+    wake = wake_record(db, key) or {}
+    base = clip(number(wake.get("base")) or 0.0)
+    reason = " ".join(str(p.get("reason") or "").split())[:400] or "(no reason given)"
+    decision = _decision(at, "llm", wake.get("habit_id"), wake.get("occasion_id"), clean, None,
+                         base * (1 - doubt), reason)
+    decision["wake"] = key
+    # one per wake, device, field and value: warming 16 → 21 °C takes two steps (3 °C a write)
+    what = clean["target"] or device
+    dkey = f"llm:{key or _iso(now)}:{what}:{body.get('type')}:{body.get('value')}"
+    return dkey, decision, {"recipe": "llm", "base": round(base, 3), "doubt": round(doubt, 3),
+                            "arrival": wake.get("arrival")}
+
+
 def _stored(db: sqlite3.Connection, prefix: str) -> list[tuple[str, dict, dict]]:
     """The planned decisions whose key starts with `prefix`, as (key, decision, meta)."""
     return [(r.key, r.data, r.meta) for r in _rows(db, "key LIKE ? AND data LIKE ?", (prefix + "%", PLANNED))
@@ -432,7 +505,7 @@ async def run_due(db: sqlite3.Connection, now: datetime, actuator: Actuator, typ
                 if statuses is None and d.get("habit_id"):
                     statuses = habit_statuses(db, now)
                 status, why, actions = await _run_one(d, m, now, actuator, types, fresh, state, statuses or {},
-                                                      readback_delay_s)
+                                                      readback_delay_s, db)
             d["status"] = status
             m["ran"] = {"at": _iso(now), "why": why, "actions": actions}
             db.execute("UPDATE decisions SET data = ?, meta = ? WHERE id = ?", (json.dumps(d), json.dumps(m), _id))
@@ -454,28 +527,38 @@ async def run_due(db: sqlite3.Connection, now: datetime, actuator: Actuator, typ
 
 async def _run_one(d: dict, m: dict, now: datetime, actuator: Actuator, types: dict[str, str],
                    fresh: dict[str, list[str]], state: State | None, statuses: dict[str, dict],
-                   readback_delay_s: float) -> tuple[str, str, list[dict]]:
+                   readback_delay_s: float, db: sqlite3.Connection | None = None) -> tuple[str, str, list[dict]]:
+    llm = d.get("kind") == "llm"  # the agent's proposal: no recipe, the guard's limits decide
     at, until = datetime.fromisoformat(d["at"]), parse_moment(m.get("until"))
     if now > at + timedelta(minutes=MAX_LATE_MIN) or (until is not None and now >= until):
         return "skipped", "skipped: too late", []
     today = (statuses.get(d.get("habit_id") or "") or {})
-    if (today.get("status") or today.get("today")) in ("done", "partly", "now"):  # source.learn.grouping
+    if not llm and (today.get("status") or today.get("today")) in ("done", "partly", "now"):  # learn.grouping
         return "skipped", "skipped: it already happened today", []
-    ready, missing = resolve_targets([d["action"]], fresh)
+    names = {r.device_id: r.device for r in (state or {}).values()}
+    ready, missing = resolve_targets([d["action"]], fresh, names)
     if missing:
         return "skipped", f"skipped: {missing[0]['result']}", missing
     device = ready[0]["args"].get("deviceId")
+    if device not in {i for ids in fresh.values() for i in ids}:  # an llm decision naming a device id
+        return "skipped", f"skipped: device {device!r} isn't reporting", []
     if types.get(device) == "bulb" and m.get("only_if"):
         why = _unmet(m["only_if"], await _lamp_now(device, state, actuator))
         if why:
             return "skipped", why, []
-    # The guard is offered only the lamp: a decision can't change anything else, even plug off.
-    writable = {dev: t for dev, t in types.items() if t == "bulb"}
-    actions = await run_actions(actuator, f"decision:{d['id']}", ready, writable, readback_delay_s=readback_delay_s)
+    heat = None
+    if llm:
+        writable = {dev: t for dev, t in types.items() if t in LLM_WRITABLE}
+        if types.get(device) == "thermostat":
+            heat = heat_now(db, state, now, m.get("arrival"))
+    else:  # a prepare decision is offered only the lamp: it can't change anything else, even plug off
+        writable = {dev: t for dev, t in types.items() if t == "bulb"}
+    actions = await run_actions(actuator, f"decision:{d['id']}", ready, writable, heat=heat,
+                                readback_delay_s=readback_delay_s)
     a = actions[0]
     if a["status"] == "sent":
         return "done", ("sent and confirmed" if a["verified"] == "confirmed"
-                        else "sent, but the lamp didn't confirm it"), actions
+                        else f"sent, but the {'device' if llm else 'lamp'} didn't confirm it"), actions
     if a["status"] == "blocked":
         return "skipped", a["result"], actions
     return "failed", f"failed: {str(a['result'])[:200]}", actions
@@ -508,6 +591,77 @@ def _unmet(only_if: dict, lamp: dict) -> str | None:
         if b is not None and b <= only_if["brightness_above"]:
             return f"skipped: the lamp is already at {b:g} %"
     return None
+
+
+def heat_now(db: sqlite3.Connection | None, state: State | None, now: datetime, arrival=None) -> Heat:
+    """What the guard needs to judge a thermostat write (guard.Heat): its target now (from the poll),
+    whether a known phone is home, the forecast arrival the write prepares for, Alfred's last write
+    to it (its decisions that ran) and the last change a person made (a change in `events` that
+    no write of Alfred's explains)."""
+    from .wake import someone_home  # wake.py reads this module: imported here, not at the top
+    now_ms = to_ms(now)
+    readings = [r for r in (state or {}).values() if r.device_type == "thermostat"]
+    ids = {r.device_id for r in readings}
+    target = next((number(r.value) for r in readings if r.capability == "targetTemperature"), None)
+    arrival_at = parse_moment(arrival)
+    heat = Heat(now_ms, target=target, someone_home=someone_home(state) if state is not None else None,
+                arrival_ms=to_ms(arrival_at) if arrival_at else None)
+    if db is None or not ids:
+        return heat
+    since = now_ms - (PERSON_HOLD_MIN + ALFRED_WRITE_LAG_MIN) * 60_000
+    writes = _heat_writes(db, ids, since)
+    heat.last_write_ms = max((ts for ts, _, _ in writes), default=None)
+    heat.person_ms = _person_heat_ms(db, ids, now_ms - PERSON_HOLD_MIN * 60_000, writes)
+    return heat
+
+
+def _heat_writes(db: sqlite3.Connection, ids: set[str], since_ms: int) -> list[tuple[int, str, dict]]:
+    """Alfred's writes to these devices that were sent, since `since_ms`: (ms, device, body)."""
+    if not has_table(db, "decisions"):
+        return []
+    out = []
+    for r in _rows(db, "meta LIKE ?", ('%"ran"%',)):
+        ran = r.meta.get("ran") if isinstance(r.meta.get("ran"), dict) else {}
+        at = parse_moment(ran.get("at"))
+        if at is None or to_ms(at) < since_ms:
+            continue
+        for a in ran.get("actions") or []:
+            args = a.get("args") if isinstance(a, dict) else None
+            if isinstance(args, dict) and a.get("status") == "sent" and args.get("deviceId") in ids:
+                out.append((to_ms(at), args["deviceId"], args.get("body") or {}))
+    return out
+
+
+def _person_heat_ms(db: sqlite3.Connection, ids: set[str], since_ms: int,
+                    writes: list[tuple[int, str, dict]]) -> int | None:
+    """The last change to the thermostat's target or mode since `since_ms` that Alfred didn't make."""
+    if not has_table(db, "events"):
+        return None
+    marks = ",".join("?" * len(ids))
+    last = None
+    for ts, dev, cap, new in db.execute(
+            f"SELECT ts, device_id, capability, new FROM events WHERE kind = 'change' AND ts >= ?"
+            f" AND capability IN ('targetTemperature', 'mode') AND device_id IN ({marks})", (since_ms, *ids)):
+        value = _decoded(new)
+        alfred = any(w_dev == dev and body.get("type") == cap and _same(body.get("value"), value)
+                     and w_ts - 60_000 <= ts <= w_ts + ALFRED_WRITE_LAG_MIN * 60_000
+                     for w_ts, w_dev, body in writes)
+        if not alfred:
+            last = ts if last is None else max(last, ts)
+    return last
+
+
+def _decoded(v):
+    try:
+        return json.loads(v) if isinstance(v, str) else v
+    except ValueError:
+        return v
+
+
+def _same(a, b) -> bool:
+    if number(a) is not None and number(b) is not None:
+        return abs(number(a) - number(b)) < 1e-6
+    return a == b
 
 
 # ---------- reading decisions, and the other parts' learners ----------

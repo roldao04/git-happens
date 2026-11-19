@@ -4,9 +4,15 @@ StubAgent only logs what it was given. LangGraphAgent runs a small graph per wak
 
     START -> agent <-> tools (ToolNode) -> report -> END
 
-Contract (same for both): context dict in, {notes, trigger_updates, actions} out.
+Contract (same for both): context dict in, {notes, trigger_updates, actions, proposals} out.
 `actions` is built from the tool calls actually made, never taken from the LLM: every write
-goes through guard.guarded_write (allow-list, then read-back by code).
+goes through guard.guarded_write (allow-list, then read-back by code). `proposals` are what the
+LLM would do because of a learned wake (docs/demo-plan.md C9); code turns them into decisions
+and sets their confidence (source/anticipate.py, decide). The thermostat is changed only that
+way: the guard blocks the LLM's direct writes to it.
+
+Each model call goes through the reply cache (source/llm_cache.py, kind "agent") when the model
+has a name, so a replayed moment gets the same answer, instantly.
 """
 import json
 import logging
@@ -16,7 +22,8 @@ from typing import Annotated
 
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (AnyMessage, BaseMessage, HumanMessage, SystemMessage, message_to_dict,
+                                     messages_from_dict)
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
@@ -25,6 +32,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
+from . import llm_cache
 from .guard import WRITE_TOOL, guarded_write
 
 log = logging.getLogger("source.agent")
@@ -36,12 +44,18 @@ PROMPT_PATH = Path(__file__).parent / "prompts" / "agent.md"
 
 REPORT_ASK = ("Now give your final report. Reply with ONLY a JSON object, no other text: "
               '{"notes": "<short plain words: what you saw, what you did, whether it was confirmed>", '
-              '"trigger_updates": []}  (trigger_updates is usually empty).')
+              '"trigger_updates": [], '
+              '"proposals": [{"action": {"tool": "update_device_capabilities", "target": "<device type, or '
+              'type:name like plug:tv>", "args": {"body": {"type": "...", "value": ...}}}, '
+              '"at": "<YYYY-MM-DDTHH:MM:SS, when to do it>", "reason": "<one plain sentence>", '
+              '"doubt": <0 to 1>, "wake": "<the key of the wake it answers>"}]}  '
+              "(trigger_updates is usually empty; proposals only for a reason with a key, else []).")
 
 
 class Report(BaseModel):
     notes: str
     trigger_updates: list[dict] = []
+    proposals: list[dict] = []  # C9: code checks each one and sets its confidence
 
 
 class StubAgent:
@@ -52,7 +66,7 @@ class StubAgent:
                  extra={"data": {"reasons": ctx["reasons"], "events": ctx["events_since_last_run"]}})
         for line in ctx["events_since_last_run"][-10:]:
             log.debug("  %s", line)
-        return {"notes": "stub", "trigger_updates": [], "actions": []}
+        return {"notes": "stub", "trigger_updates": [], "actions": [], "proposals": []}
 
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
@@ -74,16 +88,40 @@ class _State(TypedDict):
     report: Report | None
 
 
+def _plain(m: BaseMessage) -> dict:
+    """A message as the cache key sees it: no ids (the graph gives each message a random one)."""
+    out = {"type": m.type, "content": m.content}
+    for k in ("tool_calls", "tool_call_id", "name"):
+        v = getattr(m, k, None)
+        if v:
+            out[k] = [{"name": c.get("name"), "args": c.get("args"), "id": c.get("id")} for c in v] \
+                if k == "tool_calls" else v
+    return out
+
+
+async def invoke(runnable, messages: list[BaseMessage], name: str | None, tools: list[str]) -> BaseMessage:
+    """runnable.ainvoke(messages), through the reply cache when the model has a name."""
+    if name is None:
+        return await runnable.ainvoke(messages)
+
+    async def call() -> str:
+        return json.dumps(message_to_dict(await runnable.ainvoke(messages)), default=str)
+
+    payload = {"model": name, "tools": sorted(tools), "messages": [_plain(m) for m in messages]}
+    return messages_from_dict([json.loads(await llm_cache.acached("agent", payload, call))])[0]
+
+
 def build_graph(model: BaseChatModel, tools: list[BaseTool]):
     llm = model.bind_tools(tools) if tools else model
+    name, tool_names = llm_cache.model_name(model), [t.name for t in tools]
 
     async def agent(state: _State):
-        return {"messages": [await llm.ainvoke(state["messages"])]}
+        return {"messages": [await invoke(llm, state["messages"], name, tool_names)]}
 
     async def report(state: _State):
         # Plain JSON-in-text, not with_structured_output: providers differ in what they support
         # (e.g. Meta's endpoint accepts only tool_choice "auto" and only closed JSON schemas).
-        msg = await model.ainvoke(state["messages"] + [HumanMessage(REPORT_ASK)])
+        msg = await invoke(model, state["messages"] + [HumanMessage(REPORT_ASK)], name, [])
         return {"report": parse_report(_text(msg.content))}
 
     g = StateGraph(_State)
@@ -111,11 +149,16 @@ def _text(content) -> str:
 
 
 def parse_report(text: str) -> Report:
-    """The first {...} in the reply as a Report; if that fails, the whole reply becomes the notes."""
+    """The first {...} in the reply as a Report; if that fails, the whole reply becomes the notes.
+    Proposals that aren't objects are left out (code checks the rest, source/anticipate.py)."""
     start, end = text.find("{"), text.rfind("}")
     if start != -1 and end > start:
         try:
-            return Report.model_validate(json.loads(text[start:end + 1]))
+            data = json.loads(text[start:end + 1])
+            if isinstance(data, dict):
+                got = data.get("proposals")
+                data["proposals"] = [p for p in got if isinstance(p, dict)] if isinstance(got, list) else []
+            return Report.model_validate(data)
         except ValueError:
             pass
     return Report(notes=text.strip())
@@ -211,5 +254,6 @@ class LangGraphAgent:
         if limit_hit or rep is None:
             notes = (f"Stopped: reached the step limit ({self.max_steps}) before finishing. "
                      f"{len(actions)} change(s) were sent; none can be assumed confirmed.")
-            return {"notes": notes, "trigger_updates": [], "actions": actions}
-        return {"notes": rep.notes, "trigger_updates": rep.trigger_updates, "actions": actions}
+            return {"notes": notes, "trigger_updates": [], "actions": actions, "proposals": []}
+        return {"notes": rep.notes, "trigger_updates": rep.trigger_updates, "actions": actions,
+                "proposals": rep.proposals}

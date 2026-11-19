@@ -28,6 +28,7 @@ from source.learn.today import baselines as pattern_baselines
 from source.loop import run
 from source.normalize import normalize
 from source.sources import ReplaySource
+from source.store import SCHEMA as STORE_SCHEMA
 from source.store import Store
 from source.triggers import Triggers, seed_triggers
 
@@ -541,6 +542,164 @@ LIGHT = "90654832-7bca-47dd-89f3-d6e0b5f0a9ee"
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "get_home.json").read_text())
 T0 = 1794625400000  # 14 Nov 03:03:20 in Lisbon
 STEP = 20_000
+
+
+class FakeHome:
+    """The MCP tools over a thermostat, three plugs and a lamp; each device reports after a write."""
+
+    def __init__(self, target=16.0):
+        self.caps = {"th-1": {"targetTemperature": target, "mode": "heat"},
+                     "p-tv": {"power": "on"}, "p-kettle": {"power": "off"}, BULB: {"power": "off"}}
+        self.ts = 1000
+        self.calls: list[tuple[str, dict]] = []
+
+    @property
+    def writes(self) -> list[dict]:
+        return [args for tool, args in self.calls if tool == "update_device_capabilities"]
+
+    async def call(self, tool: str, args: dict) -> str:
+        self.calls.append((tool, args))
+        caps = self.caps[args["deviceId"]]
+        if tool == "update_device_capabilities":
+            caps[args["body"]["type"]] = args["body"]["value"]
+            self.ts += 1000
+            return "{}"
+        return json.dumps({"lastCommunicationTime": self.ts,
+                           "capabilities": [{"type": k, "value": v} for k, v in caps.items()]})
+
+    def state(self, phones=()):
+        from source.model import Reading
+        s = {}
+        for dev, typ, name in (("th-1", "thermostat", "Thermostat"), ("p-tv", "plug", "TV"),
+                               ("p-kettle", "plug", "Kettle"), (BULB, "bulb", "Light")):
+            for cap, v in self.caps[dev].items():
+                s[(dev, cap)] = Reading(dev, name, cap, v, 1, typ)
+        clients = [{"id": p, "name": f"{p}'s phone", "kind": "phone", "known": True} for p in phones]
+        s[("rt-1", "connectedClients")] = Reading("rt-1", "Router", "connectedClients", json.dumps(clients), 1,
+                                                  "router")
+        return s
+
+
+HOME_TYPES = {"th-1": "thermostat", "p-tv": "plug", "p-kettle": "plug", BULB: "bulb", "rt-1": "router"}
+HOME_FRESH = {"thermostat": ["th-1"], "plug": ["p-tv", "p-kettle"], "bulb": [BULB], "router": ["rt-1"]}
+THURSDAY = datetime(2026, 11, 19, 18, 10)
+WAKE_KEY = "habit_soon:habit-4:2026-11-19"
+
+
+def proposal(value=19, at="2026-11-19T18:10:00", doubt=0.0, wake=WAKE_KEY, target="thermostat",
+             typ="targetTemperature", reason="Ana usually gets home at 18:40 on Thursdays."):
+    return {"action": {"tool": "update_device_capabilities", "target": target,
+                       "args": {"body": {"type": typ, "value": value}}},
+            "at": at, "reason": reason, "doubt": doubt, "wake": wake}
+
+
+class DecideTest(Isolated):
+    """The agent's proposals (C9): code sets the confidence, the guard has the last word (C7)."""
+
+    def setUp(self):
+        super().setUp()
+        self.db = sqlite3.connect(":memory:")
+        self.db.executescript(STORE_SCHEMA)  # events, as the loop stores them
+        from source import wake
+        wake.init(self.db)
+        self.db.execute("INSERT INTO wakes VALUES (?, ?, ?)", (WAKE_KEY, to_ms(THURSDAY), json.dumps(
+            {"kind": "habit_soon", "base": 0.9, "habit_id": "habit-4", "occasion_id": None,
+             "arrival": "2026-11-19T18:40:00", "reason": "Ana gets home soon", "data": {}})))
+        self.home = FakeHome()
+
+    def run_at(self, when, phones=()):
+        return asyncio.run(run_due(self.db, when, self.home, HOME_TYPES, HOME_FRESH,
+                                   state=self.home.state(phones)))
+
+    def test_confidence_is_base_times_one_minus_doubt(self):
+        sure, doubtful, unknown, unreadable = anticipate.decide(self.db, THURSDAY, [
+            proposal(19), proposal(20, doubt=0.3), proposal(18, wake="heartbeat"), proposal(17, doubt="a bit")])
+        self.assertEqual(set(sure), DECISION_SHAPE | {"wake"})
+        self.assertEqual((sure["kind"], sure["habit_id"], sure["wake"]), ("llm", "habit-4", WAKE_KEY))
+        self.assertEqual((sure["confidence"], sure["mode"], sure["status"]), (0.9, "do", "planned"))
+        self.assertEqual(sure["reason"], "Ana usually gets home at 18:40 on Thursdays.")
+        self.assertEqual((doubtful["confidence"], doubtful["mode"]), (0.63, "suggest"))
+        self.assertEqual((unknown["confidence"], unknown["mode"]), (0.0, "suggest"))  # not a learned wake
+        self.assertEqual((unreadable["confidence"], unreadable["mode"]), (0.0, "suggest"))
+
+    def test_the_llm_cannot_raise_it(self):
+        (d,) = anticipate.decide(self.db, THURSDAY, [{**proposal(), "doubt": -2, "confidence": 1.0}])
+        self.assertEqual(d["confidence"], 0.9)
+
+    def test_unusable_or_far_proposals_are_dropped(self):
+        bad = [{"action": {"tool": "patch_home_security_status", "target": "security", "args": {"body": {}}}},
+               {"action": {"tool": "update_device_capabilities", "args": {"body": {"type": "power"}}}},
+               "turn on the heating", proposal(at="2026-11-21T18:00:00")]
+        with self.assertLogs("source.anticipate", "WARNING"):
+            self.assertEqual(anticipate.decide(self.db, THURSDAY, bad), [])
+
+    def test_now_runs_now_and_a_future_at_waits(self):
+        now, later = anticipate.decide(self.db, THURSDAY, [proposal(19, at="2026-11-19T17:00:00"),
+                                                           proposal(21, at="2026-11-19T18:25:00")])
+        self.assertEqual((now["at"], later["at"]), ("2026-11-19T18:10:00", "2026-11-19T18:25:00"))
+        (r,) = self.run_at(THURSDAY)  # nobody home yet, but Ana is forecast at 18:40: warming ahead is allowed
+        self.assertEqual((r["decision"]["status"], r["why"]), ("done", "sent and confirmed"))
+        self.assertEqual(self.home.writes, [{"deviceId": "th-1", "body": {"type": "targetTemperature", "value": 19}}])
+        self.assertEqual(self.run_at(THURSDAY + timedelta(minutes=5)), [])  # 21 is planned for 18:25
+        (r,) = self.run_at(datetime(2026, 11, 19, 18, 25))
+        self.assertEqual(r["decision"]["status"], "done")
+        self.assertEqual(self.home.caps["th-1"]["targetTemperature"], 21)
+
+    def test_suggestions_are_never_sent(self):
+        anticipate.decide(self.db, THURSDAY, [proposal(19, doubt=0.5)])
+        self.assertEqual(self.run_at(THURSDAY), [])
+        self.assertEqual(self.home.writes, [])
+
+    def test_the_guard_limits_still_apply(self):
+        anticipate.decide(self.db, THURSDAY, [proposal(21)])  # 16 → 21 in one write: more than 3 °C
+        (r,) = self.run_at(THURSDAY)
+        self.assertEqual(r["decision"]["status"], "skipped")
+        self.assertIn("3 °C", r["why"])
+        self.assertEqual(self.home.writes, [])
+
+    def test_one_write_per_10_min(self):
+        anticipate.decide(self.db, THURSDAY, [proposal(19), proposal("eco", typ="mode", at="2026-11-19T18:15:00")])
+        self.run_at(THURSDAY)
+        (r,) = self.run_at(datetime(2026, 11, 19, 18, 15))
+        self.assertIn("10 min", r["why"])
+        self.assertEqual(len(self.home.writes), 1)
+
+    def test_a_person_changed_it_alfred_waits_2_h(self):
+        self.db.execute("INSERT INTO events (ts, device_id, device, capability, kind, old, new) VALUES"
+                        " (?, 'th-1', 'Thermostat', 'targetTemperature', 'change', '16.0', '17.0')",
+                        (to_ms(THURSDAY - timedelta(minutes=50)),))
+        anticipate.decide(self.db, THURSDAY, [proposal(19)])
+        (r,) = self.run_at(THURSDAY, phones=("c-8f3a",))
+        self.assertIn("person", r["why"])
+        self.assertEqual(self.home.writes, [])
+
+    def test_alfreds_own_change_is_not_a_persons(self):
+        anticipate.decide(self.db, THURSDAY, [proposal(19)])
+        self.run_at(THURSDAY)
+        self.db.execute("INSERT INTO events (ts, device_id, device, capability, kind, old, new) VALUES"
+                        " (?, 'th-1', 'Thermostat', 'targetTemperature', 'change', '16.0', '19')",
+                        (to_ms(THURSDAY + timedelta(seconds=20)),))
+        h = anticipate.heat_now(self.db, self.home.state(), THURSDAY + timedelta(minutes=11))
+        self.assertIsNone(h.person_ms)
+        self.assertEqual(h.last_write_ms, to_ms(THURSDAY))
+        self.assertEqual((h.target, h.someone_home), (19, False))
+
+    def test_never_above_18_when_nobody_is_home_or_expected(self):
+        (d,) = anticipate.decide(self.db, THURSDAY, [proposal(19, wake="heartbeat", doubt=0)])
+        self.db.execute("UPDATE decisions SET data = ?", (json.dumps({**d, "mode": "do"}),))  # even if it were sure
+        (r,) = self.run_at(THURSDAY)
+        self.assertIn("no one is home", r["why"])
+
+    def test_plug_off_by_name_but_never_on(self):
+        self.db.execute("INSERT INTO wakes VALUES ('departure:c-8f3a:2026-11-19:18', 0, ?)",
+                        (json.dumps({"kind": "departure", "base": 0.8}),))
+        anticipate.decide(self.db, THURSDAY, [
+            proposal("off", target="plug:tv", typ="power", wake="departure:c-8f3a:2026-11-19:18"),
+            proposal("on", target="plug:kettle", typ="power", wake="departure:c-8f3a:2026-11-19:18")])
+        results = {r["decision"]["action"]["target"]: r for r in self.run_at(THURSDAY)}
+        self.assertEqual(results["plug:tv"]["decision"]["status"], "done")
+        self.assertEqual(results["plug:kettle"]["why"], "blocked: switching the plug on needs a person's approval")
+        self.assertEqual(self.home.writes, [{"deviceId": "p-tv", "body": {"type": "power", "value": "off"}}])
 
 
 class RecordingAgent:

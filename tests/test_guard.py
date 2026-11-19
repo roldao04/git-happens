@@ -1,6 +1,6 @@
 import unittest
 
-from source.guard import check_write, verify
+from source.guard import Heat, check_write, verify
 
 BULB, PLUG, CAMERA, HUB = "bulb-1", "plug-1", "cam-1", "hub-1"
 DEVICES = {BULB: "bulb", PLUG: "plug", CAMERA: "camera", HUB: "gateway", "home-security": "security"}
@@ -62,6 +62,73 @@ class CheckWriteTest(unittest.TestCase):
     def test_missing_body_or_type_blocked(self):
         self.assertIsNotNone(check({"deviceId": BULB}))
         self.assertIsNotNone(check(write(BULB, value="on")))
+
+
+TH = "th-1"
+NOW_MS = 1_800_000_000_000
+MIN = 60_000
+
+
+def heat(**kw):
+    return Heat(**{"now_ms": NOW_MS, "target": 18.0, "someone_home": True, **kw})
+
+
+def thermo(value, typ="targetTemperature", **kw):
+    return check_write(write(TH, type=typ, value=value), {**DEVICES, TH: "thermostat"}, allow_plug_on=False,
+                       heat=heat(**kw))
+
+
+class ThermostatTest(unittest.TestCase):
+    """docs/demo-plan.md C7: the limits are code's, not the prompt's."""
+
+    def test_within_limits(self):
+        self.assertIsNone(thermo(21))
+        self.assertIsNone(thermo(16.5))
+        self.assertIsNone(thermo("eco", typ="mode"))
+
+    def test_range_16_to_23(self):
+        self.assertIsNotNone(thermo(15.5, target=16))
+        self.assertIsNotNone(thermo(23.5, target=22))
+        self.assertIsNotNone(thermo("21"))
+        self.assertIsNotNone(thermo("boost", typ="mode"))
+
+    def test_at_most_3_degrees_per_write(self):
+        self.assertIn("3 °C", thermo(21.5, target=18))
+        self.assertIsNone(thermo(21, target=18))
+        self.assertIn("unknown", thermo(20, target=None))
+
+    def test_never_above_18_with_no_one_home(self):
+        self.assertIn("no one is home", thermo(19, someone_home=False))
+        self.assertIn("no one is home", thermo(19, someone_home=None))
+        self.assertIsNone(thermo(18, someone_home=False))
+        # ...unless it warms the house ahead of a forecast arrival
+        self.assertIsNone(thermo(21, someone_home=False, arrival_ms=NOW_MS + 25 * MIN))
+        self.assertIsNotNone(thermo(21, someone_home=False, arrival_ms=NOW_MS + 5 * 60 * MIN))
+        self.assertIsNotNone(thermo(21, someone_home=False, arrival_ms=NOW_MS - 5 * MIN))
+
+    def test_one_write_per_10_min(self):
+        self.assertIn("10 min", thermo(20, last_write_ms=NOW_MS - 9 * MIN))
+        self.assertIsNone(thermo(20, last_write_ms=NOW_MS - 11 * MIN))
+
+    def test_a_person_wins_for_2_h(self):
+        self.assertIn("person", thermo(20, person_ms=NOW_MS - 119 * MIN))
+        self.assertIn("person", thermo("eco", typ="mode", person_ms=NOW_MS - 30 * MIN))
+        self.assertIsNone(thermo(20, person_ms=NOW_MS - 121 * MIN))
+
+    def test_a_person_asking_skips_the_rate_and_hold(self):
+        devices = {TH: "thermostat"}
+        self.assertIsNone(check_write(write(TH, type="targetTemperature", value=20), devices, allow_plug_on=True,
+                                      heat=heat(person_ms=NOW_MS - MIN, last_write_ms=NOW_MS - MIN)))
+
+    def test_no_heat_no_write(self):
+        """The LLM's own tool calls carry no Heat: the thermostat is changed only through proposals."""
+        self.assertIn("proposal", check_write(write(TH, type="targetTemperature", value=20), {TH: "thermostat"},
+                                              allow_plug_on=False))
+
+    def test_thermostat_fields_only(self):
+        self.assertIsNotNone(thermo(50, typ="brightness"))
+        self.assertIsNotNone(check_write(write(BULB, type="targetTemperature", value=20), DEVICES,
+                                         allow_plug_on=False, heat=heat()))
 
 
 BLUE = {"type": "color_rgb", "redValue": 0, "greenValue": 0, "blueValue": 255}

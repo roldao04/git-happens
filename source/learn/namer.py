@@ -29,6 +29,8 @@ from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from .. import llm_cache
+
 log = logging.getLogger("source.learn.namer")
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
@@ -198,8 +200,8 @@ def _name(db: sqlite3.Connection, model, thing: _Thing, again: bool) -> list[dic
             request = {"devices": devices, "to_name": [see(s) for s in left],
                        "already_named": [{**see(s), "name": s["name"], "importance": s.get("importance")}
                                          for s in named + done]}
-            reply = model.invoke([SystemMessage(prompt), HumanMessage(json.dumps(request))])
-            cards |= parse_cards(_content(reply), {s["id"] for s in left},
+            text = _ask(model, prompt, request)
+            cards |= parse_cards(text, {s["id"] for s in left},
                                  {s["name"] for s in named} | {c["name"] for c in cards.values()})
     except Exception:  # the namer must never stop the learners
         log.exception("namer failed; %ss without a card keep their current names", thing.label)
@@ -221,6 +223,17 @@ def _name(db: sqlite3.Connection, model, thing: _Thing, again: bool) -> list[dic
     log.info("namer: named %d %s(s)%s", len(stored), thing.label, f", {missing} left unnamed" if missing else "",
              extra={"data": {"cards": stored}})
     return stored
+
+
+def _ask(model, prompt: str, request: dict) -> str:
+    """The LLM's reply, through the reply cache (source/llm_cache.py) when the model has a name."""
+    def call() -> str:
+        return _content(model.invoke([SystemMessage(prompt), HumanMessage(json.dumps(request))]))
+
+    name = llm_cache.model_name(model)
+    if name is None:
+        return call()
+    return llm_cache.cached("namer", {"model": name, "prompt": prompt, "request": request}, call)
 
 
 def name_sensors(db: sqlite3.Connection, model, *, again: bool = False) -> list[dict]:
