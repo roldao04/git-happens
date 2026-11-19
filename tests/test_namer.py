@@ -3,10 +3,13 @@
   uv run python -m unittest tests.test_namer -v
 """
 import json
+import os
 import sqlite3
+import tempfile
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
+from unittest import mock
 
 from langchain_core.messages import AIMessage
 
@@ -207,6 +210,32 @@ class HabitsAndOccasionsTest(unittest.TestCase):
         model = FakeModel()
         self.assertEqual(name_occasions(sqlite3.connect(":memory:"), model), [])
         self.assertEqual(model.requests, [])
+
+
+class NamedModel(FakeModel):
+    model_name = "test/namer"  # a model with a name goes through the reply cache (source/llm_cache.py)
+
+
+class CacheTest(unittest.TestCase):
+    def test_the_same_question_is_answered_from_the_cache(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"ALFRED_LLM_CACHE_DIR": tmp}):
+            os.environ.pop("ALFRED_LLM_CACHE", None)
+            first = NamedModel()
+            names = {c["id"]: c["name"] for c in name_sensors(learned_db(), first)}
+            self.assertTrue(first.requests)
+
+            os.environ["ALFRED_LLM_CACHE"] = "only"  # the demo: no network
+            again = NamedModel(namer=lambda f: "something else")
+            self.assertEqual({c["id"]: c["name"] for c in name_sensors(learned_db(), again)}, names)
+            self.assertEqual(again.requests, [])
+
+    def test_only_with_nothing_cached_names_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"ALFRED_LLM_CACHE_DIR": tmp, "ALFRED_LLM_CACHE": "only"}):
+            model = NamedModel()
+            with self.assertLogs("source.learn.namer", "ERROR"):
+                self.assertEqual(name_sensors(learned_db(), model), [])  # fails like a broken LLM: no names
+            self.assertEqual(model.requests, [])
 
 
 class ParseCardsTest(unittest.TestCase):

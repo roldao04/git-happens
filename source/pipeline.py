@@ -141,7 +141,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--truth", type=Path, help="also write the answer key (what was planted) as JSON")
     p.add_argument("--recording", type=Path, help="also write the run as the dashboard's recording (JSON)")
     p.add_argument("--name", action="store_true", help="name new sensors with the LLM at each day end (part 7)")
-    p.add_argument("--start", type=date.fromisoformat, default=DEFAULT_START, help="first day, YYYY-MM-DD")
+    p.add_argument("--start", type=date.fromisoformat, help="first day, YYYY-MM-DD (default: the household's own, "
+                   f"mostly {DEFAULT_START}; the demo house starts on 2026-09-21)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--interval", type=int, default=300, help="seconds between snapshots when nothing changes")
     args = p.parse_args(argv)

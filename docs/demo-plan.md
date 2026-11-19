@@ -198,5 +198,23 @@ Tests: `uv run python -m unittest discover -s tests -t . -v` (the full suite mus
 - Planted vs found: every planted rhythm has a row, most found.
 - With `ALFRED_LLM_CACHE=only` every moment opens instantly, with no network.
 
+## Status after part F (integration)
+Run: `uv run python -m source.demo --household demo` (about 17 min: 5 to learn the 60 days, then the 4 moment days lived through the loop; `--work DIR --reuse` re-lives only the moment days), then `ALFRED_LLM_CACHE=only uv run python -m source.simulate --serve`. Every moment's `/day`, `/learned`, `/knowledge`, `/thoughts`, `/planted` answers in under 25 ms from `data/demo/`. Seed 1, scripted replies (no model was configured):
+
+| Done item | Result |
+|---|---|
+| Waking up, weekday and weekend windows | every day, weekdays 07:08 (06:42–07:26), weekends 08:53 (08:25–09:15), confidence 0.90 |
+| Ana / João get home, as a person's habits | Ana: every weekday 18:38 (18:17–18:53), Ana's phone, 0.94 · João: Mon, Tue, Thu, Fri 19:28 (19:08–19:44), Tuesdays 20:54 (20:45–21:01), João's phone, 0.93 |
+| Friday night gathering with guests' phones | 4 episodes, Fridays, 6 guests' phones, 12 door openings, quiet from 01:38, confidence 0.80 |
+| Warm-up | 4.91 °C/h (1 °C in about 12 min), 100 samples, 0.92 |
+| Ana arrives (day 60) | `habit_soon` at 17:55 (base 0.82): 19 °C at 17:55, 21 °C at 18:06, both done. Her phone connects at 18:40:09 with the room at **21.2 °C**; before Alfred 18.3 °C, and 20 °C only at 19:05 |
+| Gathering (day 54) | `occasion` at 20:25 (0.75): heating down to 19 °C, done; the sentence says "tomorrow's warm-up moves from 08:10 to 09:37"; the knowledge tab's forecast for Saturday: Waking up moved 87 min, 08:55 → 10:22 |
+| Saturday morning (day 55) | `habit_soon` at 09:40 for the shifted 10:22 (0.83): 19 then 21 °C, done; usual time would have been ~08:10 |
+| Weekday morning (day 59) | `habit_soon` at 06:25: room 21.2 °C at 07:10 (before Alfred 18.6 °C) |
+| Planted vs found | 13 rows: 8 yes, 2 partly (João at home on Wednesdays, the heating rule), 3 no (Ana leaves, João leaves: steps inside Waking up; the occasional weekend outing) |
+| `ALFRED_LLM_CACHE=only` | the views never call a model; with a key, `source.demo` fills `data/llm-cache/` and a cache-only rerun replays it |
+
+**Where it differs from the plan**: the `habit_soon` for Ana comes ~45 min before 18:38, not 25–30 (a 30-min warm-up from 18.5 °C plus `EXTRA_LEAD_MIN` 15 for the two 3 °C steps); the occasion wake is at 20:25, not 20:35; the warm-up times are 08:10 → 09:37, not 08:05 → 09:30. Without `OPENROUTER_API_KEY` the LLM's sentences and the habits' names are scripted (labelled in the run and the panel). The missed morning (stretch goal) isn't built. Changes made to the parts are listed in docs/habits.md ("What the demo house taught"), docs/anticipation.md and docs/event-loop.md.
+
 ## Not in this demo
 The every-few-hours habit, monthly rhythms, slow drift, laundry advice, inferring an open window, the missed morning (a stretch goal for the 5-min version if time allows: a scripted day with no Waking up and a phone at home, giving a `habit_missing` wake).

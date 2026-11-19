@@ -33,13 +33,16 @@ while True:
     events = diff(prev_state, state, now)        # value changes + device went stale / came back
     store.save(snap, events)
 
+    anticipate.plan_decisions(...) every 5 min; anticipate.run_due(...)   # docs/anticipation.md
     fired = triggers.match(events, now, types)   # by device type, never a hard-coded id; includes the heartbeat
     for rule in fired with actions:              # hard rules: code runs them, no LLM
         run_actions(resolve_targets(rule.actions, fresh_by_type(state)))  # each write goes through the guard
     reasons = [r for r in fired if r.wake_agent]
+    reasons += wake.learned_wakes(db, now, state)  # habit soon, arrival, departure, habit missing, occasion
     if reasons:
         ctx = build_context(reasons, state, store, since=last_agent_run)
         out = agent.run(ctx)                     # LangGraph agent, or the stub
+        anticipate.decide(db, now, out.proposals); anticipate.run_due(...)  # code sets the confidence
         store.log_agent_run(ctx, out)
         triggers.apply_updates(out.trigger_updates)
 
@@ -47,6 +50,10 @@ while True:
     sleep_until_next_tick()                      # 20 s
 ```
 - Several reasons in one tick wake the agent **once**; unlocked triggers have a **cooldown** (2 min) so a flickering value doesn't spam the LLM.
+- **Learned wakes** ([`source/wake.py`](../source/wake.py), [`anticipation.md`](anticipation.md#waking-the-llm-and-acting-on-its-proposals-demo-part-d)) wake the agent from what was learned rather than from a raw change, each **once per key** (`habit_soon:<habit>:<date>`, `arrival:<phone>:<date>:<hh>`, ...), kept in the `wakes` table. A learned reason carries `kind`, `key` and `data` (the card, forecast, who is home, temperatures, warm-up, planned decisions). The agent answers with `proposals`; code gives each the wake's confidence × (1 − doubt), stores it as a decision and runs the due `do` ones in the same tick.
+- **Today's happenings**: each re-plan (every 5 min) first saves the happenings that ended since the last (`learn.happenings.save_happenings`), so the live occasion match and today's statuses see today, not only past nights. A state still held (a phone connected since 19:34) counts too, read from the events (`learn.storage.ongoing_happenings`).
+- **Alfred's own changes are his**: a change to the value Alfred (or a rule) just wrote, within 15 min, is stored with `source = "agent"` (or `scenario:<rule>`), so the happenings leave it out and his heating is never learned as the people's habit. New devices go into the `devices` table, as in ingest (a guest's phone has no name: that is how the learners tell it).
+- **Learned wakes** are looked for at most once a minute of home time (each look reads the forecast); `normalize(home, prev)` so a phone that left reads `off`.
 - A failed poll is recorded as a **gap**, never as "everything went to zero".
 - **Triggers match a device type** (`contactSensor`, `smokeSensor`, `plug`…), so a re-paired sensor with a new id still fires. A hard rule targets a type too (`"target": "bulb"`) and is resolved to the first device of that type that is **fresh**; if none is, the action is logged as `skipped`, never sent to a stale id.
 - A device is **stale** when its `lastCommunicationTime` is older than `LOOP_STALE_MINUTES` (60). If no fresh `smokeSensor` is reporting, the loop logs one WARNING (`safety trigger can't fire`) and one INFO when it comes back.
@@ -184,12 +191,13 @@ It shares the loop's `mcp-remote` session (`McpSource.session()`), so there is o
 | Tool | Kind | Why |
 |---|---|---|
 | `get_home`, `get_device_details`, `get_home_security_status`, `get_home_scenarios` | read | Look at the home |
-| `update_device_capabilities` | write | Set the lamp and plug; the only write |
+| `update_device_capabilities` | write | Set the lamp and plugs; the only write (the thermostat only through proposals) |
 | Alarm arming (`patch_home_security_status`) | excluded | The alarm is never armed on the kit |
 | Scenario create/activate/execute, timers | excluded | Scenarios and timers can't be deleted |
 
 - **Every write goes through the guard (`source/guard.py`), in code, not in the prompt**:
-  - only the bulb (`power`, `brightness` 1–100, `temperature` 0–100, `color_rgb` 0–255) and the plug (`power`), with exactly `deviceId` and `body` (no `deviceName`, which the MCP would look up by name);
+  - only the bulb (`power`, `brightness` 1–100, `temperature` 0–100, `color_rgb` 0–255), the plugs (`power`) and the thermostat (`targetTemperature` 16–23, `mode` heat/eco/off), with exactly `deviceId` and `body` (no `deviceName`, which the MCP would look up by name);
+  - the thermostat also has code limits (at most 3 °C a write, one write per 10 min, never above 18 °C with no known phone home unless an arrival is forecast within 2 h, nothing for 2 h after a person changed it), checked against what code knows (`guard.Heat`). The LLM's own tool calls carry none, so it can't write the thermostat: it proposes, and code runs the proposal;
   - switching the plug **on** is blocked in the loop and allowed only from `source.ask` (a person asked); a blocked write is told to the LLM and the run continues;
   - after the write, code reads the device back and calls it **confirmed** only if the value matches **and** `lastCommunicationTime` is newer than before the write (verification level 2, [`synapse.md`](synapse.md) §6). Otherwise it is **unconfirmed**; the LLM is told which and must not claim more.
 - **The agent is told which rules just ran** (`rules_just_ran`: trigger, device, body, status), because its `state` was read before those writes; the prompt says never to undo them.
@@ -199,6 +207,8 @@ It shares the loop's `mcp-remote` session (`McpSource.session()`), so there is o
 - **`--stub`**, or no `OPENROUTER_API_KEY`, runs the stub agent (logs the context, does nothing).
 
 Config: `OPENROUTER_API_KEY`, `AGENT_MODEL` (any OpenRouter slug with tool calling, default `anthropic/claude-sonnet-4.5`), `AGENT_MAX_STEPS` (default 12).
+
+**Cached replies** ([`source/llm_cache.py`](../source/llm_cache.py), demo-plan C10): every model call of the agent (kind `agent`) and the namer (kind `namer`) goes through `cached(kind, payload, call)`. The key is the sha256 of the kind and the payload as sorted JSON: the model's name, the tools offered and the messages without their ids (the graph gives each message a random one). Replies are appended to `data/llm-cache/<kind>.jsonl` (gitignored with `data/`). `ALFRED_LLM_CACHE` unset or `on`: a hit never calls the model; `only`: a miss raises `CacheMiss` instead of calling (the demo, no network); `off`: never reads, still stores. `ALFRED_LLM_CACHE_DIR` moves the folder. Only models with a name (`model_name`) are cached, so the tests' fake models never touch it.
 
 ## 5. Data shapes (fix these now, they're costly to change later)
 **Event**
@@ -230,7 +240,8 @@ Config: `OPENROUTER_API_KEY`, `AGENT_MODEL` (any OpenRouter slug with tool calli
 {now, reasons[], rules_just_ran[], state (trimmed), events_since_last_run[], timeline_today[], baselines}
 ```
 `baselines` holds what Alfred learned: habits with today's status and the namer's cards, the next 24 h forecast, occasions going on now, and today's decisions ([`anticipation.md`](anticipation.md)). Each tick, before the triggers, the loop also plans decisions every 5 minutes and runs the due `do` ones (lamp only, through the guard).
-**Agent output**: `{notes, trigger_updates[], actions[]}`. `actions` are the executed write calls and their results (empty for the stub and for replays), logged with the run.
+`home` (when the home has a router or a thermostat): known phones home, guests' phones, room and target temperature, mode. Learned reasons also carry `kind`, `key` and `data`.
+**Agent output**: `{notes, trigger_updates[], actions[], proposals[]}`. `actions` are the executed write calls and their results (empty for the stub and for replays), logged with the run. `proposals` (C9) become decisions; the loop adds them as `decisions` to the logged output.
 
 ## 6. What plugs in next
 | Later | Plugs into | Notes |

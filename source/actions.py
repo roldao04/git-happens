@@ -7,9 +7,10 @@ replay never touches the real kit.
 """
 import json
 import logging
+import re
 from typing import Protocol
 
-from .guard import READ_TOOL, guarded_write
+from .guard import READ_TOOL, Heat, guarded_write
 
 log = logging.getLogger("source.actions")
 
@@ -41,10 +42,11 @@ class DryRunActuator:
 
 
 async def run_actions(actuator: Actuator, trigger_id: str, actions: list[dict],
-                      devices: dict[str, str] | None = None, *,
+                      devices: dict[str, str] | None = None, *, heat: Heat | None = None,
                       readback_tries: int = 3, readback_delay_s: float = 0.0) -> list[dict]:
     """Runs each action in order through the write guard (never plug-on), then reads it back.
-    A failure is logged and recorded, never raised. `devices`: device_id -> type."""
+    A failure is logged and recorded, never raised. `devices`: device_id -> type. `heat`: what
+    code knows about the thermostat (guard.Heat); without it the guard never writes the thermostat."""
     done = []
     for a in actions:
         tool, args = a.get("tool", ""), a.get("args", {})
@@ -52,7 +54,7 @@ async def run_actions(actuator: Actuator, trigger_id: str, actions: list[dict],
             out = {"tool": tool, "args": args, "status": "blocked", "verified": None,
                    "error": True, "result": f"tool {tool!r} is not allowed"}
         else:
-            out = await guarded_write(actuator.call, args, devices or {}, allow_plug_on=False,
+            out = await guarded_write(actuator.call, args, devices or {}, allow_plug_on=False, heat=heat,
                                       readback_tries=readback_tries, readback_delay_s=readback_delay_s)
         level = logging.WARNING if out["error"] else logging.INFO
         log.log(level, "rule   %s → %s %s: %s%s", trigger_id, tool, json.dumps(args), out["status"],
@@ -62,16 +64,33 @@ async def run_actions(actuator: Actuator, trigger_id: str, actions: list[dict],
     return done
 
 
-def resolve_targets(actions: list[dict], fresh: dict[str, list[str]]) -> tuple[list[dict], list[dict]]:
-    """Fills each action's deviceId from its `target` type (first fresh device of that type).
-    Returns (ready to run, skipped records): an action never goes to a device that isn't reporting."""
+def slug(name: str) -> str:
+    """"Washing machine" → "washing-machine", as in the signal names (docs/demo-plan.md C2)."""
+    return re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")
+
+
+def _find(target: str, fresh: dict[str, list[str]], names: dict[str, str] | None) -> str | None:
+    """The fresh device a target names: a type ("bulb": the first one), or a type and the
+    device's slugged name ("plug:tv"), when the home has several of that type."""
+    kind, _, which = str(target).partition(":")
+    ids = fresh.get(kind) or []
+    if not which:
+        return ids[0] if ids else None
+    return next((i for i in ids if slug((names or {}).get(i, "")) == which), None)
+
+
+def resolve_targets(actions: list[dict], fresh: dict[str, list[str]],
+                    names: dict[str, str] | None = None) -> tuple[list[dict], list[dict]]:
+    """Fills each action's deviceId from its `target`: a type (first fresh device of that type) or
+    "type:name" ("plug:tv"; `names`: device id → name). Returns (ready to run, skipped records):
+    an action never goes to a device that isn't reporting."""
     ready, skipped = [], []
     for a in actions:
         target = a.get("target")
         if target is None:
             ready.append(a)
-        elif fresh.get(target):
-            ready.append({"tool": a["tool"], "args": {"deviceId": fresh[target][0], **a.get("args", {})}})
+        elif (dev := _find(target, fresh, names)) is not None:
+            ready.append({"tool": a["tool"], "args": {"deviceId": dev, **a.get("args", {})}})
         else:
             skipped.append({"tool": a.get("tool", ""), "args": a.get("args", {}), "status": "skipped",
                             "verified": None, "error": True, "result": f"no fresh {target}"})

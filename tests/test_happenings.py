@@ -10,6 +10,10 @@ from unittest import mock
 
 from source import pipeline
 from source.clock import TZ, day_bounds
+from source.ingest import ingest, read_jsonl
+from source.learn import Happening as LearnHappening
+from source.learn import activity_edges, device_type, is_activity, signal_devices, slug
+from source.learn.habits import quiet_happenings
 from source.learn.happenings import find_happenings, save_happenings, stored_happenings
 from source.learn.rest import find_rest
 from source.model import Event
@@ -170,6 +174,162 @@ class PipelineTest(unittest.TestCase):
         folder, _ = _simulated(self, 1)
         with self.assertRaises(FileExistsError):
             pipeline.run(iter(()), folder)
+
+
+DEMO = Path(__file__).parent / "fixtures" / "demo-snapshots.jsonl"
+
+
+class SignalNamesTest(unittest.TestCase):
+    """docs/demo-plan.md, C2: one signal per device when a type has several, one per phone, a count of guests."""
+
+    def test_device_type(self):
+        self.assertEqual(device_type("plug:washing-machine.instantPower"), "plug")
+        self.assertEqual(device_type("bulb.power"), "bulb")
+        self.assertEqual(device_type("phone:c-8f3a.connected"), "phone")
+        self.assertEqual(device_type("home.quiet"), "home")
+        self.assertEqual(device_type("plug:kettle"), "plug")
+
+    def test_slug(self):
+        self.assertEqual([slug(n) for n in ("Kettle", "TV", "Washing machine", "Mr. Plug  #2")],
+                         ["kettle", "tv", "washing-machine", "mr-plug-2"])
+
+    def test_one_device_of_a_type_keeps_the_old_name(self):
+        names = signal_devices([("p1", "plug", "Plug"), ("b1", "bulb", "Light")])
+        self.assertEqual(names, {"p1": "plug", "b1": "bulb"})
+
+    def test_several_devices_of_a_type_get_their_names(self):
+        names = signal_devices([("p1", "plug", "Kettle"), ("p2", "plug", "TV"), ("p3", "plug", "Washing machine"),
+                                ("b1", "bulb", "Light")])
+        self.assertEqual(names, {"p1": "plug:kettle", "p2": "plug:tv", "p3": "plug:washing-machine", "b1": "bulb"})
+
+    def test_a_repaired_device_is_still_one_device(self):
+        self.assertEqual(signal_devices([("p1", "plug", "Plug"), ("p2", "plug", "Plug")]), {"p1": "plug", "p2": "plug"})
+
+    def test_a_phone_is_always_named_by_its_client_id(self):
+        names = signal_devices([("c-8f3a", "phone", "Ana's phone"), ("rt-1", "router", "Router")])
+        self.assertEqual(names, {"c-8f3a": "phone:c-8f3a", "rt-1": "router"})
+
+    def test_a_happening_knows_its_device_type(self):
+        h = LearnHappening("plug:kettle.instantPower", datetime(2026, 11, 19, 18), datetime(2026, 11, 19, 18, 3))
+        self.assertEqual((h.device, h.capability), ("plug", "instantPower"))
+
+
+def _at(hh, mm):
+    return int(datetime(2026, 11, 19, hh, mm, tzinfo=TZ).timestamp() * 1000)
+
+
+class DemoSnapshotsTest(unittest.TestCase):
+    """A hand-made evening (tests/fixtures/demo-snapshots.jsonl): 3 plugs, 2 known phones, 3 guests, a thermostat."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        store = Store(Path(cls.tmp.name), record=False)
+        ingest(read_jsonl(DEMO), store, stale_ms=60 * 60_000)
+        save_happenings(store, _at(23, 59))
+        cls.found = stored_happenings(store.db)
+        store.close()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def of(self, signal):
+        return [h for h in self.found if h.signal == signal]
+
+    def test_each_plug_is_its_own_signal(self):
+        [kettle] = self.of("plug:kettle.instantPower")
+        self.assertEqual((kettle.start_ms, kettle.size), (_at(18, 50), 2100))
+        [tv] = self.of("plug:tv.instantPower")
+        self.assertEqual((tv.start_ms, tv.end_ms), (_at(21, 0), _at(22, 20)))
+        self.assertGreater(len(self.of("plug:washing-machine.instantPower")), 1)
+        self.assertFalse(self.of("plug.instantPower"))
+
+    def test_single_devices_keep_the_old_names(self):
+        self.assertEqual(len(self.of("contactSensor.sensorState")), 5)
+        [target] = self.of("thermostat.targetTemperature")
+        self.assertEqual((target.start_ms, target.end_ms, target.size), (_at(18, 42), _at(22, 20), 21))
+
+    def test_a_phone_is_on_while_connected_and_rests_off(self):
+        [joao] = self.of("phone:c-2b71.connected")
+        self.assertEqual((joao.start_ms, joao.end_ms, joao.value, joao.cut), (_at(19, 30), _at(22, 0), "on", False))
+        # Ana is home most of the time watched, yet her rest is "off": still connected at the end, so not written
+        self.assertFalse(self.of("phone:c-8f3a.connected"))
+
+    def test_guests(self):
+        guests = [h for h in self.found if h.signal.startswith("phone:") and h.start_ms == _at(20, 0)]
+        self.assertEqual(sorted(h.device_id for h in guests), ["c-55b4", "c-91d0", "c-a7e2"])
+        [count] = self.of("router.guestPhones")
+        self.assertEqual((count.start_ms, count.end_ms, count.size), (_at(20, 0), _at(21, 20), 3))
+
+    def test_the_laptop_is_not_a_phone(self):
+        self.assertFalse([h for h in self.found if h.device_id == "c-0e19"])
+
+    def test_activity_and_slow(self):
+        by_signal = {h.signal: LearnHappening(h.signal, datetime(2026, 11, 19), datetime(2026, 11, 19, 1))
+                     for h in self.found}
+        self.assertTrue(is_activity(by_signal["phone:c-2b71.connected"]))
+        self.assertTrue(is_activity(by_signal["router.guestPhones"]))
+        self.assertTrue(is_activity(by_signal["thermostat.targetTemperature"]))
+        self.assertFalse(is_activity(by_signal["thermostat.temperatureValue"]))
+        self.assertFalse(is_activity(by_signal["thermostat.heatingState"]))  # the thermostat switches it itself
+
+
+class PhoneTest(unittest.TestCase):
+    TYPES = {"c-8f3a": "phone:c-8f3a"}
+
+    def test_a_phone_gone_from_the_list_reads_off(self):
+        # a history stored without normalize's prev: the phone's reading is "gone" when it leaves
+        events = [Event(0, "c-8f3a", "Ana's phone", "connected", "initial", None, "on"),
+                  Event(2 * H, "c-8f3a", "Ana's phone", "connected", "gone", "on", None),
+                  Event(5 * H, "c-8f3a", "Ana's phone", "connected", "change", None, "on"),
+                  Event(23 * H, "c-8f3a", "Ana's phone", "connected", "gone", "on", None)]
+        rests = find_rest(events, 24 * H)
+        self.assertEqual(rests[("c-8f3a", "connected")].value, "off")
+        got = [(h.signal, h.start_ms, h.end_ms, h.cut) for h in find_happenings(events, rests, self.TYPES, 24 * H)]
+        self.assertEqual(got, [("phone:c-8f3a.connected", 0, 2 * H, False),
+                               ("phone:c-8f3a.connected", 5 * H, 23 * H, False)])
+
+
+class AlfredTest(unittest.TestCase):
+    TYPES = {"th-1": "thermostat"}
+
+    def target(self, source):
+        events = [
+            Event(0, "th-1", "Thermostat", "targetTemperature", "initial", None, 16.0),
+            Event(8 * H, "th-1", "Thermostat", "targetTemperature", "change", 16.0, 21.0, source),
+            Event(9 * H, "th-1", "Thermostat", "targetTemperature", "change", 21.0, 16.0)]
+        return find_happenings(events, find_rest(events, 24 * H), self.TYPES, 24 * H)
+
+    def test_a_persons_change_is_a_happening(self):
+        self.assertEqual([h.start_ms for h in self.target("unknown")], [8 * H])
+        self.assertEqual([h.start_ms for h in self.target("human")], [8 * H])
+
+    def test_alfreds_own_write_is_not(self):
+        self.assertEqual(self.target("agent"), [])
+        self.assertEqual(self.target("scenario:night"), [])
+
+
+class EdgesTest(unittest.TestCase):
+    def test_a_long_presence_is_only_its_edges(self):
+        day = datetime(2026, 11, 19)
+        phone = LearnHappening("phone:c-8f3a.connected", day.replace(hour=18, minute=40),
+                               day.replace(hour=23, minute=50), value="on")
+        lamp = LearnHappening("bulb.power", day.replace(hour=19), day.replace(hour=23), value="on")
+        cut = LearnHappening("phone:c-2b71.connected", day.replace(hour=20), day.replace(hour=21), cut=True)
+        got = [(h.signal, h.start.strftime("%H:%M"), h.duration_s) for h in activity_edges([phone, lamp, cut])]
+        self.assertEqual(got, [("phone:c-8f3a.connected", "18:40", 0), ("bulb.power", "19:00", 4 * 3600),
+                               ("phone:c-2b71.connected", "20:00", 0), ("phone:c-8f3a.connected", "23:50", 0)])
+
+    def test_with_edges_the_night_is_quiet(self):
+        day = datetime(2026, 11, 19)
+        phone = LearnHappening("phone:c-8f3a.connected", day.replace(hour=18), day + timedelta(hours=32), value="on")
+        lamp = LearnHappening("bulb.power", day.replace(hour=19), day.replace(hour=23), value="on")
+        kettle = LearnHappening("plug.instantPower", day + timedelta(hours=31), day + timedelta(hours=31, minutes=3),
+                                size=2100)
+        self.assertEqual(quiet_happenings([phone, lamp, kettle]), [])
+        [night] = [q for q in quiet_happenings(activity_edges([phone, lamp, kettle])) if q.duration_s > 3600]
+        self.assertEqual((night.start, night.end), (day.replace(hour=23), day + timedelta(hours=31)))
 
 
 if __name__ == "__main__":

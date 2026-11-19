@@ -16,7 +16,7 @@ import logging
 import sqlite3
 from datetime import datetime, time, timedelta
 
-from . import MAX_LAG_MIN, Happening, is_activity, storage, to_local, to_ms
+from . import MAX_LAG_MIN, Happening, activity_edges, is_activity, storage, to_local, to_ms
 from .habits import HOLE_MIN, QUIET, WEEKDAYS
 from .kinds import classify
 from .rhythm import DAY_MIN, hhmm
@@ -31,10 +31,11 @@ def sensor_today(db: sqlite3.Connection, now: datetime) -> list[dict]:
     if not rows:
         return []
     hs = storage.load_happenings(db, now + timedelta(seconds=1), now - timedelta(hours=36))
+    hs = sorted(hs + storage.ongoing_happenings(db, now, hs), key=lambda h: h.start)  # a phone on since 19:34: stored once it leaves
     kinds = storage.load_kinds(db)
     for h in hs:
         h.kind = h.kind or classify(h, kinds)  # stored kinds are filled nightly; today's are classified live
-    activity = [h for h in hs if is_activity(h)]
+    activity = activity_edges([h for h in hs if is_activity(h)])  # a phone at home is only its edges
     blind = _not_watched(db, now)
     quiet_kinds = {k.id for k in kinds if k.signal == QUIET}
     return [_status(sig, width, json.loads(data), hs, activity, now, blind, quiet_kinds) for sig, width, data in rows]

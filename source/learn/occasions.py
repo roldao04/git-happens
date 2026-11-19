@@ -19,28 +19,37 @@ only fixed numbers are the knobs in source/learn/__init__.py (ALPHA, MIN_OCCURRE
    and ended, when the night's quiet began, and how many doors, light-hours and plug uses it held.
    confidence = n/(n+1) (one example: at most 0.5) x how tight the group is. `explains`: the
    learned patterns it moves (bedtime late), as "habit-N late" once part A's habits exist.
+   Guests' phones (arrivals of phones that aren't the household's) are a count like door openings,
+   and the fingerprint keeps `guest_phones`, the most connected at once.
 4. **Live.** match_now(db, now): when a stretch of today so far is unusual (on one feature, or
    several), it is compared from where it began up to now with each occasion's episodes over the
-   same clock hours. confidence = similarity x the occasion's confidence.
+   same clock hours. confidence = similarity x the occasion's confidence. `shifts`: how the
+   occasion moved habits the next day in its past episodes (median), e.g. waking up 90 min later;
+   shifts_now(db, now) gives them for the occasion under way and the one the night before.
 
   uv run python -m source.learn.occasions --db data/sim/rosa/home.sqlite3 --learn   # replay every day
   uv run python -m source.learn.occasions --db data/sim/rosa/home.sqlite3 --at 2026-09-21T22:30
 """
 import argparse
+import copy
 import json
 import logging
 import math
 import sqlite3
 from bisect import bisect_left
-from collections import Counter
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
 import numpy as np
 from scipy.stats import chi2, nbinom, norm
 
-from . import ALPHA, MIN_OCCURRENCES, Happening, is_activity, to_local, to_ms
+from . import (ALPHA, MIN_OCCURRENCES, Happening, activity_edges, device_type, is_activity, signal_devices, to_local,
+               to_ms)
+from .forecast import day_window
+from . import storage
 from .habits import HOLE_MIN, QUIET, WEEKDAYS, quiet_happenings
+from .recurrence import is_on
 from .rhythm import DAY_MIN, Watched, circular_mean_std, hhmm
 
 log = logging.getLogger("source.learn.occasions")
@@ -53,12 +62,13 @@ CREATE TABLE IF NOT EXISTS occasion_episodes (
 CREATE INDEX IF NOT EXISTS occasion_episodes_occasion ON occasion_episodes (occasion_id, start);
 """
 
-DOOR, LIGHT, AWAKE = "door", "light", "awake"
+DOOR, LIGHT, AWAKE, GUESTS = "door", "light", "awake", "guests"
 # Every stretch of whole hours inside one day: 300 of them, the number of tries for one day.
 STRETCHES = [(a * 60, (a + n) * 60) for a in range(24) for n in range(1, 25 - a)]
 JEFFREYS = 0.5  # Jeffreys' prior on a Poisson rate: a count never seen at that hour still has a finite chance
 CLOCKS = ("start", "end", "quiet")  # in hours; the usual day is judged in whole hours, so one hour is one unit
 AMOUNTS = ("door", "light", "plug", "camera")  # counts (light in hours), with Poisson noise sqrt(x + y + 1)
+SHIFT_BEFORE_H, SHIFT_AFTER_H = 3, 6  # a habit the next day is looked for this long before and after its usual time
 
 
 # ---------- the usual day ----------
@@ -77,6 +87,8 @@ class History:
     weekend: np.ndarray  # (days,)
     nights: list[tuple[datetime | None, datetime | None]]  # each day's night quiet: start, end
     happenings: list[Happening]  # people's activity, ends clipped at the moment it was read
+    guests: frozenset[str] = frozenset()  # the signals of guests' phones ("phone:c-91d0.connected")
+    guest_counts: list[tuple[datetime, datetime, float]] = ()  # router.guestPhones: start, end, most at once
 
     @property
     def n(self) -> int:
@@ -107,6 +119,27 @@ class History:
         return AMOUNTS if any(f.startswith("camera:") for f in self.features) else AMOUNTS[:-1]
 
 
+def _feature(h: Happening, guests: frozenset[str]) -> str | None:
+    """feature(), plus the arrivals of guests' phones (a count, like door openings)."""
+    return GUESTS if h.signal in guests else feature(h)
+
+
+def guest_phones(db: sqlite3.Connection, hs: list[Happening]) -> frozenset[str]:
+    """The `phone:<id>.connected` signals of phones that aren't the household's. Known phones have a
+    name in the `devices` table (C1, C2); a phone the table doesn't name is a guest's, and so is one
+    it doesn't list that came on fewer than MIN_OCCURRENCES days (hand-made data)."""
+    names = dict(db.execute("SELECT device_id, name FROM devices")) if _has(db, "devices") else {}
+    days: dict[str, set[date]] = {}
+    listed: dict[str, bool] = {}
+    for h in hs:
+        if device_type(h.signal) == "phone" and h.capability == "connected":
+            days.setdefault(h.signal, set()).add(h.start.date())
+            if h.device_id in names:
+                listed[h.signal] = bool(names[h.device_id])
+    return frozenset(sig for sig, ds in days.items()
+                     if (not listed[sig] if sig in listed else len(ds) < MIN_OCCURRENCES))
+
+
 def feature(h: Happening) -> str | None:
     """Which usual-day feature a happening feeds, or None (the room's slow signals, settings, the hub)."""
     if h.device == "contactSensor":
@@ -128,7 +161,7 @@ def history(db: sqlite3.Connection, until: datetime, episodes: list["Row"] = (),
     """
     hs = _load_happenings(db, until)
     if live:
-        hs += _ongoing(db, until, hs)
+        hs += storage.ongoing_happenings(db, until, hs)
     activity = sorted((h for h in hs if is_activity(h)), key=lambda h: h.start)
     if not activity:
         return None
@@ -144,18 +177,20 @@ def history(db: sqlite3.Connection, until: datetime, episodes: list["Row"] = (),
     def at(t: datetime) -> float:
         return min(max((t - origin).total_seconds() / 60, 0.0), float(total))
 
-    features = sorted({f for h in activity if (f := feature(h))}, key=_feature_order) + [AWAKE]
+    guests = guest_phones(db, activity)
+    features = sorted({f for h in activity if (f := _feature(h, guests))}, key=_feature_order) + [AWAKE]
     col = {f: i for i, f in enumerate(features)}
     counts = np.zeros((total + 1, len(features)))
     edges = np.zeros((total + 1, len(features)))  # +1 / -1 where a stretch of minutes starts / ends
     for h in activity:
-        f = feature(h)
+        f = _feature(h, guests)
         if f == LIGHT:
             _span(edges[:, col[f]], at(h.start), at(h.end))
         elif f is not None and origin <= h.start < origin + timedelta(minutes=total):
             counts[int(at(h.start)), col[f]] += 1
 
-    quiets = quiet_happenings(activity, watched)  # in start order
+    moments = activity_edges(activity)  # a phone at home all night is only its edges: the night stays quiet
+    quiets = quiet_happenings(moments, watched)  # in start order
     q_starts, a_starts = [q.start for q in quiets], [h.start for h in activity]
     nights = []
     for j in range(n):  # tonight's quiet: the longest one starting in the second half of the day
@@ -191,11 +226,22 @@ def history(db: sqlite3.Connection, until: datetime, episodes: list["Row"] = (),
         _span(held, at(r.start), at(r.end))
 
     from .run import counted_days  # here, not at the top: run.py imports this module to run it daily
-    counted = set(counted_days(activity, activity[0].start.date(), last, watched))
+    counted = set(counted_days(moments, activity[0].start.date(), last, watched))
     days = [first + timedelta(days=j) for j in range(n)]
     return History(first, hour, features, [f not in (LIGHT, AWAKE) for f in features], cum,
                    _running(blind, n), _running(held, n), np.array([d in counted for d in days]),
-                   np.array([d.weekday() >= 5 for d in days]), nights, activity)
+                   np.array([d.weekday() >= 5 for d in days]), nights, activity, guests,
+                   _guest_counts(db, until))
+
+
+def _guest_counts(db: sqlite3.Connection, until: datetime) -> list[tuple[datetime, datetime, float]]:
+    """router.guestPhones above rest: (start, end, the most at once), from its happenings' peaks."""
+    if not _has(db, "happenings"):
+        return []
+    rows = db.execute("SELECT signal, start_ms, end_ms, COALESCE(peak, size) FROM happenings"
+                      " WHERE capability = 'guestPhones' AND start_ms < ?", (to_ms(until),)).fetchall()
+    return [(to_local(s), to_local(e), float(v)) for sig, s, e, v in rows
+            if device_type(sig) == "router" and v is not None]
 
 
 def quietest_hour(activity: list[Happening]) -> int:
@@ -218,7 +264,7 @@ def quietest_hour(activity: list[Happening]) -> int:
 
 
 def _feature_order(f: str) -> tuple[int, str]:
-    return ([DOOR, LIGHT].index(f) if f in (DOOR, LIGHT) else 2 if f.startswith("plug:") else 3, f)
+    return ([DOOR, LIGHT].index(f) if f in (DOOR, LIGHT) else 2 if f.startswith("plug:") else 3 if f == GUESTS else 4, f)
 
 
 def _span(edges: np.ndarray, a: float, b: float) -> None:
@@ -379,6 +425,8 @@ def _episode(h: History, d: int, a: int, b: int, j: Judged, i: int) -> Row:
                    "quiet_start": hhmm(_clock(quiet)) if quiet else None, "plug_uses": int(amounts["plug"])}
     if "camera" in h.amount_keys:
         fingerprint["camera_events"] = int(amounts["camera"])
+    if h.guests or h.guest_counts:
+        fingerprint["guest_phones"] = most_guests(h, start, end)
     features = {"day": h.day(d).isoformat(), "fingerprint": fingerprint,
                 **{k: round(amounts[k], 2) for k in h.amount_keys},
                 "quiet_at": quiet.isoformat(timespec="seconds") if quiet else None,
@@ -387,11 +435,26 @@ def _episode(h: History, d: int, a: int, b: int, j: Judged, i: int) -> Row:
     return Row(None, "", start, end, features)
 
 
+def most_guests(h: History, start: datetime, end: datetime) -> int:
+    """The most guests' phones connected at once in [start, end]: the router's count at its peak, or
+    else the guests' own phones that overlap."""
+    peak = max((v for s, e, v in h.guest_counts if s < end and e > start), default=0.0)
+    moments = sorted([(max(x.start, start), 1) for x in h.happenings if x.signal in h.guests and x.start < end
+                      and x.end > start] + [(min(x.end, end), -1) for x in h.happenings
+                                            if x.signal in h.guests and x.start < end and x.end > start],
+                     key=lambda m: (m[0], m[1]))
+    now = most = 0
+    for _, step in moments:
+        now += step
+        most = max(most, now)
+    return int(max(peak, most))
+
+
 def trim(h: History, d: int, a: int, b: int) -> tuple[datetime, datetime]:
     """A stretch of whole hours, narrowed to its activity: from the first happening that starts in it
     to the last moment something that was on in it went back to rest (the lamp at 01:10)."""
     w0, w1 = h.start(d) + timedelta(minutes=a), h.start(d) + timedelta(minutes=b)
-    inside = [x for x in h.happenings if feature(x) and x.start < w1 and x.end > w0]
+    inside = [x for x in h.happenings if _feature(x, h.guests) and x.start < w1 and x.end > w0]
     start = min((x.start for x in inside if x.start >= w0), default=w0)
     end = min(max((x.end for x in inside), default=w1), h.start(d) + timedelta(days=1))
     return start, max(start, end)
@@ -615,23 +678,78 @@ def match_now(db: sqlite3.Connection, now: datetime) -> list[dict]:
     like a known occasion is the second line of evidence. From its first happening up to now it is
     compared with each occasion's episodes over the same clock window: their start, door openings,
     light-hours and plug uses by then. Returns [{"occasion_id", "similarity", "confidence", "since",
-    "explains"}], confidence = similarity x the occasion's confidence; occasions it is beyond chance
-    unlike (similarity < ALPHA) are left out.
+    "explains", "shifts"}], confidence = similarity x the occasion's confidence; occasions it is
+    beyond chance unlike (similarity < ALPHA) are left out. `shifts`: [{"habit_id", "date",
+    "minutes"}], how its past episodes moved habits the next day (see next_day_shifts), dated
+    the day after today's.
     """
+    return _match(db, now)[0]
+
+
+def shifts_now(db: sqlite3.Connection, now: datetime) -> list[dict]:
+    """[{"occasion_id", "confidence", "habit_id", "date", "minutes"}]: the habits an occasion under way
+    moves tomorrow, and those the one that ended at the start of today's day moves today (the morning
+    after: the stretch under way at 07:45 is ordinary, yet waking up is still late). Never raises."""
+    try:
+        matches, h = _match(db, now)
+        if h is not None:  # the day before, as it was matched at its last minute
+            matches += _match(db, h.start(h.n - 1) - timedelta(minutes=1))[0]
+        return [{"occasion_id": m["occasion_id"], "confidence": m["confidence"], **s}
+                for m in matches for s in m["shifts"]]
+    except Exception:
+        log.exception("shifts_now failed")
+        return []
+
+
+_matched: "OrderedDict[tuple, tuple[sqlite3.Connection, list[dict], History | None]]" = OrderedDict()
+MATCH_CACHE = 8
+
+
+def _match(db: sqlite3.Connection, now: datetime) -> tuple[list[dict], History | None]:
+    """match_now, and the history it read (None when there was nothing to read). Remembered for the same
+    store, moment and learned state: one tick of the loop asks it several times (the forecast's shifts, the
+    occasion wakes, the plan), each a read of the whole history."""
+    try:
+        key = (id(db), now, *_state(db, now))
+    except sqlite3.Error:
+        key = None
+    if key is not None and key in _matched and _matched[key][0] is db:  # the entry keeps its db: the id is its own
+        _matched.move_to_end(key)
+        return copy.deepcopy(_matched[key][1]), _matched[key][2]
+    out = _match_once(db, now)
+    if key is not None:
+        _matched[key] = (db, copy.deepcopy(out[0]), out[1])
+        while len(_matched) > MATCH_CACHE:
+            _matched.popitem(last=False)
+    return out
+
+
+def _state(db: sqlite3.Connection, now: datetime) -> tuple:
+    """What a match at `now` reads, in a few numbers: the happenings, the events up to then (live) and the
+    occasions as stored. Later events change nothing, so yesterday's last minute is read once a day."""
+    if not all(_has(db, t) for t in ("occasions", "occasion_episodes", "happenings", "events")):
+        return (None,)
+    return (db.execute("SELECT max(id), count(*) FROM happenings").fetchone()
+            + db.execute("SELECT max(id) FROM events WHERE ts <= ?", (to_ms(now),)).fetchone()
+            + db.execute("SELECT count(*), max(rowid) FROM occasion_episodes").fetchone()
+            + (db.execute("SELECT group_concat(length(data)) FROM occasions").fetchone()[0],))
+
+
+def _match_once(db: sqlite3.Connection, now: datetime) -> tuple[list[dict], History | None]:
     try:
         if not all(_has(db, t) for t in ("occasions", "occasion_episodes", "happenings")):
-            return []
+            return [], None
         occasions = load_occasions(db)
         if not occasions:
-            return []
+            return [], None
         rows = [r for r in load_rows(db) if r.start < now]
         h = history(db, now, rows, live=True)
         if h is None:
-            return []
+            return [], None
         d = h.n - 1
         m = int(h.minute(d, now))
         if m < 1:
-            return []
+            return [], h
         ends = sorted({e * 60 for e in range(1, 25) if e * 60 <= m} | {m})
         windows = [(a, b) for b in ends for a in range(0, b, 60)]  # every stretch of today so far
         j = judge(h, d, windows)
@@ -641,7 +759,7 @@ def match_now(db: sqlite3.Connection, now: datetime) -> list[dict]:
         gate = np.minimum(1.0, np.minimum(single, j.fisher) * 2 * len({a for a, _ in windows}))
         enough = j.ok & (j.usual >= MIN_OCCURRENCES) & (gate < ALPHA)
         if not enough.any():
-            return []
+            return [], h
         # Where the stretch began: the start hour of an unusual window, if that hour is itself beyond the
         # home's history (an ordinary 11:50 door is no beginning, even though the window from 11:00 to
         # the party is unusual). Late in a party its last hour is the most unusual, yet it began at
@@ -659,6 +777,7 @@ def match_now(db: sqlite3.Connection, now: datetime) -> list[dict]:
             since, _ = trim(h, d, a, windows[i][1])
             candidates.append((a, since, gate[i], {"start": h.minute(d, since) / 60, **h.amounts(d, a, m)}))
         links = _habit_links(db)
+        habits = _habits_for_shifts(db)
         out = []
         for oid, data in occasions.items():
             days = [(h.index(r.start), r) for r in rows if r.occasion_id == oid]
@@ -672,14 +791,123 @@ def match_now(db: sqlite3.Connection, now: datetime) -> list[dict]:
             sim, _, since = max(scored, key=lambda s: (s[0], s[1]))
             if sim < ALPHA:
                 continue
+            tomorrow = h.day(d) + timedelta(days=1)
             out.append({"occasion_id": oid, "similarity": round(sim, 2),
                         "confidence": round(sim * float(data.get("confidence") or 0), 2),
                         "since": since.isoformat(timespec="seconds"),
-                        "explains": explain(data.get("changes", []), links)})
-        return sorted(out, key=lambda x: (-x["confidence"], x["occasion_id"]))
+                        "explains": explain(data.get("changes", []), links),
+                        "shifts": [{"habit_id": hid, "date": tomorrow.isoformat(), "minutes": mins}
+                                   for hid, mins in next_day_shifts(h, days, habits, now, tomorrow)]})
+        return sorted(out, key=lambda x: (-x["confidence"], x["occasion_id"])), h
     except Exception:  # a broken learner must never stop the loop
         log.exception("match_now failed")
+        return [], None
+
+
+# ---------- the next day ----------
+
+@dataclass
+class ShiftHabit:
+    """An active habit, with what to look for to see when it happened."""
+    data: dict
+    steps: list[tuple[str, str, float, tuple | None]]  # (how: "quiet-end" | "part", kind or signal,
+    # offset_min, for a quiet's end the clock range its pattern has shown), its usual steps
+
+
+def _habits_for_shifts(db: sqlite3.Connection) -> list[ShiftHabit]:
+    """Active, non-hourly habits (part A's `habits` table) and how to spot each of their usual steps
+    (share > 1/2) in the happenings: a kind or signal (a link's second part), or the end of the
+    night's quiet, when the pattern is that one (its range holds the home's usual wake-up, as in
+    effects). A quiet's start (bedtime) is left out: `explains` covers it. [] without habits."""
+    if not (_has(db, "habits") and _has(db, "sensors")):
         return []
+    try:
+        signatures, ranges = {}, {}
+        for sid, sig, width, data in db.execute("SELECT id, signature, width_min, data FROM sensors"):
+            signatures[sid] = sig
+            pat = json.loads(data).get("pattern", {}) if data else {}
+            if "time_of_day" in pat:
+                half = (width or 0) / 2
+                ranges[sid] = (_minutes(pat.get("earliest", pat["time_of_day"])) - half,
+                               _minutes(pat.get("late_after", pat.get("latest", pat["time_of_day"]))) + half)
+        quiet = {k for (k,) in db.execute("SELECT id FROM kinds WHERE signal = ?", (QUIET,))} if _has(db, "kinds") else set()
+        out = []
+        for (data,) in db.execute("SELECT data FROM habits WHERE status = 'active' ORDER BY id"):
+            habit = json.loads(data)
+            if (habit.get("recurrence") or {}).get("kind") == "hourly":
+                continue
+            steps = []
+            for st in habit.get("steps") or []:
+                sig = signatures.get(st.get("pattern"))
+                if not sig or (st.get("share") or 0) <= 0.5:
+                    continue
+                kind, _, part = sig.partition(":")
+                if kind == "link":  # "link:<A's signal>><B>": B is what happens at the step's offset
+                    part = part.split(">", 1)[-1]
+                if kind == "kind-end" and part in quiet:
+                    steps.append(("quiet-end", part, float(st.get("offset_min") or 0), ranges.get(st["pattern"])))
+                elif part not in quiet:
+                    steps.append(("part", part, float(st.get("offset_min") or 0), None))
+            if steps:
+                out.append(ShiftHabit(habit, steps))
+        return out
+    except (sqlite3.Error, ValueError, TypeError, AttributeError):
+        return []
+
+
+def next_day_shifts(h: History, episodes: list[tuple[int, "Row"]], habits: list[ShiftHabit], now: datetime,
+                    tomorrow: date) -> list[tuple[str, int]]:
+    """[(habit id, minutes)]: the habits an occasion moved on the day after its past episodes.
+
+    For each episode (day e) and each habit due on the next calendar day, the habit's start that day
+    is the median over its usual steps of the happening nearest its usual moment (the usual time for
+    that weekday, day_window, plus the step's offset) within SHIFT_BEFORE_H before and SHIFT_AFTER_H
+    after it, and after the episode ended, less the offset. The end of the night's quiet is read from
+    the night after the episode. Its shift is that start less the usual time. A habit is moved when, on most of the
+    episodes, it moved the same way by more than twice its spread (what its times vary by once the
+    weekday is taken out); `minutes` is the median shift. Only habits due `tomorrow` are listed, and
+    only next days that are over by `now` count.
+    """
+    wake = _usual_night(h, h.n)[1]
+    seen: dict[str, list[float]] = {}
+    for e, r in episodes:
+        nxt = h.day(e) + timedelta(days=1)
+        for sh in habits:
+            hd = sh.data
+            usual = day_window(hd, nxt)
+            if usual is None or not is_on(hd.get("recurrence") or {}, nxt):
+                continue
+            expected = datetime.combine(nxt, time()) + timedelta(minutes=usual[0])
+            lo = max(r.end, expected - timedelta(hours=SHIFT_BEFORE_H))
+            hi = expected + timedelta(hours=SHIFT_AFTER_H)
+            if hi > now:
+                continue  # that day isn't over yet
+            starts = []
+            for how, part, offset, span in sh.steps:
+                if how == "quiet-end":  # only the night's: the home's usual wake-up is in its range
+                    t = h.nights[e][1] if 0 <= e < h.n and span and wake is not None and _inside(wake, *span) else None
+                    t = t if t is not None and lo <= t < hi else None
+                else:
+                    target = expected + timedelta(minutes=offset)
+                    t = min((x.start for x in h.happenings if lo <= x.start < hi and (x.kind == part or x.signal == part)),
+                            key=lambda x: abs(x - target), default=None)
+                if t is not None:
+                    starts.append((t - expected).total_seconds() / 60 - offset)
+            if starts:
+                seen.setdefault(hd["id"], []).append(float(np.median(starts)))
+    n = len(episodes)
+    out = []
+    for sh in habits:
+        hd = sh.data
+        got = seen.get(hd["id"])
+        if not got or not is_on(hd.get("recurrence") or {}, tomorrow):
+            continue
+        spread = max(1.0, float((hd.get("variation") or {}).get("spread_min") or 0))
+        mid = float(np.median(got))
+        moved = [x for x in got if abs(x) > 2 * spread and (x > 0) == (mid > 0)]
+        if 2 * len(moved) > n:
+            out.append((hd["id"], int(round(mid))))
+    return out
 
 
 def export_occasions(db: sqlite3.Connection) -> dict:
@@ -759,35 +987,6 @@ def _load_polls(db: sqlite3.Connection, until: datetime) -> list[datetime] | Non
         return None
     rows = db.execute("SELECT ts FROM snapshots WHERE ts < ? ORDER BY ts", (to_ms(until),)).fetchall()
     return [to_local(ts) for (ts,) in rows] or None
-
-
-def _ongoing(db: sqlite3.Connection, now: datetime, hs: list[Happening]) -> list[Happening]:
-    """On/off signals away from rest at `now` and not stored yet (a happening is written once it ends),
-    read from the events table. Their non-rest value is the one their stored happenings hold."""
-    if not (_has(db, "events") and _has(db, "devices")):
-        return []
-    held: dict[tuple, Counter] = {}
-    last: dict[tuple, datetime] = {}
-    for x in hs:
-        key = (x.device_id, x.capability)
-        if x.value is not None and x.device_id:
-            held.setdefault(key, Counter())[x.value] += 1
-        last[key] = max(last.get(key, x.end), x.end)
-    types = dict(db.execute("SELECT device_id, type FROM devices"))
-    out = []
-    for (dev, cap), values in held.items():
-        row = db.execute("SELECT ts, new FROM events WHERE device_id = ? AND capability = ? AND ts <= ?"
-                         " AND kind IN ('initial', 'change') ORDER BY ts DESC LIMIT 1", (dev, cap, to_ms(now))).fetchone()
-        if not row:
-            continue
-        try:
-            value = json.loads(row[1])
-        except (TypeError, ValueError):
-            continue
-        start = to_local(row[0])
-        if value == values.most_common(1)[0][0] and start >= last.get((dev, cap), start):
-            out.append(Happening(f"{types.get(dev, dev)}.{cap}", start, now, None, value, None, None, dev))
-    return out
 
 
 def _patterns(db: sqlite3.Connection) -> tuple[list[dict], set[str]]:

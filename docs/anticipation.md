@@ -81,7 +81,7 @@ Each tick, after the poll is stored and before the triggers ([`loop.py`](../sour
 Everything is wrapped: a failure in planning or running is logged (`anticipation failed this tick`) and the tick goes on to the triggers, including smoke. Replays and `--stub` use the `DryRunActuator`, so a replay never touches the kit.
 
 ## Safety
-- **Only the lamp.** `run_due` offers the guard only the bulbs as writable devices, so a decision can never change the plug, on or off. The guard's own rules still apply to every write: allowed fields and values, plug-on blocked, read-back. Nothing bypasses it.
+- **Only the lamp, for recipes.** `run_due` offers the guard only the bulbs as writable devices for a `prepare` decision, so it can never change the plug, on or off. The agent's proposals (`llm` decisions, below) may also switch a plug off or set the thermostat, within the guard's limits. The guard's own rules still apply to every write: allowed fields and values, plug-on blocked, read-back. Nothing bypasses it.
 - **Never on a guess below 0.75**, never late, never on a stale lamp, never against what the lamp is doing now (it doesn't dim a lamp someone just switched on, or switch one on that is already on).
 - **Confirmed means confirmed**: only a read-back with the new value and a newer report counts.
 - **Occasions calm things down.** They make no device action, and they make the habits they explain less sure, so the usual bedtime dim doesn't fire during a dinner party.
@@ -98,16 +98,58 @@ Everything is wrapped: a failure in planning or running is logged (`anticipation
 
 The prompt ([`prompts/agent.md`](../source/prompts/agent.md)) teaches the agent to weigh departures by importance, confidence and the forecast, to never alarm when an occasion explains one, to say "looks like", to leave `do` decisions to code and only mention `suggest` ones, and to act only on the lamp itself.
 
+## Waking the LLM and acting on its proposals (demo part D)
+Built for [`demo-plan.md`](demo-plan.md) (C7–C10). The code above only ever touches the lamp, from recipes. The demo needs the heating, which depends on more than a recipe knows (who is home, an occasion, how far the room is from warm), so the LLM is woken by what was learned and proposes, and code decides how sure it is and whether to act.
+
+| What | File | Call |
+|---|---|---|
+| Learned wakes | [`source/wake.py`](../source/wake.py) | `learned_wakes(db, now, state) -> list[WakeReason]`; `wake_record(db, key)`, `wakes_between(db, start, end)` |
+| Proposals → decisions | [`source/anticipate.py`](../source/anticipate.py) | `decide(db, now, proposals) -> list[dict]`; `heat_now(db, state, now, arrival)` |
+| Thermostat limits | [`source/guard.py`](../source/guard.py) | `Heat`, `check_heat` (inside `check_write`) |
+| Reply cache | [`source/llm_cache.py`](../source/llm_cache.py) | `cached(kind, payload, call)`, `acached(...)` |
+
+**Wakes** (each once per key, kept in the `wakes` table: `key`, `ts`, `data`):
+
+| `kind` | Fires when | `key` | `base` (the confidence code gives it) |
+|---|---|---|---|
+| `habit_soon` | a forecast entry with probability ≥ 0.5 is expected within the lead time + 15 min, and there is something to prepare: `heating` (the thermostat is down, a target of 18 °C or less, and the room is below the warm target) or `lamp` (the habit's steps include the light) | `habit_soon:<habit>:<forecast date>` | habit confidence × probability × n/(n+1) |
+| `arrival` | a known phone connected in the last 10 min and is still connected | `arrival:<phone>:<date>:<hh>` | 0.8 |
+| `departure` | a known phone left in the last 10 min and no known phone is home | `departure:<phone>:<date>:<hh>` | 0.8 |
+| `habit_missing` | a habit (importance normal or high; none yet counts as normal) is 20 min past its weekday window's `latest`, not done, someone known is home; for 3 h at most. Never while an occasion is matched (≥ 0.5), nor for a habit an occasion moved that day | `habit_missing:<habit>:<date>` | habit confidence × n/(n+1) |
+| `occasion` | `match_now` confidence ≥ 0.5 | `occasion:<occasion>:<the evening it started>` | the match's confidence, capped by e/(e+1) |
+
+- **Lead time**: `warmup.lead_minutes(db, now, room °C, warm target)` (part C, C4). The warm target is the most common target above 18 °C set in the last 30 days (21 °C until there is one). Without a measured warm-up: 30 min; a lamp alone: 10 min. The wake carries `lead_minutes`, `expected_at` and `prepare_at` (expected − lead).
+- **Data** for the LLM: the card (name, rhythm, window, `windows`, `person`, explanation, means, if_missing, importance), the forecast entry (or, for an occasion, the forecast entries it shifts), `home` (known phones, guests' phones, room and target temperature, mode), `warmup`, and `planned` (decisions from 12 h ago to 24 h ahead for that habit or occasion).
+- **Phones** are read from the router's `connectedClients` (C1) and from per-phone `connected` signals if normalize gives them (C2); a phone with no name is a guest's.
+
+**Proposals** (`proposals` in the agent's report, C9) become decisions of kind `llm`, with `wake` (the key) and `reason` (the LLM's sentence):
+- `confidence = base × (1 − doubt)`; `doubt` is clipped to [0, 1]; missing means 0; not a number means 1 (an unreadable doubt gets no trust). A proposal whose `wake` is not a learned wake has base 0: only a suggestion. ≥ 0.75 `do`, else `suggest`.
+- `at` missing or past → now; more than 24 h ahead → dropped. A future one is planned and run by `run_due`. Not a `update_device_capabilities` write with a body and a target (a type, `type:name` such as `plug:tv`, or a `deviceId`) → dropped and logged.
+- One decision per wake, device, field and value (`llm:<wake>:<target>:<field>:<value>`), so 19 °C then 21 °C are two decisions.
+- `run_due` runs an `llm` decision without a recipe: no "already happened today" or lamp-state check, but the same lateness rule (15 min). Its guard may write the lamp, the plugs (off only) and the thermostat. In the loop, proposals are decided and the due ones run in the same tick, right after the agent.
+
+**Thermostat limits** (C7, in the guard, from `Heat` built by `heat_now`): target 16–23 °C; at most 3 °C from the current target per write; never above 18 °C when no known phone is home, **unless the write prepares a forecast arrival due within 2 h** (otherwise "warm the house before Ana gets home" could never run; the arrival is the habit_soon wake's `expected_at`); at most one of Alfred's thermostat writes per 10 min; none for 2 h after a person changed it. A person's change is a `targetTemperature` or `mode` change in `events` that no write of Alfred's explains (same value, within 15 min after it). Without a `Heat` the thermostat is never written: the LLM's own tool calls carry none, so it proposes instead. A person asking (`allow_plug_on`) skips the rate limit and the 2 h hold.
+
+**Choices where the plan was open**: arrival and departure base 0.8 (seen, but a phone is only a proxy for a person); habit_missing base without the forecast probability (the occurrence is past); the 18 °C rule's exception for a forecast arrival; doubt rules above; the 3 °C rule means 16 → 21 °C takes two writes 10 min apart, which the prompt teaches.
+
+**What the integration (part F) changed, after running the demo house end to end**
+- **Two steps need a head start**: `EXTRA_LEAD_MIN` is 15 (was 5). 16 → 21 °C is two writes at least 10 min apart, and from a room near 19 °C the first doesn't start the heating; with 5 min the second step landed when Ana walked in, with 10 the room was 20.4 °C at the weekday wake-up. So the wake comes about 45 min before Ana's 18:38 (a 30-min warm-up from 18.5 °C, plus 15), not the plan's 25–30.
+- **A step that comes a tick early waits**: an `llm` decision the guard blocks only for its 10-min rate limit stays `planned` and runs at the next tick after the limit (until the 15-min lateness rule), instead of being skipped.
+- **Heating is prepared only when it is down** (a target of 18 °C or less). A target between, like the gathering's 19 °C, was chosen: no `habit_soon` (the TV at 21:00) undoes it.
+- **No "missing" for a habit that is only someone setting the thermostat** (Alfred heated first, so the step never came), **nor during an occasion** (the gathering explains the TV and the bedtime) **or for a habit it moved** (the morning after's wake-up is late, not missing).
+- **The morning after is sure enough to act on**: a forecast slot an occasion shifts uses the habit's overall rate, not that weekday's own (which counts the earlier mornings after, all late, as misses).
+
 ## Reading the other parts
 Every other part is read defensively: a missing table or module only leaves its piece empty.
 
 - Habits: the `habits` and `habit_readings` tables, and `source.learn.grouping.habit_today`.
 - Occasions: the `occasions` table and `source.learn.occasions.match_now`.
 - Patterns: the `sensors` table and `source.learn.today.baselines`.
+- Warm-up: `source.learn.warmup.warmup` and `lead_minutes` (C4); habits' `person` and `windows` (C3); occasions' `shifts` (C5); forecast `shifted` (C6).
 
 ## Run it
 ```
 uv run python -m source.learn.forecast --db data/sim/rosa/home.sqlite3 --at 2026-09-21T22:00
-uv run python -m unittest tests.test_forecast tests.test_anticipate -v
+uv run python -m unittest tests.test_forecast tests.test_anticipate tests.test_wake tests.test_llm_cache -v
 ```
 On 28 simulated days of `rosa`, with the grouper's habits, Monday's plan at 06:00 is: the evening lamp (`do`, 0.81), the bedtime dim (`do`, 0.79), and the waking-up soft lamp (`suggest`, 0.61; the lamp is part of only 69 % of the mornings).

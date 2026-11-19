@@ -14,7 +14,7 @@ import numpy as np
 from scipy.stats import chi2
 from sklearn.mixture import GaussianMixture
 
-from . import ALPHA, MAX_LAG_MIN, MIN_OCCURRENCES, Happening
+from . import ALPHA, MAX_LAG_MIN, MIN_OCCURRENCES, Happening, device_type
 from .rhythm import Rhythm, clock_min, poisson_binomial_sf
 
 UNITS = {"instantPower": "W", "instantCurrent": "mA", "instantVoltage": "V",
@@ -164,7 +164,7 @@ def _assign_ids(found: list, known: list[Kind], taken: set[str]) -> None:
             used_old.add(old_id)
     for _, k in sorted(found, key=lambda f: f[0][0].start):
         if not k.id:
-            k.id = _next_id(k.device, taken)
+            k.id = _next_id(device_type(k.signal), taken)
         taken.add(k.id)
 
 

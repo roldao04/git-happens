@@ -13,7 +13,11 @@ rhythm (`recurrence`) makes due with an expected time in [now, now + hours) gets
   imaginary days, so "3 Mondays of 3" doesn't read as certain;
 - expected time: its usual time, moved by its weekday shift (`variation.by_weekday`, "later at
   weekends") and by its drift (`trend`) since the middle of its history; window: its own window,
-  or ± twice its spread when some weekdays are shifted;
+  or ± twice its spread when some weekdays are shifted. A habit with weekday `windows` (C3 in
+  docs/demo-plan.md) takes the usual time and window of the day's own window instead;
+- shifted: when an occasion going on now (or the one that ended the night before) has moved
+  this habit the next day in its past episodes (occasions.shifts_now, `shifts`), the expected time
+  and window move by that much, and `shifted` keeps what they were before;
 - confidence = probability × the habit's confidence, computed here, never by the LLM;
 - basis: the counts behind it, in plain words ("Mondays: 9 of 10 since 1 Sept").
 
@@ -42,6 +46,7 @@ PRIOR_DAYS = 2  # weight of the habit's overall rate in each kind of day's estim
 MIN_PROBABILITY = 0.1  # occurrences less likely than this are left out (an hourly habit's night slots)
 MAX_DRIFT_MIN = 60  # a drift is followed this far at most: it is a trend, not a promise
 RECENT = 8  # an hourly slot's time: the median of its last readings
+SHIFT_CONFIDENCE = 0.5  # an occasion moves tomorrow's habits once its match is this sure (the occasion wake's bar, C8)
 DAY_MIN = 1440
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -70,12 +75,16 @@ class Slot:
     confidence: float
     basis: str
     slot: str | None = None  # hourly habits: the slot's clock time
+    shifted: dict | None = None  # moved by an occasion: {"occasion_id", "minutes", "before": {"expected", "window"}}
 
     def to_dict(self) -> dict:
-        return {"habit_id": self.habit["id"], "date": self.expected.date().isoformat(),
-                "probability": round(self.probability, 2), "expected": hhmm(self.expected),
-                "window": [hhmm(self.earliest), hhmm(self.latest)],
-                "confidence": round(self.confidence, 2), "basis": self.basis}
+        out = {"habit_id": self.habit["id"], "date": self.expected.date().isoformat(),
+               "probability": round(self.probability, 2), "expected": hhmm(self.expected),
+               "window": [hhmm(self.earliest), hhmm(self.latest)],
+               "confidence": round(self.confidence, 2), "basis": self.basis}
+        if self.shifted:
+            out["shifted"] = self.shifted
+        return out
 
 
 def forecast(db: sqlite3.Connection, now: datetime, hours: int = 24) -> list[dict]:
@@ -94,10 +103,11 @@ def upcoming(db: sqlite3.Connection, now: datetime, hours: float = 24, *, strict
         readings = load_readings(db, now)
         end = _history_end(habits, readings, now)
         seen_any = {r.day for rs in readings.values() for r in rs}  # days some habit happened: someone was in
+        shifts = occasion_shifts(db, now)
         out: list[Slot] = []
         for h in habits:
             try:
-                out += _habit_slots(h, readings.get(h["id"], []), now, hours, end, seen_any)
+                out += _habit_slots(h, readings.get(h["id"], []), now, hours, end, seen_any, shifts)
             except Exception:  # one odd habit must not hide the others
                 log.exception("forecast failed for %s", h.get("id"))
         return sorted(out, key=lambda s: (s.expected, s.habit["id"]))
@@ -146,6 +156,43 @@ def load_readings(db: sqlite3.Connection, before: datetime) -> dict[str, list[Re
     return dict(out)
 
 
+def occasion_shifts(db: sqlite3.Connection, now: datetime) -> dict[tuple[str, str], tuple[str, int]]:
+    """(habit id, date) → (occasion id, minutes): how an occasion going on now, or the one the night
+    before, moves a habit (occasions.shifts_now), once its match reaches SHIFT_CONFIDENCE. The most
+    confident occasion wins. {} when there are no occasions; never raises."""
+    if not has_table(db, "occasions") or not db.execute("SELECT 1 FROM occasions LIMIT 1").fetchone():
+        return {}
+    try:
+        from .occasions import shifts_now  # occasions reads the habits; only needed here
+        out: dict[tuple[str, str], tuple[str, int, float]] = {}
+        for s in shifts_now(db, now):
+            key = (s["habit_id"], s["date"])
+            if s["confidence"] >= SHIFT_CONFIDENCE and (key not in out or s["confidence"] > out[key][2]):
+                out[key] = (s["occasion_id"], int(s["minutes"]), s["confidence"])
+        return {k: v[:2] for k, v in out.items()}
+    except Exception:
+        log.exception("occasion shifts failed")
+        return {}
+
+
+def day_window(h: dict, d: date) -> tuple[float, float, float] | None:
+    """(usual, earliest, latest) clock minutes of a habit on d's weekday, before any drift: its own
+    weekday window when it has `windows`, else its usual time moved by its weekday shift and its
+    overall window (± twice its spread when some weekdays are shifted). None without a usual time."""
+    wd = WEEKDAYS[d.weekday()]
+    for w in h.get("windows") or []:
+        if isinstance(w, dict) and wd in (w.get("days") or []) and clock(w.get("usual")) is not None:
+            u = clock(w["usual"])
+            lo, hi = clock(w.get("earliest")), clock(w.get("latest"))
+            return u, u if lo is None else u + min(_wrap(lo - u), 0.0), u if hi is None else u + max(_wrap(hi - u), 0.0)
+    usual = clock(_get(h, "window", "usual"))
+    if usual is None:
+        return None
+    u = usual + _weekday_shift(h, d)
+    before, after = _window(h, usual)
+    return u, u + before, u + after
+
+
 def habit_name(h: dict) -> str:
     """The namer's name, or "Habit 3" for habit-3 until it has one."""
     if h.get("name"):
@@ -172,7 +219,7 @@ class _Counts:
 
 
 def _habit_slots(h: dict, rs: list[Reading], now: datetime, hours: float, end: date | None,
-                 seen_any: set[date] = frozenset()) -> list[Slot]:
+                 seen_any: set[date] = frozenset(), shifts: dict | None = None) -> list[Slot]:
     rec = h.get("recurrence") or {}
     usual = clock(_get(h, "window", "usual"))
     if usual is None and rs:
@@ -198,16 +245,32 @@ def _habit_slots(h: dict, rs: list[Reading], now: datetime, hours: float, end: d
         kind = rhythm.kind_of(d)
         if kind is None or d in seen:
             continue  # not due that day, or it already happened
-        weekday, drift = _weekday_shift(h, d), _drift(h, d)
-        expected = _nominal(d, lag, usual) + timedelta(minutes=weekday + drift)
+        own = day_window(h, d) if h.get("windows") else None
+        if own:  # the day's own weekday window
+            weekday, before, after = _wrap(own[0] - usual), own[1] - own[0], own[2] - own[0]
+        else:
+            weekday, (before, after) = _weekday_shift(h, d), _window(h, usual)
+        expected = _nominal(d, lag, usual) + timedelta(minutes=weekday + _drift(h, d))
+        basis = None
+        shifted = None
+        move = (shifts or {}).get((h["id"], expected.date().isoformat()))
+        if move:
+            oid, minutes = move
+            shifted = {"occasion_id": oid, "minutes": minutes,
+                       "before": {"expected": hhmm(expected), "window": [hhmm(expected + timedelta(minutes=before)),
+                                                                         hhmm(expected + timedelta(minutes=after))]}}
+            expected += timedelta(minutes=minutes)
+            basis = f"about {abs(minutes)} min {'later' if minutes > 0 else 'earlier'} after {oid}"
         if not now <= expected < horizon:
             continue
         p = _rate(counts, kind, p0)
+        if move:  # that weekday's own rate counts the earlier mornings after the occasion, all late, as misses
+            p = max(p, p0)
         if p < MIN_PROBABILITY:
             continue
-        before, after = _window(h, usual)
+        words = _basis(rhythm, kind, counts, weekday, h)
         out.append(Slot(h, d, expected, expected + timedelta(minutes=before), expected + timedelta(minutes=after),
-                        p, clip(p * conf), _basis(rhythm, kind, counts, weekday, h)))
+                        p, clip(p * conf), f"{words}; {basis}" if basis else words, shifted=shifted))
     return out
 
 

@@ -17,7 +17,8 @@ p-values are corrected for the number of candidates tried at each step (ALPHA, a
 and a finer rhythm needs MIN_OCCURRENCES of its own days, like any habit.
 
 Within the day, `evenly_spaced` finds "every n hours": one thing at several evenly spaced times.
-How the time varies: `weekday_shift` (later at weekends) and `drift` (a few minutes later each week).
+How the time varies: `weekday_shift` (later at weekends), `weekday_windows` (one window per group of
+days whose times differ) and `drift` (a few minutes later each week).
 """
 import math
 from collections.abc import Callable, Iterable
@@ -25,7 +26,7 @@ from datetime import date, timedelta
 from statistics import median
 
 import numpy as np
-from scipy.stats import hypergeom, linregress, mannwhitneyu
+from scipy.stats import binom, hypergeom, linregress, mannwhitneyu
 
 from . import ALPHA, MIN_OCCURRENCES
 from .habits import WEEKDAY_GROUPS, WEEKDAYS
@@ -164,11 +165,27 @@ def _weekly(seen: set[date], counted: list[date]) -> dict | None:
         return p * tries < ALPHA
 
     singles = [g[0] for g in WEEKDAY_GROUPS if len(g) == 1 and significant(g)]
-    choices = ([singles] if singles else []) + [list(g) for g in WEEKDAY_GROUPS if len(g) > 1 and significant(g)]
+    choices = ([singles] if singles else []) + [_without_absent(seen, counted, list(g))
+                                                 for g in WEEKDAY_GROUPS if len(g) > 1 and significant(g)]
     for days in choices:
         if len(seen.intersection(on(days))) >= MIN_OCCURRENCES:
             return rhythm("weekly", [WEEKDAYS[d] for d in sorted(days)])
     return None
+
+
+def _without_absent(seen: set[date], counted: list[date], group: list[int]) -> list[int]:
+    """The group's weekdays without those it is missing on far more than its rate on the others allows (binomial
+    lower tail, corrected for the weekdays tried): João comes home on weekdays, but never on Wednesdays."""
+    out = list(group)
+    for wd in group:
+        mine = [d for d in counted if d.weekday() == wd]
+        rest = [d for d in counted if d.weekday() in out and d.weekday() != wd]
+        if not mine or not rest:
+            continue
+        rate = (len(seen.intersection(rest)) + 1) / (len(rest) + 2)  # rule of succession: one miss isn't news
+        if binom.cdf(len(seen.intersection(mine)), len(mine), rate) * len(group) < ALPHA:
+            out.remove(wd)
+    return out
 
 
 def _finer(seen: set[date], parent: list[date], candidates: list[Candidate]) -> dict | None:
@@ -263,21 +280,7 @@ def weekday_shift(days: list[date], minutes: list[float]) -> tuple[float, dict[s
     corrected for the groups tried). `usual` is the median on the other days; `by_weekday` the
     shift of each shifted day; `residuals` what is left of each time once its shift is taken out.
     """
-    tries = len(WEEKDAY_GROUPS)
-
-    def split(group) -> tuple[list[float], list[float]]:
-        inside = [m for d, m in zip(days, minutes) if d.weekday() in group]
-        return inside, [m for d, m in zip(days, minutes) if d.weekday() not in group]
-
-    def significant(group) -> bool:
-        a, b = split(group)
-        return bool(a and b) and mannwhitneyu(a, b, alternative="two-sided").pvalue * tries < ALPHA
-
-    shifted = {g[0] for g in WEEKDAY_GROUPS if len(g) == 1 and significant(g)}
-    if not shifted:
-        shifted = next((set(g) for g in WEEKDAY_GROUPS if len(g) > 1 and significant(g)), set())
-    if len(shifted) > 3:  # report the few days that differ, against the many that don't
-        shifted = set(range(7)) - shifted
+    shifted = _shifted_days(days, minutes)
     base = [m for d, m in zip(days, minutes) if d.weekday() not in shifted] or list(minutes)
     usual = float(median(base))
     by_weekday = {}
@@ -287,6 +290,72 @@ def weekday_shift(days: list[date], minutes: list[float]) -> tuple[float, dict[s
             by_weekday[WEEKDAYS[wd]] = round(median(on_day) - usual)
     residuals = [m - usual - by_weekday.get(WEEKDAYS[d.weekday()], 0) for d, m in zip(days, minutes)]
     return usual, by_weekday, residuals
+
+
+def weekday_windows(days: list[date], minutes: list[float], weekdays: list[str] | None = None) -> list[dict]:
+    """One window per group of days whose times differ (docs/habits.md, "Windows by weekday"):
+    [{"days": ["mon", ...], "usual", "earliest", "latest"}], in weekday order.
+
+    The shifted days are weekday_shift's. Shifted days whose times don't differ from each other
+    (Mann-Whitney, as above) share a window: Saturday and Sunday are one weekend. The other days of
+    the rhythm (`weekdays`, all seven when None) are one window. With no shift: one window, all days.
+    `usual` is the median, `earliest` and `latest` the extremes of the group's times.
+    """
+    if not days:
+        return []
+    allowed = [WEEKDAYS.index(w) for w in weekdays] if weekdays else list(range(7))
+    shifted = _shifted_days(days, minutes)
+    times = lambda group: [m for d, m in zip(days, minutes) if d.weekday() in group]  # noqa: E731
+    groups: list[list[int]] = []
+    for wd in sorted(shifted):
+        if not times([wd]):
+            continue
+        same = next((g for g in groups if not _differ(times([wd]), times(g))), None)
+        if same is None:
+            groups.append([wd])
+        else:
+            same.append(wd)
+    base = [wd for wd in allowed if wd not in shifted]
+    if base and times(base) or not groups:
+        groups.append(base or allowed)
+    out = []
+    for g in sorted(groups, key=min):
+        ms = times(g) or list(minutes)
+        out.append({"days": [WEEKDAYS[wd] for wd in sorted(g)], "usual": hhmm(median(ms)),
+                    "earliest": hhmm(min(ms)), "latest": hhmm(max(ms))})
+    return out
+
+
+def _shifted_days(days: list[date], minutes: list[float]) -> set[int]:
+    """The weekdays (0 = Monday) whose times differ from the other days' beyond chance: single days,
+    else work days / weekend; at most three (the few that differ, against the many that don't)."""
+    tries = len(WEEKDAY_GROUPS)
+
+    def significant(group) -> bool:
+        inside = [m for d, m in zip(days, minutes) if d.weekday() in group]
+        outside = [m for d, m in zip(days, minutes) if d.weekday() not in group]
+        return bool(inside and outside) and _differ(inside, outside, tries)
+
+    shifted = {g[0] for g in WEEKDAY_GROUPS if len(g) == 1 and significant(g)}
+    while shifted:  # a day the shifted ones hid (Sunday beside Saturday): against the days left
+        more = {wd for wd in set(range(7)) - shifted
+                if _differ([m for d, m in zip(days, minutes) if d.weekday() == wd],
+                           [m for d, m in zip(days, minutes) if d.weekday() not in shifted | {wd}], tries)}
+        if not more:
+            break
+        shifted |= more
+    if not shifted:
+        shifted = next((set(g) for g in WEEKDAY_GROUPS if len(g) > 1 and significant(g)), set())
+    if len(shifted) > 3:  # report the few days that differ, against the many that don't
+        shifted = set(range(7)) - shifted
+    return shifted
+
+
+def _differ(a: list[float], b: list[float], tries: int = len(WEEKDAY_GROUPS)) -> bool:
+    """Two sets of times differ beyond chance (Mann-Whitney U, corrected for `tries`)."""
+    if not a or not b:
+        return False
+    return bool(mannwhitneyu(a, b, alternative="two-sided").pvalue * tries < ALPHA)
 
 
 def drift(days: list[date], minutes: list[float], tries: int = 1) -> int:

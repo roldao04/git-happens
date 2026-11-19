@@ -1,0 +1,77 @@
+{
+ "about": "Sample data for the demo screen (docs/demo-plan.md, C11), in the contract's shapes. GET /moments, /thoughts and /planted serve it for the demo house until the real data is there: the simulator's moments and answer key, and the run's wakes and decisions.",
+ "start": "2026-09-21",
+ "moments": [
+  {"id": "gathering", "title": "The gathering, live", "day": 54, "time": "20:30", "focus": ["occasion-1", "habit-1"],
+   "say": "Friday night, guests' phones are joining the WiFi. Alfred has seen this three times before."},
+  {"id": "saturday-morning", "title": "The morning after", "day": 55, "time": "07:45", "focus": ["habit-1"],
+   "say": "Saturday after the gathering: the warm-up moved from 08:05 to 09:30, so nobody heats an empty kitchen."},
+  {"id": "weekday-morning", "title": "Waking up, a weekday", "day": 59, "time": "06:30", "focus": ["habit-1"],
+   "say": "Nobody told Alfred when this house wakes up. It learned it: weekdays 06:55 to 07:30, kettle then the door."},
+  {"id": "ana-arrives", "title": "Ana arrives", "day": 60, "time": "18:00", "focus": ["habit-4"],
+   "say": "Ana gets home around 18:40 on weekdays. The house needs 25 minutes to warm up, so Alfred starts at 18:15."}
+ ],
+ "thoughts": {
+  "54": [
+   {"at": "2026-11-13T18:20:00", "kind": "habit_soon", "key": "habit_soon:habit-4:2026-11-13", "habit_id": "habit-4", "occasion_id": null,
+    "subject": "Ana gets home", "sentence": "Ana usually gets home at 18:40 on Fridays; the house is at 17.6 °C and needs about 22 min to reach 21 °C.",
+    "confidence": 0.83, "mode": "do", "status": "done", "due": "2026-11-13T18:18:00",
+    "action": {"tool": "update_device_capabilities", "target": "thermostat", "args": {"body": {"type": "targetTemperature", "value": 21}}}},
+   {"at": "2026-11-13T20:35:00", "kind": "occasion", "key": "occasion:occasion-1:2026-11-13", "habit_id": null, "occasion_id": "occasion-1",
+    "subject": "Friday night gathering", "sentence": "This looks like the Friday night gathering: five guest phones and the door opening often. A full room warms itself, so the heating goes down to 19 °C.",
+    "confidence": 0.8, "mode": "do", "status": "done", "due": "2026-11-13T20:35:00",
+    "action": {"tool": "update_device_capabilities", "target": "thermostat", "args": {"body": {"type": "targetTemperature", "value": 19}}}},
+   {"at": "2026-11-13T20:35:00", "kind": "occasion", "key": "occasion:occasion-1:2026-11-13", "habit_id": null, "occasion_id": "occasion-1",
+    "subject": "Friday night gathering", "sentence": "After the last three gatherings the next morning started about 90 min later, so tomorrow's warm-up moves from 08:05 to 09:30.",
+    "confidence": 0.78, "mode": "do", "status": "planned", "due": "2026-11-14T09:30:00",
+    "action": {"tool": "update_device_capabilities", "target": "thermostat", "args": {"body": {"type": "targetTemperature", "value": 21}}}},
+   {"at": "2026-11-13T23:40:00", "kind": "occasion", "key": "occasion:occasion-1:2026-11-13", "habit_id": null, "occasion_id": "occasion-1",
+    "subject": "Friday night gathering", "sentence": "The TV has been on with nobody watching since the guests moved to the table; it could go off.",
+    "confidence": 0.52, "mode": "suggest", "status": "skipped", "due": "2026-11-13T23:40:00",
+    "action": {"tool": "update_device_capabilities", "target": "plug:tv", "args": {"body": {"type": "power", "value": "off"}}}}
+  ],
+  "55": [
+   {"at": "2026-11-14T09:00:00", "kind": "habit_soon", "key": "habit_soon:habit-1:2026-11-14", "habit_id": "habit-1", "occasion_id": null,
+    "subject": "Waking up", "sentence": "After last night's gathering, waking up is expected around 10:10 rather than 08:40; the warm-up starts at 09:30 instead of 08:05.",
+    "confidence": 0.78, "mode": "do", "status": "done", "due": "2026-11-14T09:30:00",
+    "action": {"tool": "update_device_capabilities", "target": "thermostat", "args": {"body": {"type": "targetTemperature", "value": 21}}}}
+  ],
+  "59": [
+   {"at": "2026-11-18T06:30:00", "kind": "habit_soon", "key": "habit_soon:habit-1:2026-11-18", "habit_id": "habit-1", "occasion_id": null,
+    "subject": "Waking up", "sentence": "Waking up usually starts around 07:10 on Wednesdays; the house is at 17.2 °C and needs about 30 min to reach 21 °C, so heating starts at 06:40.",
+    "confidence": 0.86, "mode": "do", "status": "done", "due": "2026-11-18T06:40:00",
+    "action": {"tool": "update_device_capabilities", "target": "thermostat", "args": {"body": {"type": "targetTemperature", "value": 21}}}},
+   {"at": "2026-11-18T08:31:00", "kind": "departure", "key": "departure:c-8f3a:2026-11-18:08", "habit_id": null, "occasion_id": null,
+    "subject": "Ana's phone", "sentence": "Ana's phone left at 08:12, but João works from home on Wednesdays and his phone is still here, so the heating stays as it is.",
+    "confidence": null, "mode": null, "status": null, "due": null, "action": null}
+  ],
+  "60": [
+   {"at": "2026-11-19T18:10:00", "kind": "habit_soon", "key": "habit_soon:habit-4:2026-11-19", "habit_id": "habit-4", "occasion_id": null,
+    "subject": "Ana gets home", "sentence": "Ana usually gets home at 18:40 on Thursdays; the house needs 25 min to reach 21 °C.",
+    "confidence": 0.84, "mode": "do", "status": "done", "due": "2026-11-19T18:15:00",
+    "action": {"tool": "update_device_capabilities", "target": "thermostat", "args": {"body": {"type": "targetTemperature", "value": 21}}}},
+   {"at": "2026-11-19T18:41:00", "kind": "arrival", "key": "arrival:c-8f3a:2026-11-19:18", "habit_id": "habit-4", "occasion_id": null,
+    "subject": "Ana's phone", "sentence": "Ana is home and the room is already at 20.7 °C. Nothing more to do.",
+    "confidence": null, "mode": null, "status": null, "due": null, "action": null}
+  ]
+ },
+ "planted": {
+  "60": [
+   {"planted": "Waking up weekdays 06:55–07:30, weekends 08:20–09:10: kettle, then the door", "found": "habit-1",
+    "found_text": "Waking up · weekdays 06:55–07:30 · weekends 08:20–09:10", "match": "yes"},
+   {"planted": "Ana leaves weekdays 08:10", "found": "habit-2", "found_text": "Ana leaves · weekdays 08:00–08:20", "match": "yes"},
+   {"planted": "João leaves weekdays 08:30, not on Wednesdays", "found": "habit-3",
+    "found_text": "João leaves · Mon, Tue, Thu, Fri 08:20–08:45", "match": "yes"},
+   {"planted": "Ana home weekdays 18:40", "found": "habit-4", "found_text": "Ana gets home · weekdays 18:25–18:55", "match": "yes"},
+   {"planted": "João home 19:30, Tuesdays 21:00", "found": "habit-5",
+    "found_text": "João gets home · 19:15–19:45 · Tuesdays 20:45–21:15", "match": "yes"},
+   {"planted": "TV evenings 21:00–23:00", "found": "habit-6", "found_text": "TV in the evening · most days 21:00–21:30", "match": "yes"},
+   {"planted": "Washing machine Mondays ~19:30", "found": "habit-7", "found_text": "Washing machine · Mondays 19:10–20:05",
+    "match": "partly"},
+   {"planted": "João works from home on Wednesdays", "found": null, "found_text": null, "match": "no"},
+   {"planted": "Friday night gatherings: 2 Oct, 16 Oct, 30 Oct (and 13 Nov)", "found": "occasion-1",
+    "found_text": "Friday night gathering · seen 4 times, 5 guest phones", "match": "yes"},
+   {"planted": "The house warms about 5 °C an hour", "found": "warmup", "found_text": "warms 4.8 °C an hour", "match": "yes"}
+  ]
+ }
+}
