@@ -1,9 +1,11 @@
+import { useState, type FormEvent } from "react";
 import { DayLanes } from "../components/DayLanes";
 import { Shell } from "../components/Shell";
 import { sensorHref } from "../components/sensorHref";
 import type { Recording } from "../data/recording";
 import type { StateAt } from "../data/stateAt";
-import { dayView, type Entry } from "../data/timeline";
+import { DAY_MS } from "../data/stateAt";
+import { dayView, zoomBetween, type DayView, type Entry, type Zoom } from "../data/timeline";
 import { deviceWords, evidence, formatClock, formatDate, sensorTitle } from "../data/words";
 import type { Playback } from "../playback/usePlayback";
 
@@ -40,6 +42,37 @@ function EntryItem({ entry }: { entry: Entry }) {
   );
 }
 
+function minutesOf(text: string): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(text);
+  return m === null ? null : (Number(m[1]) * 60 + Number(m[2])) * 60_000;
+}
+
+function DayChart({ view }: { view: DayView }) {
+  const day = { start: view.dayStart, end: view.dayStart + DAY_MS };
+  const [zoom, setZoom] = useState<Zoom>(day);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const whole = zoom.start === day.start && zoom.end === day.end;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const a = minutesOf(from);
+    const b = minutesOf(to);
+    const next = a === null || b === null ? null : zoomBetween(day.start + a, day.start + b);
+    if (next !== null) setZoom(next);
+  };
+  return (
+    <>
+      <DayLanes view={view} zoom={zoom} onZoom={setZoom} />
+      <form className="zoom" onSubmit={submit} aria-label="Zoom">
+        <label>From <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+        <label>To <input type="time" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        <button type="submit" className="al-btn quiet">Zoom</button>
+        {!whole && <button type="button" className="al-btn" onClick={() => setZoom(day)}>Whole day</button>}
+      </form>
+    </>
+  );
+}
+
 interface Props { rec: Recording; state: StateAt; playback: Playback; day: number }
 
 export function Timeline({ rec, state, playback, day }: Props) {
@@ -59,8 +92,8 @@ export function Timeline({ rec, state, playback, day }: Props) {
       </nav>
       <section className="sec lanes-sec" aria-labelledby="h-lanes">
         <div className="sec-t"><h2 id="h-lanes">The day, device by device</h2></div>
-        <DayLanes view={view} />
-        <p className="note">A bar is the lamp on or the plug in use. A tick is the door opening. A diamond is a habit Alfred recognized; a hollow one is not a sensor yet. The hatched part has not happened yet.</p>
+        <DayChart key={view.day} view={view} />
+        <p className="note">A bar is the lamp on, in its color, or the plug in use. A tick is the door opening. A diamond is a habit Alfred recognized; a hollow one is not a sensor yet. The hatched part has not happened yet. Drag across the chart to see some hours closer.</p>
       </section>
       <section className="sec" aria-labelledby="h-read">
         <div className="sec-t"><h2 id="h-read">What Alfred read</h2></div>

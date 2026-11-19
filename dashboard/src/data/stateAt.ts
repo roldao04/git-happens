@@ -39,6 +39,11 @@ export function dayNumber(startMs: number, t: number): number {
   return Math.floor((midnight(t) - midnight(startMs)) / DAY_MS) + 1;
 }
 
+function heardOrNot(v: Record<string, Value>): Record<string, Value> {
+  if (v.reachable !== false) return v;
+  return v.lastHeard === undefined ? { reachable: false } : { reachable: false, lastHeard: v.lastHeard };
+}
+
 interface DevicesNow { devices: DeviceNow[]; latest: Latest | null; deviceFeed: FeedItem[] }
 
 function devicesAt(rec: Recording, t: number, holdMs: number): DevicesNow {
@@ -71,7 +76,7 @@ function devicesAt(rec: Recording, t: number, holdMs: number): DevicesNow {
     const changed = last.get(device.id);
     return {
       device,
-      values: values.get(device.id) ?? {},
+      values: heardOrNot(values.get(device.id) ?? {}),
       changedAt: changed !== undefined && t - changed <= holdMs ? changed : null,
       since: changed ?? null,
     };

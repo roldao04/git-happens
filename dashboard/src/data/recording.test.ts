@@ -53,6 +53,24 @@ describe("parseRecording", () => {
     expect(() => parseRecording(raw)).toThrow(new RecordingError("recording is not an object"));
   });
 
+  test("keeps when a real home's last reading came in, and has none for a simulated one", () => {
+    const raw = minimal();
+    expect(parseRecording(raw).meta.updated).toBeNull();
+    (raw.meta as Record<string, unknown>).updated = "2026-11-19T12:23:05";
+    expect(parseRecording(raw).meta.updated).toBe("2026-11-19T12:23:05");
+    (raw.meta as Record<string, unknown>).updated = "soon";
+    expect(() => parseRecording(raw)).toThrow(/meta\.updated/);
+  });
+
+  test("keeps the hours nobody was watching, and has none when the file lists none", () => {
+    const raw = minimal();
+    expect(parseRecording(raw).gaps).toEqual([]);
+    (raw as Record<string, unknown>).gaps = [{ start: "2026-11-17T12:05:34", end: "2026-11-19T01:50:31" }];
+    expect(parseRecording(raw).gaps).toEqual([{ start: "2026-11-17T12:05:34", end: "2026-11-19T01:50:31" }]);
+    (raw as Record<string, unknown>).gaps = [{ start: "2026-11-17T12:05:34" }];
+    expect(() => parseRecording(raw)).toThrow(/gaps\[0\]\.end/);
+  });
+
   test("rejects a bad time", () => {
     const raw = minimal();
     (raw.meta as Record<string, unknown>).start = "yesterday";

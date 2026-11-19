@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { loadRecording } from "./load";
+import { isLive, loadLive, loadRecording } from "./load";
 import { RecordingError } from "./recording";
 
 function fake(status: number, body: unknown) {
@@ -28,4 +28,17 @@ test("a good file comes back parsed", async () => {
   const body = { meta: { simulated: true, start: "2026-09-01T00:00:00", end: "2026-09-02T00:00:00", days: 1 }, devices: [], sensors: [], readings: [] };
   const rec = await loadRecording(fake(200, body));
   expect(rec.meta.days).toBe(1);
+});
+
+test("the live file is fetched fresh every time and named in its errors", async () => {
+  const f = fake(503, "");
+  await expect(loadLive(f)).rejects.toThrow(new RecordingError("could not load live.json (HTTP 503)"));
+  expect(f).toHaveBeenCalledWith("./live.json", { cache: "no-store" });
+});
+
+test("the page is live only when its address asks for it", () => {
+  expect(isLive("?live")).toBe(true);
+  expect(isLive("?x=1&live=1")).toBe(true);
+  expect(isLive("")).toBe(false);
+  expect(isLive("?alive")).toBe(false);
 });

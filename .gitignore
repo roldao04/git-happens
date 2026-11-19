@@ -26,3 +26,6 @@ data/
 
 # local planning notes
 docs/superpowers/
+
+# Live export of the real kit (dashboard ?live)
+dashboard/public/live.json

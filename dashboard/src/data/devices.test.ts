@@ -70,3 +70,10 @@ test("the headline counts the devices that need a look", () => {
   expect(devicesHeadline(8, 1)).toBe("8 devices, 1 needs a look.");
   expect(devicesHeadline(8, 2)).toBe("8 devices, 2 need a look.");
 });
+
+test("a device that went silent has no signal, says when it was last heard and needs a look", () => {
+  const lamp = dev("bulb", { reachable: false, lastHeard: "2026-11-18T17:57:58" }, "Lamp");
+  expect(statusRow(lamp)).toEqual({ value: "No signal", sub: "last heard 17:57, may be unplugged" });
+  expect(statusRow(dev("plug", { reachable: false }))).toEqual({ value: "No signal", sub: "may be unplugged" });
+  expect(needsLook([lamp])).toEqual([{ device: lamp.device, issues: ["No signal"] }]);
+});

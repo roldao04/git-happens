@@ -2,19 +2,24 @@
 
   uv run python -m unittest tests.test_recording -v      # about 10 s
 """
+import io
 import json
 import logging
 import re
 import sqlite3
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from datetime import datetime
 from pathlib import Path
 
 from source import pipeline, recording
 from source.clock import TZ
+from source.learn import to_local
 from source.model import Event
 from source.store import Store
+
+MORNING = Path(__file__).parent / "fixtures" / "morning.jsonl"
 
 LOCAL_TIME = re.compile(r"\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?")
 SCALAR = (str, int, float, bool, type(None))
@@ -54,6 +59,9 @@ def check(rec: dict) -> None:
         assert s["status"] in ("active", "fading", "merged"), f"status in {s['id']}"
         assert all(isinstance(part, str) for part in s["pattern"]["parts"]), f"parts in {s['id']}"
         text(s["pattern"], "time_of_day")
+    for g in rec["gaps"]:
+        when(g, "start")
+        when(g, "end")
     for r in rec["readings"]:
         text(r, "sensor_id")
         when(r, "start")
@@ -71,9 +79,9 @@ class Home:
         self.store.save_devices(0, {device_id: (dtype, name)})
         return self
 
-    def add(self, at: str | int, device_id: str, capability: str, new, kind: str = "change") -> "Home":
+    def add(self, at: str | int, device_id: str, capability: str, new, kind: str = "change", old=None) -> "Home":
         ts = at if isinstance(at, int) else ms(at)
-        self.store.save(ts, {}, [Event(ts, device_id, device_id, capability, kind, None, new)])
+        self.store.save(ts, {}, [Event(ts, device_id, device_id, capability, kind, old, new)])
         return self
 
     def recording(self, **kw) -> dict:
@@ -127,15 +135,49 @@ class HandMade(unittest.TestCase):
         self.assertEqual(rec["initial"][0]["value"], '[{"id": "1", "value": "on"}]')
         self.assertEqual(rec["events"][0]["value"], 20.5)
 
-    def test_polling_events_set_no_value_and_a_gone_one_clears_it(self):
-        self.home.add("2026-09-01T00:00:00", "door", "sensorState", "normal", "initial")
-        self.home.add("2026-09-01T03:00:00", "door", "sensorState", 1788217200000, "stale")
-        self.home.add("2026-09-01T04:00:00", "door", "sensorState", 1788217200000, "returned")
-        self.home.add("2026-09-01T05:00:00", "", "", 1788217200000, "gap")
-        self.home.add("2026-09-01T06:00:00", "door", "sensorState", "anything", "gone")
+    def test_a_silent_device_loses_its_signal_until_it_is_heard_again(self):
+        self.home.device("lamp", "bulb", "Lamp")
+        self.home.add("2026-09-01T00:00:00", "lamp", "power", "on", "initial")
+        self.home.add("2026-09-01T03:00:00", "lamp", "lastCommunicationTime", ms("2026-09-01T01:58:30"), "stale")
+        self.home.add("2026-09-01T04:00:00", "lamp", "lastCommunicationTime", ms("2026-09-01T03:59:00"), "returned")
+        self.home.add("2026-09-01T06:00:00", "lamp", "power", "anything", "gone")
         rec = self.home.recording()
-        self.assertEqual(rec["events"],
-                         [{"ts": "2026-09-01T06:00:00", "device_id": "door", "capability": "sensorState", "value": None}])
+        check(rec)
+        row = lambda ts, cap, value: {"ts": ts, "device_id": "lamp", "capability": cap, "value": value}
+        self.assertEqual(rec["events"], [row("2026-09-01T03:00:00", "reachable", False),
+                                         row("2026-09-01T03:00:00", "lastHeard", "2026-09-01T01:58:30"),
+                                         row("2026-09-01T04:00:00", "reachable", True),
+                                         row("2026-09-01T06:00:00", "power", None)])
+
+    def test_only_devices_that_report_all_the_time_lose_their_signal_by_going_quiet(self):
+        # battery sensors and the hub only speak when something happens, so their silence means nothing
+        self.home.device("lamp", "bulb", "Lamp").device("smoke", "smokeSensor", "Smoke sensor")
+        self.home.add("2026-09-01T00:00:00", "door", "sensorState", "normal", "initial")
+        for device_id in ("door", "smoke", "lamp"):
+            self.home.add("2026-09-01T03:00:00", device_id, "lastCommunicationTime", ms("2026-09-01T01:58:30"), "stale")
+        rec = self.home.recording()
+        self.assertEqual({e["device_id"] for e in rec["events"]}, {"lamp"})
+
+    def test_a_device_already_silent_at_the_start_starts_without_signal(self):
+        self.home.device("lamp", "bulb", "Lamp")
+        self.home.add("2026-09-01T00:00:00", "lamp", "power", "on", "initial")
+        self.home.add("2026-09-01T00:00:00", "lamp", "lastCommunicationTime", ms("2026-08-31T22:10:00"), "stale")
+        rec = self.home.recording()
+        self.assertEqual(rec["events"], [])
+        self.assertIn({"device_id": "lamp", "capability": "reachable", "value": False}, rec["initial"])
+        self.assertIn({"device_id": "lamp", "capability": "lastHeard", "value": "2026-08-31T22:10:00"}, rec["initial"])
+
+    def test_a_gap_in_the_polling_sets_no_value_and_is_listed_as_not_watched(self):
+        self.home.add("2026-09-01T00:00:00", "door", "sensorState", "normal", "initial")
+        self.home.add("2026-09-01T05:00:00", "loop", "poll", ms("2026-09-01T05:00:00"), "gap", old=ms("2026-09-01T01:00:00"))
+        rec = self.home.recording()
+        self.assertEqual(rec["events"], [])
+        self.assertEqual(rec["gaps"], [{"start": "2026-09-01T01:00:00", "end": "2026-09-01T05:00:00"}])
+
+    def test_the_hours_before_the_first_reading_were_not_watched(self):
+        self.home.add("2026-09-01T11:44:28", "door", "sensorState", "normal", "initial")
+        self.home.add("2026-09-01T12:00:00", "door", "sensorState", "alarm")
+        self.assertEqual(self.home.recording()["gaps"], [{"start": "2026-09-01T00:00:00", "end": "2026-09-01T11:44:28"}])
 
     def test_events_stay_in_clock_order_when_the_clocks_go_back(self):
         # 25 Oct 2026, Lisbon: 01:59 summer time is followed by 01:00 winter time
@@ -157,6 +199,12 @@ class HandMade(unittest.TestCase):
         rec = self.home.recording(simulated=False)
         check(rec)
         self.assertEqual((rec["sensors"], rec["readings"], rec["meta"]["simulated"]), ([], [], False))
+
+    def test_a_real_history_says_when_its_last_reading_came_in(self):
+        self.home.add("2026-09-01T08:00:00", "door", "sensorState", "normal", "initial")
+        self.home.add("2026-09-01T12:23:05", "door", "sensorState", "alarm")
+        self.assertEqual(self.home.recording(simulated=False)["meta"]["updated"], "2026-09-01T12:23:05")
+        self.assertNotIn("updated", self.home.recording()["meta"])
 
     def test_an_empty_history_is_refused(self):
         with self.assertRaisesRegex(ValueError, "no snapshots"):
@@ -183,6 +231,9 @@ class SimulatedRun(unittest.TestCase):
         check(self.rec)
         self.assertEqual(self.rec["meta"], {"household": "rosa", "simulated": True, "start": "2026-09-01T00:00:00",
                                             "end": "2026-09-10T23:59:59", "days": 10})
+
+    def test_a_simulated_run_was_watched_the_whole_time(self):
+        self.assertEqual(self.rec["gaps"], [])
 
     def test_every_value_that_changes_has_a_start(self):
         started = {(r["device_id"], r["capability"]) for r in self.rec["initial"]}
@@ -215,3 +266,51 @@ class SimulatedRun(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Writing(unittest.TestCase):
+    def setUp(self):
+        self.home = Home().device("door", "contactSensor", "Front door")
+        self.addCleanup(self.home.close)
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.out = Path(self._tmp.name) / "web" / "live.json"
+
+    def test_writing_replaces_the_file_whole_and_leaves_nothing_else(self):
+        self.home.add("2026-09-01T08:00:00", "door", "sensorState", "normal", "initial")
+        recording.write(self.home.store.db, self.out, simulated=False)
+        self.home.add("2026-09-01T09:00:00", "door", "sensorState", "alarm")
+        recording.write(self.home.store.db, self.out, simulated=False)
+        self.assertEqual(json.loads(self.out.read_text())["meta"]["updated"], "2026-09-01T09:00:00")
+        self.assertEqual([f.name for f in self.out.parent.iterdir()], ["live.json"])
+
+    def test_watch_rebuilds_from_the_loops_snapshots_every_few_seconds(self):
+        naps: list[float] = []
+        code = recording.watch(MORNING, self.out, every=5, rounds=3, sleep=naps.append, simulated=False)
+        self.assertEqual((code, naps), (0, [5, 5]))
+        rec = json.loads(self.out.read_text())
+        check(rec)
+        last = [json.loads(line) for line in MORNING.read_text().splitlines() if line.strip()][-1]
+        self.assertEqual(rec["meta"]["updated"], to_local(last["ts"]).strftime("%Y-%m-%dT%H:%M:%S"))
+        self.assertGreater(len(rec["devices"]), 0)
+
+    def test_watch_waits_for_the_loop_to_write_its_first_snapshot(self):
+        naps: list[float] = []
+        with self.assertLogs("source.recording", "WARNING"):
+            code = recording.watch(Path(self._tmp.name) / "none.jsonl", self.out, every=5, rounds=2, sleep=naps.append)
+        self.assertEqual((code, naps, self.out.exists()), (0, [5], False))
+
+    def test_watch_waits_a_round_when_the_last_snapshot_is_half_written(self):
+        snaps = Path(self._tmp.name) / "snaps.jsonl"
+        snaps.write_text(MORNING.read_text() + '{"ts": 1')
+        with self.assertLogs("source.recording", "WARNING"):
+            recording.watch(snaps, self.out, every=5, rounds=1, sleep=lambda _: None)
+        self.assertFalse(self.out.exists())
+
+    def test_the_command_builds_once_from_snapshots_and_needs_a_source(self):
+        self.assertEqual(recording.main(["--snapshots", str(MORNING), "--real", "--out", str(self.out)]), 0)
+        self.assertFalse(json.loads(self.out.read_text())["meta"]["simulated"])
+        for argv in (["--out", "x.json"], [".", "--snapshots", str(MORNING), "--out", "x.json"],
+                     [".", "--every", "5", "--out", "x.json"]):
+            with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+                recording.main(argv)

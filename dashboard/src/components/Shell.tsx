@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { StateAt } from "../data/stateAt";
+import { formatClock } from "../data/words";
 import type { Playback } from "../playback/usePlayback";
 import { SimPill } from "./SimPill";
 import { TopBar, type Tab } from "./TopBar";
@@ -11,7 +12,7 @@ export function Shell({ state, playback, tab, simulated, children }: Props) {
     <div className="scr">
       <TopBar tab={tab} />
       <main className="pg">{children}</main>
-      {simulated && <SimPill state={state} playback={playback} />}
+      {simulated ? <SimPill state={state} playback={playback} /> : <p className="real-badge">{`Real home · last reading ${formatClock(state.t).time}`}</p>}
     </div>
   );
 }

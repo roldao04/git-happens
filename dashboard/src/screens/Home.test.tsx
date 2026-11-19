@@ -61,3 +61,10 @@ test("there is no needs-a-look card when every device is fine", () => {
   render(<Home rec={recording()} state={state({ devices: [door("normal")] })} playback={playback()} />);
   expect(screen.queryByRole("link", { name: /need/ })).toBeNull();
 });
+
+test("a lamp with no signal is not called on, and needs a look", () => {
+  const lamp = { device: { id: "l", type: "bulb", name: "Lamp" }, values: { reachable: false }, changedAt: null, since: null };
+  render(<Home rec={recording()} state={state({ devices: [lamp] })} playback={playback()} />);
+  expect(screen.getByRole("heading", { level: 1, name: "All quiet at home." })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /1 device needs a look/ })).toHaveTextContent("Lamp: no signal.");
+});

@@ -1,6 +1,6 @@
-import type { Device, Value } from "./recording";
+import { toMs, type Device, type Value } from "./recording";
 import type { DeviceNow } from "./stateAt";
-import { deviceRow, type DeviceRow } from "./words";
+import { deviceRow, formatClock, type DeviceRow } from "./words";
 
 export const LOW_BATTERY_PCT = 20;
 
@@ -8,6 +8,7 @@ export interface Concern { device: Device; issues: string[] }
 
 function issuesOf(values: Record<string, Value>): string[] {
   const issues: string[] = [];
+  if (values.reachable === false) issues.push("No signal");
   const level = values.batteryLevel;
   if (typeof level === "number" && level <= LOW_BATTERY_PCT) issues.push(`Battery ${level}%`);
   if (values.batteryStatus === "low") issues.push("Battery low");
@@ -41,7 +42,13 @@ function otherRow(type: string, v: Record<string, Value>): DeviceRow {
   }
 }
 
+function silentRow(lastHeard: Value | undefined): DeviceRow {
+  if (typeof lastHeard !== "string") return { value: "No signal", sub: "may be unplugged" };
+  return { value: "No signal", sub: `last heard ${formatClock(toMs(lastHeard)).time}, may be unplugged` };
+}
+
 export function statusRow(d: DeviceNow): DeviceRow {
+  if (d.values.reachable === false) return silentRow(d.values.lastHeard);
   return deviceRow(d) ?? otherRow(d.device.type, d.values);
 }
 

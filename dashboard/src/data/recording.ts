@@ -1,4 +1,4 @@
-export interface Meta { household: string; simulated: boolean; start: string; end: string; days: number }
+export interface Meta { household: string; simulated: boolean; start: string; end: string; days: number; updated: string | null }
 export interface Device { id: string; type: string; name: string }
 export type Value = string | number | boolean | null;
 export interface DeviceValue { device_id: string; capability: string; value: Value }
@@ -25,6 +25,7 @@ export interface Sensor {
   pattern: Pattern;
 }
 export interface Reading { sensor_id: string; start: string; end: string | null; value: number | null }
+export interface Gap { start: string; end: string }
 export interface Recording {
   meta: Meta;
   devices: Device[];
@@ -32,6 +33,7 @@ export interface Recording {
   events: DeviceEvent[];
   sensors: Sensor[];
   readings: Reading[];
+  gaps: Gap[];
 }
 
 export class RecordingError extends Error {
@@ -164,6 +166,7 @@ export function parseRecording(raw: unknown): Recording {
     start: time(m, "start", "meta"),
     end: time(m, "end", "meta"),
     days: optNum(m, "days") ?? 0,
+    updated: m.updated === undefined ? null : time(m, "updated", "meta"),
   };
   const events = each(list(raw, "events", false), "events", (o, p) => ({
     ts: time(o, "ts", p), device_id: str(o, "device_id", p), capability: str(o, "capability", p), value: value(o.value),
@@ -188,5 +191,6 @@ export function parseRecording(raw: unknown): Recording {
       end: typeof o.end === "string" ? time(o, "end", p) : null,
       value: optNum(o, "value"),
     })),
+    gaps: each(list(raw, "gaps", false), "gaps", (o, p) => ({ start: time(o, "start", p), end: time(o, "end", p) })),
   };
 }

@@ -9,12 +9,13 @@ function sensor(id: string, confidence: number, learned_at: string, status: Sens
 
 function rec(over: Partial<Recording> = {}): Recording {
   return {
-    meta: { household: "rosa", simulated: true, start: "2026-09-01T00:00:00", end: "2026-09-21T23:59:59", days: 21 },
+    meta: { household: "rosa", simulated: true, start: "2026-09-01T00:00:00", end: "2026-09-21T23:59:59", days: 21, updated: null },
     devices: [{ id: "d-plug", type: "plug", name: "Plug" }],
     initial: [{ device_id: "d-plug", capability: "instantPower", value: 0 }],
     events: [{ ts: "2026-09-01T07:59:39", device_id: "d-plug", capability: "instantPower", value: 2105 }],
     sensors: [],
     readings: [],
+    gaps: [],
     ...over,
   };
 }
@@ -59,6 +60,20 @@ describe("devices", () => {
     const d = stateAt(r, at("2026-09-01T08:00:00")).devices[0];
     expect(d?.values.todayConsumption).toBe(12);
     expect(d?.changedAt).toBeNull();
+  });
+
+  test("a device with no signal shows only that, until it is heard again", () => {
+    const r = rec({
+      devices: [{ id: "d-lamp", type: "bulb", name: "Lamp" }],
+      initial: [{ device_id: "d-lamp", capability: "power", value: "on" }],
+      events: [
+        { ts: "2026-09-01T03:00:00", device_id: "d-lamp", capability: "reachable", value: false },
+        { ts: "2026-09-01T03:00:00", device_id: "d-lamp", capability: "lastHeard", value: "2026-09-01T01:58:30" },
+        { ts: "2026-09-01T04:00:00", device_id: "d-lamp", capability: "reachable", value: true },
+      ],
+    });
+    expect(stateAt(r, at("2026-09-01T03:30:00")).devices[0]?.values).toEqual({ reachable: false, lastHeard: "2026-09-01T01:58:30" });
+    expect(stateAt(r, at("2026-09-01T04:30:00")).devices[0]?.values.power).toBe("on");
   });
 });
 
@@ -121,14 +136,14 @@ describe("time", () => {
   });
 
   test("numbers days across a month and a year", () => {
-    const r = rec({ meta: { household: "x", simulated: true, start: "2026-12-30T00:00:00", end: "2027-01-05T23:59:59", days: 7 } });
+    const r = rec({ meta: { household: "x", simulated: true, start: "2026-12-30T00:00:00", end: "2027-01-05T23:59:59", days: 7, updated: null } });
     const s = stateAt(r, at("2027-01-01T10:00:00"));
     expect(s.day).toBe(3);
     expect(s.days).toBe(7);
   });
 
   test("counts days from the dates when meta.days is missing", () => {
-    const r = rec({ meta: { household: "x", simulated: true, start: "2026-09-01T00:00:00", end: "2026-09-03T23:59:59", days: 0 } });
+    const r = rec({ meta: { household: "x", simulated: true, start: "2026-09-01T00:00:00", end: "2026-09-03T23:59:59", days: 0, updated: null } });
     expect(stateAt(r, at("2026-09-01T00:00:00")).days).toBe(3);
   });
 
