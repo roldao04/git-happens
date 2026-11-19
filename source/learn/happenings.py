@@ -19,6 +19,7 @@ from typing import Any
 from ..clock import TZ
 from ..model import Event
 from ..store import Store
+from . import signal_devices
 from .rest import Rest, SignalId, Stretch, _is_number, _weighted_median, find_rest, observed_stretches
 
 # Signals that never make happenings of their own, or every use would also link "plug power → plug current":
@@ -30,7 +31,7 @@ NOT_HAPPENINGS = {
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS happenings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    signal TEXT NOT NULL,            -- "<device type>.<capability>"
+    signal TEXT NOT NULL,            -- "<device type>.<capability>", or "<type>:<slug>.<capability>" (C2)
     device_id TEXT NOT NULL,
     capability TEXT NOT NULL,
     start_ms INTEGER NOT NULL,       -- epoch ms, like events.ts
@@ -48,9 +49,18 @@ CREATE INDEX IF NOT EXISTS happenings_start ON happenings (start_ms);
 COLUMNS = "signal, device_id, capability, start_ms, end_ms, duration_s, size, peak, value, cut, kind"
 
 
+def by_person(source: str) -> bool:
+    """An event's source (Event.source) says a person, or nobody knows: not Alfred ("agent") or a rule ("scenario:…").
+
+    A happening that begins with Alfred's write (Alfred warming the house) is not written: the learners would
+    otherwise learn Alfred's own actions as the home's habits. A person's change always is.
+    """
+    return not (source == "agent" or source.startswith("scenario:"))
+
+
 @dataclass(frozen=True)
 class Happening:
-    signal: str  # "plug.instantPower"
+    signal: str  # "plug.instantPower", or "plug:kettle.instantPower" when a home has several plugs
     device_id: str
     capability: str
     start_ms: int
@@ -74,7 +84,11 @@ class Happening:
 
 def find_happenings(events: Iterable[Event], rests: dict[SignalId, Rest], device_types: dict[str, str],
                     observed_until: int) -> list[Happening]:
-    """Every happening that ended before observed_until, in start order. Pure: reads nothing else."""
+    """Every happening that ended before observed_until, in start order. Pure: reads nothing else.
+
+    device_types: device id → the device part of its signals, a type ("plug") or, with several plugs, a type and
+    name ("plug:kettle"), as signal_devices gives it from the devices table.
+    """
     out: list[Happening] = []
     for sig, stretches in observed_stretches(events, observed_until).items():
         rest = rests.get(sig)
@@ -82,7 +96,8 @@ def find_happenings(events: Iterable[Event], rests: dict[SignalId, Rest], device
             continue
         name = f"{device_types.get(sig[0]) or stretches[0].signal.split('.')[0]}.{sig[1]}"
         walk = _walk_slow if rest.kind == "slow" else _walk
-        out += walk(sig, name, stretches, rest, observed_until)
+        alfred = {s.start for s in stretches if not by_person(s.source)}  # Alfred's own writes aren't habits
+        out += [h for h in walk(sig, name, stretches, rest, observed_until) if h.start_ms not in alfred]
     return sorted(out, key=lambda h: (h.start_ms, h.signal, h.device_id))
 
 
@@ -161,7 +176,7 @@ def save_happenings(store: Store, until_ms: int) -> int:
         return 0
     events = store.events_before(until_ms)
     rests = find_rest(events, last)
-    types = dict(store.db.execute("SELECT device_id, type FROM devices"))
+    types = signal_devices(store.db.execute("SELECT device_id, type, name FROM devices"))
     ends = {(d, c): e for d, c, e in
             store.db.execute("SELECT device_id, capability, MAX(end_ms) FROM happenings GROUP BY device_id, capability")}
     new = [h for h in find_happenings(events, rests, types, last)
@@ -219,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         if not found:  # ingested without the pipeline: work them out, without writing
             last = store.last_snapshot_before(2 ** 62)
             events = store.events_before(2 ** 62) if last is not None else []
-            types = dict(store.db.execute("SELECT device_id, type FROM devices"))
+            types = signal_devices(store.db.execute("SELECT device_id, type, name FROM devices"))
             found = [] if last is None else find_happenings(events, find_rest(events, last), types, last)
             where = "found in the whole history, not stored"
     finally:

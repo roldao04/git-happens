@@ -35,6 +35,27 @@ class ContextTest(unittest.TestCase):
         self.assertEqual(ctx["rules_just_ran"], ran)
         self.assertEqual(build_context(LIVE_TS, [], normalize(LIVE), self.store, None, STALE_MS)["rules_just_ran"], [])
 
+    def test_baselines_empty_when_nothing_is_learned(self):
+        """Habits, forecast, occasions and decisions arrive once learned (tests/test_anticipate.py)."""
+        ctx = build_context(LIVE_TS, [], normalize(LIVE), self.store, None, STALE_MS)
+        self.assertEqual(ctx["baselines"], {})
+
+    def test_who_is_home_and_the_heating(self):
+        """docs/demo-plan.md C1/C8: known phones, guests' phones, room and target temperature."""
+        self.assertNotIn("home", build_context(LIVE_TS, [], normalize(LIVE), self.store, None, STALE_MS))
+        home = copy.deepcopy(LIVE)
+        home["devices"] += [
+            {"id": "th-1", "name": "Thermostat", "type": "thermostat", "lastCommunicationTime": LIVE_TS,
+             "capabilities": [{"type": "temperatureValue", "value": 19.4}, {"type": "targetTemperature", "value": 16.0},
+                              {"type": "mode", "value": "heat"}, {"type": "heatingState", "value": "off"}]},
+            {"id": "rt-1", "name": "Router", "type": "router", "lastCommunicationTime": LIVE_TS,
+             "capabilities": [{"type": "connectedClients", "value": [
+                 {"id": "c-8f3a", "name": "Ana's phone", "kind": "phone", "known": True},
+                 {"id": "c-91d0", "name": "", "kind": "phone", "known": False}]}]}]
+        h = build_context(LIVE_TS, [], normalize(home), self.store, None, STALE_MS)["home"]
+        self.assertEqual(h["phones_home"], [{"id": "c-8f3a", "name": "Ana's phone"}])
+        self.assertEqual((h["guest_phones"], h["room_c"], h["target_c"], h["mode"]), (1, 19.4, 16.0, "heat"))
+
     def test_smoke_marked_stale(self):
         smoke = self.state_of(LIVE)[SMOKE]
         self.assertIs(smoke["fresh"], False)

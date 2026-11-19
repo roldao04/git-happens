@@ -16,7 +16,7 @@ import logging
 import sqlite3
 from datetime import datetime, time, timedelta
 
-from . import MAX_LAG_MIN, Happening, is_activity, storage, to_local, to_ms
+from . import MAX_LAG_MIN, Happening, activity_edges, is_activity, storage, to_local, to_ms
 from .habits import HOLE_MIN, QUIET, WEEKDAYS
 from .kinds import classify
 from .rhythm import DAY_MIN, hhmm
@@ -31,10 +31,11 @@ def sensor_today(db: sqlite3.Connection, now: datetime) -> list[dict]:
     if not rows:
         return []
     hs = storage.load_happenings(db, now + timedelta(seconds=1), now - timedelta(hours=36))
+    hs = sorted(hs + storage.ongoing_happenings(db, now, hs), key=lambda h: h.start)  # a phone on since 19:34: stored once it leaves
     kinds = storage.load_kinds(db)
     for h in hs:
         h.kind = h.kind or classify(h, kinds)  # stored kinds are filled nightly; today's are classified live
-    activity = [h for h in hs if is_activity(h)]
+    activity = activity_edges([h for h in hs if is_activity(h)])  # a phone at home is only its edges
     blind = _not_watched(db, now)
     quiet_kinds = {k.id for k in kinds if k.signal == QUIET}
     return [_status(sig, width, json.loads(data), hs, activity, now, blind, quiet_kinds) for sig, width, data in rows]
@@ -104,9 +105,10 @@ def _occurred(signature, p, hs, activity, day_start, lo, hi, now, quiet_kinds) -
         hit = next((h for h in today if h.kind == rest and lo <= h.start <= hi), None)
         return ("done", hit.start) if hit else None
     quiets = _quiets(activity, now)  # a kind of quiet, worked out live from people's devices
-    if kind == "kind-end":  # its end: a quiet at least that long ended, at any time
+    if kind == "kind-end":  # its end: a quiet at least that long ended in the usual range
         need = timedelta(minutes=p.get("after_quiet_min", 0))
-        hit = next((e for s, e in quiets if e is not None and e >= day_start and e - s >= need), None)
+        hit = next((e for s, e in quiets if e is not None and e >= day_start and lo <= e <= hi
+                    and e - s >= need), None)
         return ("done", hit) if hit else None
     need = timedelta(minutes=p.get("shortest_min", 0))  # its start: began in the usual range, still on or long
     for s, e in reversed(quiets):

@@ -53,7 +53,15 @@ class WakeReason:
     trigger_id: str
     reason: str
     events: list[Event] = field(default_factory=list)
+    # A wake from what was learned (source/wake.py): its kind (habit_soon, arrival, ...), the key it
+    # fires once for, and what the LLM needs to know (docs/demo-plan.md C8). None for triggers.
+    kind: str | None = None
+    key: str | None = None
+    data: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {"trigger_id": self.trigger_id, "reason": self.reason,
-                "events": [e.describe() for e in self.events]}
+        out = {"trigger_id": self.trigger_id, "reason": self.reason,
+               "events": [e.describe() for e in self.events]}
+        if self.key is not None:
+            out.update(kind=self.kind, key=self.key, data=self.data)
+        return out

@@ -13,6 +13,9 @@ Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimag
 | [`docs/synapse.md`](docs/synapse.md) | Earlier concept under the old name (rules, verification, memories); not yet rewritten around Alfred | For background only |
 | [`docs/simulator.md`](docs/simulator.md) | **The simulator:** how to generate a household's history, the presets, the real house | Before generating data |
 | [`docs/learners.md`](docs/learners.md) | **The learners:** how the grouper and habit learner find sensors, and how to run them | Before touching `source/learn/` |
+| [`docs/habits-plan.md`](docs/habits-plan.md) | **Habits, anticipation, occasions:** the words, the 0.75 do/suggest rule, the shared shapes | Before touching habits, forecasts or decisions |
+| [`docs/habits.md`](docs/habits.md) · [`docs/occasions.md`](docs/occasions.md) · [`docs/anticipation.md`](docs/anticipation.md) | How habits and their rhythms are found; occasions recognised by resemblance; forecasts and decisions | With the plan above |
+| [`docs/demo-plan.md`](docs/demo-plan.md) | **The demo:** the demo house, the three examples, the moments, what "done" looks like; run it with `source.demo` (below) | Before the pitch |
 | [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how the learners plug in | Before writing the poller or agent |
 | [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; device IDs | Before writing code |
 | [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules | Before the pitch or report |
@@ -70,6 +73,16 @@ uv run python -m source.learn.happenings data/sim/rosa/        # what it found
 uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recording.json --household rosa   # that run, for the dashboard
 cd dashboard && npm install && npm run dev                      # jury dashboard: plays back dashboard/public/recording.json
 ```
+## The demo: learned rhythms that run the house
+The plan is [`docs/demo-plan.md`](docs/demo-plan.md): the demo house (two people with phones, a thermostat, three plugs, Friday gatherings) learns its own rhythms over 60 days, and on the moment days Alfred wakes its LLM from what it learned and heats ahead of them.
+```
+uv run python -m source.demo --household demo                    # once, ~15 min: learn 60 days, live the 4 moment days
+ALFRED_LLM_CACHE=only uv run python -m source.simulate --serve   # then http://localhost:4781/visualizer?household=demo
+```
+- `source.demo` runs the 60 days through the pipeline (learning each night), keeps the views of the moment days, then lives each moment's day through the event loop with Alfred awake: learned wakes, the LLM's proposals, decisions with a confidence set by code, the guard. Alfred's thermostat writes go back into the simulator, so the room warms because he heated it. Everything lands in `data/demo/` (gitignored), which the visualizer reads first: each moment opens at once.
+- **The moments bar** (top of the 3D view): *Ana arrives* (day 60, 18:00), *the gathering* (day 54, 20:30), *the morning after* (day 55, 07:45), *a weekday morning* (day 59, 06:30). One click jumps there; "Alfred thinks" lists each wake, the LLM's sentence, the confidence and what ran. The knowledge tab has the habits, the warm-up and **planted vs found** (the simulator's answer key next to what Alfred found).
+- **The LLM**: with `OPENROUTER_API_KEY` (and `AGENT_MODEL`) in `.env`, each wake asks the model through the reply cache (`data/llm-cache/`), so `ALFRED_LLM_CACHE=only` replays it with no network. Without a key the replies are **scripted** (plain code answering each wake as the prompt asks; `--scripted` forces it) and the habits are named by rules from their own facts: the run, the report and the visualizer say so. The confidence and what ran are the same either way.
+
 All options, logs and tests: [`docs/event-loop.md`](docs/event-loop.md#running-and-testing-it). The console needs `.mcp.json` in the stdio form, not the HTTP form from step 1: see [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md#connecting).
 
 ## Repo structure
@@ -93,15 +106,15 @@ source/                 event loop: poll the MCP, diff, store, triggers, agent (
   learn/                learners: kinds, links, habits, sensor storage (docs/learners.md)
 tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). `dashboard/` (the jury dashboard, playing a simulated run written by `source/recording.py`). Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): the namer.
+Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). `dashboard/` (the jury dashboard, playing a simulated run written by `source/recording.py`). `source/learn/namer.py` (the namer: names patterns, habits and occasions and says what they mean, `--name` on the pipeline). `source/learn/grouping.py` + `recurrence.py` (habits and their rhythms), `source/learn/occasions.py` (occasions), `source/learn/forecast.py` + `source/anticipate.py` (forecast and decisions, run by the loop). The visualizer's "What Alfred knows" tab shows all of it (`uv run python -m source.simulate --serve`, then `/visualizer?tab=knowledge`).
   ingest.py, clock.py   JSONL snapshots → history at full speed; Lisbon days
   simulate.py           the simulator (+ simulate_web.py, sim_data/)
   learn/                rest.py, happenings.py (starting plan parts 3 and 4)
   pipeline.py           simulate + ingest + learn, one day at a time
+  demo.py               the demo, pre-computed: 60 days learned, the moment days lived with Alfred (docs/demo-plan.md)
   recording.py          a run's history as the dashboard's recording (one JSON file)
 tests/                  replay and simulated-data tests; fixtures = a real get_home snapshot + a demo morning
 ```
-Planned ([`docs/starting-plan.md`](docs/starting-plan.md)): `source/learn/` (kinds, habits, namer) · sensor storage · the dashboard in `console/`.
 
 ## Conventions
 - **Never commit secrets:** `.mcp.json`, `.env` and tokens stay local (see `.gitignore`).

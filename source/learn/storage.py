@@ -6,9 +6,10 @@ it); the grouper only fills `kind`, and reads its epoch-ms times as the home's c
 """
 import json
 import sqlite3
+from collections import Counter
 from datetime import date, datetime
 
-from . import Happening, to_local, to_ms
+from . import Happening, signal_devices, to_local, to_ms
 from .habits import Habit
 from .happenings import SCHEMA as HAPPENINGS_SCHEMA
 from .kinds import Kind
@@ -119,6 +120,8 @@ def save_habits(db: sqlite3.Connection, habits: list[Habit], day: date) -> list[
             data = old["data"]
             if old["signature"] != h.key and data.get("named_by") != "person":
                 data.update(name=None, named_by=None, explanation=None)  # it changed: name it again
+                for k in ("means", "if_missing", "importance", "same_as"):  # the rest of the namer's card
+                    data.pop(k, None)
             if _moved(old, h):
                 after = [o.day for o in h.members if o.day.isoformat() > old["data"]["pattern"]["last_seen"]]
                 pattern["moved_from"] = {"time_of_day": data["pattern"]["time_of_day"], "on": after[0].isoformat()}
@@ -191,9 +194,13 @@ def _moved(old: dict, h: Habit) -> bool:
 
 
 def reset_learned(db: sqlite3.Connection) -> None:
-    """Forget what the learners wrote (kinds, sensors, readings), keeping the history and happenings."""
+    """Forget what the learners wrote (kinds, sensors, habits, occasions and their readings), keeping the
+    history and happenings. Decisions stay: they are what Alfred did, not what it learned."""
     db.executescript("DELETE FROM kinds; DELETE FROM sensors; DELETE FROM sensor_readings;"
                      " UPDATE happenings SET kind = NULL;")
+    for table in ("habits", "habit_readings", "occasions", "occasion_episodes"):  # later layers, if they ran
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone():
+            db.execute(f"DELETE FROM {table}")
     db.commit()
 
 
@@ -213,3 +220,42 @@ def export(db: sqlite3.Connection, as_of: date | None = None, now: datetime | No
         from .today import sensor_today  # today.py reads this module's tables
         out["today"] = sensor_today(db, now)
     return out
+
+
+def ongoing_happenings(db: sqlite3.Connection, now: datetime, hs: list[Happening] = ()) -> list[Happening]:
+    """On/off signals away from rest at `now` and not stored yet (a happening is written once it ends), read from
+    the events table. Their non-rest value is the one their stored happenings hold most often, over the whole
+    history (João's phone, at home all Wednesday, last left on Thursday morning). `hs`: happenings already in
+    hand, newer than the table (a test's)."""
+    if not (_table(db, "events") and _table(db, "devices") and _table(db, "happenings")):
+        return []
+    held: dict[tuple, Counter] = {}
+    last: dict[tuple, int] = {}
+    for dev, cap, value, n, end in db.execute(
+            "SELECT device_id, capability, value, count(*), max(end_ms) FROM happenings WHERE value IS NOT NULL"
+            " AND start_ms <= ? GROUP BY device_id, capability, value", (to_ms(now),)):
+        held.setdefault((dev, cap), Counter())[value] += n
+        last[(dev, cap)] = max(last.get((dev, cap), end), end)
+    for x in hs:
+        key = (x.device_id, x.capability)
+        if x.value is not None and x.device_id:
+            held.setdefault(key, Counter())[x.value] += 1
+        last[key] = max(last.get(key, to_ms(x.end)), to_ms(x.end))
+    types = signal_devices(db.execute("SELECT device_id, type, name FROM devices"))  # "phone:c-8f3a", "plug:tv"
+    out = []
+    for (dev, cap), values in held.items():
+        row = db.execute("SELECT ts, new FROM events WHERE device_id = ? AND capability = ? AND ts <= ?"
+                         " AND kind IN ('initial', 'change') ORDER BY ts DESC LIMIT 1", (dev, cap, to_ms(now))).fetchone()
+        if not row:
+            continue
+        try:
+            value = json.loads(row[1])
+        except (TypeError, ValueError):
+            continue
+        if value == values.most_common(1)[0][0] and row[0] >= last.get((dev, cap), row[0]):
+            out.append(Happening(f"{types.get(dev, dev)}.{cap}", to_local(row[0]), now, None, value, None, None, dev))
+    return out
+
+
+def _table(db: sqlite3.Connection, name: str) -> bool:
+    return db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone() is not None

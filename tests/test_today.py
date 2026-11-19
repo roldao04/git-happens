@@ -34,6 +34,10 @@ def minutes(hhmm):
     return h * 60 + m
 
 
+def storage_width(db, sensor_id: str) -> float:
+    return db.execute("SELECT width_min FROM sensors WHERE id = ?", (sensor_id,)).fetchone()[0]
+
+
 def by_part(db, now: datetime) -> dict[str, dict]:
     """Status of the three cards these tests follow: the tea (door → kettle), the night's quiet
     (asleep, a kind of quiet around 23:16) and its end (awake, around 07:02)."""
@@ -78,6 +82,21 @@ class TodayTest(unittest.TestCase):
         self.assertTrue("07:30" <= later["tea"]["at"] <= "08:15")
         self.assertNotEqual(later["asleep"]["status"], "now")  # a quiet morning is not sleep
 
+    def test_done_only_inside_its_usual_range(self):
+        """A habit is never "done" far from its usual time (the morning's wake-up is not the evening's return)."""
+        sensors = {s["id"]: s for s in storage.export(self.db)["sensors"]}
+        for hhmm in ("08:30", "12:00", "20:00"):
+            h, m = map(int, hhmm.split(":"))
+            for st in sensor_today(self.db, datetime(2026, 9, 14, h, m)):
+                if st["status"] != "done":
+                    continue
+                s = sensors[st["sensor_id"]]
+                p, half = s["pattern"], storage_width(self.db, s["id"]) / 2
+                lo, hi = minutes(p.get("earliest", p["time_of_day"])) - half, minutes(p.get("latest", p["time_of_day"])) + half
+                at = minutes(st["at"])
+                inside = any(lo <= at + k * 1440 <= hi for k in (-1, 0, 1))
+                self.assertTrue(inside, f"{s['id']} {p['parts']} usual {p['time_of_day']} done at {st['at']}")
+
     def test_late_when_skipped(self):
         db = learned_db(10)  # day 11 has no tea
         tea = by_part(db, datetime(2026, 9, 11, 10, 0))["tea"]
@@ -101,7 +120,7 @@ class TodayTest(unittest.TestCase):
 
 
 class BaselinesTest(unittest.TestCase):
-    """baselines() is ready for the agent's context, but not wired in yet (no AI on this side)."""
+    """baselines(): the learned habits and today's status, as the agent's context reads them."""
 
     def test_empty_without_sensors(self):
         self.assertEqual(baselines(sqlite3.connect(":memory:"), datetime(2026, 9, 14, 8)), {})
@@ -112,13 +131,21 @@ class BaselinesTest(unittest.TestCase):
         self.assertTrue(all({"name", "what", "usual", "today"} <= set(h) for h in habits))
         self.assertIn("done", {h["today"] for h in habits})
 
-    def test_agent_context_does_not_use_them_yet(self):
+    def test_agent_context_uses_them(self):
+        """Wired in (docs/anticipation.md): before any habit exists, the agent gets the learned
+        patterns with today's status; there is no forecast, occasion or decision yet."""
+        now = datetime(2026, 9, 14, 8, 30)
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(Path(tmp), record=False)
             learned_db(13, store.db)
-            ctx = build_context(to_ms(datetime(2026, 9, 14, 8, 30)), [], {}, store, None, 30 * 60_000)
+            store.db.executescript("DELETE FROM habits; DELETE FROM habit_readings;")  # learn_day made some
+            ctx = build_context(to_ms(now), [], {}, store, None, 30 * 60_000)
+            expected = baselines(store.db, now)["habits"]
             store.close()
-        self.assertEqual(ctx["baselines"], {})
+        self.assertEqual(set(ctx["baselines"]), {"habits", "forecast", "occasion_now", "decisions"})
+        self.assertEqual(ctx["baselines"]["habits"], expected)
+        self.assertEqual((ctx["baselines"]["forecast"], ctx["baselines"]["occasion_now"],
+                          ctx["baselines"]["decisions"]), ([], [], []))
 
 
 if __name__ == "__main__":
