@@ -11,6 +11,7 @@ import json
 import logging
 from datetime import datetime, time, timedelta
 
+from .clock import TZ
 from .model import State, WakeReason
 from .store import Store
 
@@ -25,7 +26,8 @@ HABIT_EXTRAS = ("person", "windows")  # whose habit it is, and its weekday windo
 
 
 def _iso(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000).isoformat(timespec="seconds")
+    """The home's clock time (Lisbon), as the learners and the decisions use it, never the machine's zone."""
+    return datetime.fromtimestamp(ms / 1000, TZ).replace(tzinfo=None).isoformat(timespec="seconds")
 
 
 def build_context(now_ms: int, reasons: list[WakeReason], state: State, store: Store,
@@ -41,7 +43,7 @@ def build_context(now_ms: int, reasons: list[WakeReason], state: State, store: S
             if not d["fresh"]:
                 d["staleMinutes"] = age // 60_000
 
-    midnight = datetime.fromtimestamp(now_ms / 1000).replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight = datetime.fromtimestamp(now_ms / 1000, TZ).replace(hour=0, minute=0, second=0, microsecond=0)
     today = store.events_since(int(midnight.timestamp() * 1000))
     since_last = [e for e in today if last_run_ms is None or e.ts > last_run_ms]
 

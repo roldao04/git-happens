@@ -53,7 +53,9 @@ def _phones(state: State, router_id: str, router: str, rtype: str, comm, clients
             continue
         known = bool(c.get("known"))
         guests += not known
-        name = c.get("name") or ("Phone" if known else "Guest phone")
+        # A guest's phone has no name: that is how the learners and the wakes tell it from the household's
+        # (the `devices` table keeps the name; source/learn/occasions.py, source/wake.py).
+        name = c.get("name") or ("Phone" if known else "")
         state[(c["id"], CONNECTED)] = Reading(c["id"], name, CONNECTED, "on", comm, PHONE)
     state[(router_id, GUEST_PHONES)] = Reading(router_id, router, GUEST_PHONES, guests, comm, rtype)
     for key, r in (prev or {}).items():  # phones seen before that have left: "off", heard through the router

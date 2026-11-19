@@ -40,7 +40,7 @@ class RouterTest(unittest.TestCase):
         state = normalize(router(ANA, GUEST, ("c-55b4", "", False)))
         ana = state[("c-8f3a", "connected")]
         self.assertEqual((ana.value, ana.device, ana.device_type, ana.comm_ts), ("on", "Ana's phone", "phone", 5))
-        self.assertEqual(state[("c-91d0", "connected")].device, "Guest phone")
+        self.assertEqual(state[("c-91d0", "connected")].device, "")
         guests = state[("rt-1", "guestPhones")]
         self.assertEqual((guests.value, guests.device_type), (2, "router"))
         self.assertNotIn(("rt-1", "connectedClients"), state)  # the raw list is not a reading

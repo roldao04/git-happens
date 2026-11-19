@@ -34,7 +34,7 @@ def _snaps(household, days=14, **kw) -> list[tuple[int, dict]]:
 def _events(snaps) -> list:
     out, prev, prev_ts = [], None, None
     for ts, home in snaps:
-        state = normalize(home)
+        state = normalize(home, prev)  # with prev, a phone that left reads "off", as ingest has it
         if prev is not None:
             out += diff(prev, state, ts, STALE_MS, prev_ts)
         prev, prev_ts = state, ts
