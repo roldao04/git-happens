@@ -2,13 +2,15 @@
 
   uv run python -m unittest discover -s tests -t . -v
 """
+import hashlib
 import json
 import statistics
 import tempfile
 import unittest
 import zipfile
+from collections import Counter
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from source.diff import diff
@@ -16,7 +18,7 @@ from source.ingest import ingest
 from source.normalize import normalize
 from source.simulate import (PRESETS, REAL_HOME, TZ, Household, generate, home_a_max_days, household_from_dict,
                              houses, main)
-from source.simulate_web import REAL_MAX_DAYS, _request, write_zip
+from source.simulate_web import REAL_MAX_DAYS, _request, day_view, write_zip
 from source.store import Store
 
 LIVE = json.loads((Path(__file__).parent / "fixtures" / "get_home_live.json").read_text())
@@ -283,6 +285,216 @@ class TestOptionsTest(unittest.TestCase):
             config.write_text(json.dumps({"holidays": ["2026-09-02"]}))
             self.assertEqual(main(["--days", "3", "--config", str(config), "--out", str(out), "--truth", str(truth)]), 0)
             self.assertIn("away (holiday)", {t["what"] for t in json.loads(truth.read_text())})
+
+
+# 14 days of each preset (lines, then the answer key), from before the rarer rhythms were added: options that are
+# off by default must not move a byte. A preset changed on purpose needs its digest updated here.
+PRESET_DIGESTS = {
+    "rosa": "7fd757432c0646b45bdb8dae0330d7ebb6f57d03ed921ba169e3606b4710f1e9",
+    "couple": "855cf115c89d37e6a1c9544ac8953d164b0dc53f0feac3b2d751ae88ac36d209",
+    "students": "35025cb44a90a5e699f0f67c20459d7a0e4f6f6e56b4d87c9773ca87e3071b9d",
+}
+ANCHOR = date(2026, 9, 5)  # rosa-plus's first visit, a Saturday
+HOURLY = (11 * 60, 14 * 60, 17 * 60, 20 * 60)  # rosa-plus's tea, every 3 h from 11:00 to 20:00
+
+
+def _digest(household, days: int = 14) -> str:
+    lines, truth = generate(household, days, start=START)
+    out = hashlib.sha256()
+    for line in lines:
+        out.update(line.encode())
+    out.update(json.dumps(truth).encode())
+    return out.hexdigest()
+
+
+def _day(t: dict) -> date:
+    return datetime.fromisoformat(t["start"]).date()
+
+
+def _clock(t: dict) -> int:
+    at = datetime.fromisoformat(t["start"])
+    return at.hour * 60 + at.minute
+
+
+def _first_sunday(d: date) -> bool:
+    return d.weekday() == 6 and d.day <= 7
+
+
+class RarerRhythmsTest(unittest.TestCase):
+    """rosa-plus: a visit every other Saturday, a monthly outing, tea every 3 h and parties, all in the answer key.
+    A year of it, answer key only (the snapshots are never built)."""
+
+    @classmethod
+    def setUpClass(cls):
+        _, cls.truth = generate("rosa-plus", 365, start=START)
+        cls.parties = [t for t in cls.truth if t["what"] == "party"]
+
+    def planted(self, label: str) -> list[dict]:
+        return [t for t in self.truth if t["what"].startswith(label)]
+
+    def test_the_other_presets_are_unchanged(self):
+        for name, digest in PRESET_DIGESTS.items():
+            self.assertEqual(_digest(name), digest, name)
+        for h in (*(PRESETS[name] for name in PRESET_DIGESTS), *houses(20)):
+            self.assertEqual((h.visit_every_days, h.monthly_on, h.hourly_every_h, h.parties_per_30_days),
+                             (0, "", 0, 0), h.name)
+
+    def test_visits_every_other_saturday_now_and_then_skipped(self):
+        visits = self.planted("visit (")
+        scheduled = [d for d in (START + timedelta(days=i) for i in range(365)) if (d - ANCHOR).days % 14 == 0]
+        self.assertEqual({t["what"] for t in visits}, {"visit (every other Saturday)"})
+        self.assertTrue(set(map(_day, visits)) < set(scheduled))  # only those days, and not every one of them
+        self.assertGreater(len(visits), 0.75 * len(scheduled))
+        arrivals = [_clock(t) for t in visits]
+        self.assertLess(abs(statistics.mean(arrivals) - 15 * 60), 15)
+        self.assertGreater(statistics.pstdev(arrivals), 5)
+        self.assertEqual(visits[0]["recurrence"], {
+            "kind": "every_n_days", "weekdays": ["sat"], "every_n_days": 14, "anchor": "2026-09-05",
+            "day_of_month": None, "every_n_hours": None, "text": "every other Saturday"})
+        teas = self.planted("visit use")  # the kettle, during the visit
+        self.assertGreater(len(teas), 0.8 * len(visits))
+        self.assertTrue(all(any(v["start"] < t["start"] < v["end"] for v in visits) for t in teas))
+
+    def test_a_monthly_outing_on_the_first_sunday(self):
+        outings = self.planted("monthly outing")
+        firsts = [d for d in (START + timedelta(days=i) for i in range(365)) if _first_sunday(d)]
+        self.assertEqual({t["what"] for t in outings}, {"monthly outing (first Sunday)"})
+        self.assertTrue(set(map(_day, outings)) <= set(firsts))
+        self.assertGreaterEqual(len(outings), len(firsts) - 3)
+        self.assertEqual(outings[0]["recurrence"], {
+            "kind": "monthly", "weekdays": ["sun"], "every_n_days": None, "anchor": outings[0]["start"][:10],
+            "day_of_month": None, "every_n_hours": None, "text": "on the first Sunday of the month"})
+        uses = [t for t in self.truth if t.get("appliance")]
+        for out in outings:  # nobody home: the kettle never runs
+            self.assertFalse([u for u in uses if out["start"] <= u["start"] <= out["end"]], out)
+
+    def test_tea_every_3_hours_from_11_to_20(self):
+        teas = self.planted("every 3 h")
+        self.assertEqual({t["what"] for t in teas}, {"every 3 h, 11:00 to 20:00"})
+        offsets = [min((_clock(t) - slot for slot in HOURLY), key=abs) for t in teas]
+        self.assertTrue(all(abs(m) <= 45 for m in offsets), offsets)
+        self.assertGreater(statistics.pstdev(offsets), 5)  # about the same times, not the exact minute
+        self.assertLessEqual(max(Counter(map(_day, teas)).values()), len(HOURLY))
+        self.assertTrue(0.6 * 365 * len(HOURLY) < len(teas) < 0.95 * 365 * len(HOURLY))  # some times are skipped
+        self.assertEqual(teas[0]["recurrence"], {
+            "kind": "hourly", "weekdays": None, "every_n_days": None, "anchor": None, "day_of_month": None,
+            "every_n_hours": 3, "text": "every 3 hours from 11:00 to 20:00"})
+        runs = sorted((t["start"], t["end"]) for t in self.truth if t.get("appliance"))
+        self.assertTrue(all(a[1] < b[0] for a, b in zip(runs, runs[1:])))  # no two uses of the plug overlap
+
+    def test_three_or_four_parties_a_month_mostly_on_fridays_and_saturdays(self):
+        days = [_day(t) for t in self.parties]
+        self.assertTrue(3 <= len(days) / (365 / 30) <= 4, len(days))
+        self.assertGreater(sum(d.weekday() in (4, 5) for d in days), 0.75 * len(days))
+        self.assertTrue(all((b - a).days >= 2 for a, b in zip(days, days[1:])))
+        self.assertFalse([d for d in days if (d - ANCHOR).days % 14 == 0 or _first_sunday(d)])  # one thing a day
+        self.assertTrue(all(t["door_openings"] >= 6 for t in self.parties))
+        self.assertGreater(sum(t["plug_uses"] for t in self.parties), len(self.parties))
+        uses = self.planted("party use")
+        self.assertTrue(all(any(p["start"] < u["start"] < p["end"] for p in self.parties) for u in uses))
+
+    def test_a_party_means_a_late_night_and_a_late_morning(self):
+        beds = {_day(t) - timedelta(days=_clock(t) < 12 * 60): t for t in self.truth if t["what"] == "bed"}
+        wakes = {_day(t): t for t in self.truth if t["what"] == "wake"}
+        usual = statistics.median(_clock(t) for d, t in wakes.items() if d.weekday() >= 5 and "after" not in t)
+        parties = [p for p in self.parties if _day(p) < START + timedelta(days=364)]  # bed after the year ends
+        late = []
+        for party in parties:
+            night, bed = _day(party), beds[_day(party)]
+            self.assertEqual(bed.get("after"), "party")
+            self.assertGreater(bed["start"], party["end"])
+            morning = wakes.get(night + timedelta(days=1))
+            if morning:  # unless away all day
+                self.assertEqual(morning.get("after"), "party")
+                if _day(morning).weekday() >= 5:
+                    late.append(_clock(morning) - usual)
+        self.assertGreater(sum(_clock(beds[_day(p)]) < 12 * 60 for p in parties), 0.8 * len(parties))  # after midnight
+        self.assertGreater(statistics.mean(late), 50)  # about 90 min later than a usual weekend morning
+        self.assertEqual(sum(t.get("after") == "party" for t in self.truth if t["what"] == "bed"), len(parties))
+
+    def test_a_party_shows_in_the_snapshots(self):
+        lines, truth = generate("rosa-plus", 14, start=START)
+        party = next(t for t in truth if t["what"] == "party")
+        a, b = _local_ms(party["start"]), _local_ms(party["end"])
+        events = _events([(r["ts"], r["home"]) for r in map(json.loads, lines)])
+        opened = [e.ts for e in events if e.capability == "sensorState" and e.new == "alarm" and a <= e.ts <= b]
+        self.assertGreaterEqual(len(opened), party["door_openings"] - 1)  # an everyday opening may join one of theirs
+        self.assertGreaterEqual(sum(ts < a + 45 * 60_000 for ts in opened), 4)  # the guests arrive within minutes
+        light = [(e.ts, e.new) for e in events if e.capability == "power" and e.device == "Light"]
+        self.assertEqual([on for ts, on in light if ts <= b][-1], "on")  # on as the last guests leave
+        off = next(ts for ts, on in light if ts > b)  # and off at the late bedtime, a little after
+        self.assertEqual(off, _local_ms(next(t["start"] for t in truth if t["what"] == "bed" and t.get("after"))))
+        self.assertGreaterEqual(off - b, 15 * 60_000)
+        bursts = {s[0].strftime("%Y-%m-%dT%H:%M:%S") for s in _bursts(events)}
+        teas = {t["start"] for t in truth if t["what"] == "party use" and party["start"] < t["start"] < party["end"]}
+        self.assertEqual(len(teas), party["plug_uses"])
+        self.assertLessEqual(teas, bursts)
+        morning = next(t for t in truth if t["what"] == "wake" and t.get("after") == "party")
+        self.assertIn((_local_ms(morning["start"]), "on"), light)  # the late morning starts with the lamp
+
+    def test_a_shorter_run_is_the_start_of_a_longer_one(self):
+        night = _day(self.parties[0])
+        for days in ((night - START).days + 1, (night - START).days + 2):  # cut in the party's night, then its morning
+            short, short_truth = generate("rosa-plus", days, start=START)
+            long, long_truth = generate("rosa-plus", days + 1, start=START)
+            cut = _local_ms((START + timedelta(days=days)).isoformat() + "T00:00")
+            self.assertEqual(list(short), [line for line in long if json.loads(line)["ts"] < cut], days)
+            self.assertEqual(short_truth, [t for t in long_truth if _local_ms(t["start"]) < cut], days)
+
+    def test_a_holiday_cancels_the_visit_or_the_party(self):
+        visit_day = _day(self.planted("visit (")[1])
+        _, truth = generate(household_from_dict(asdict(PRESETS["rosa-plus"]) | {"holidays": [visit_day.isoformat()]}),
+                            60, start=START)
+        _, base = generate("rosa-plus", 60, start=START)
+        first, end = visit_day.isoformat(), f"{visit_day + timedelta(days=1)}T06:00"  # with that night's bedtime
+        outside = lambda entries: [t for t in entries if not first <= t["start"] < end]
+        self.assertEqual(outside(truth), outside(base))  # no party falls on a visit's day, so no lie-in moves
+        self.assertEqual([t["what"] for t in truth if _day(t) == visit_day], ["away (holiday)"])
+        night = _day(self.parties[0])
+        _, truth = generate(household_from_dict(asdict(PRESETS["rosa-plus"]) | {"holidays": [night.isoformat()]}),
+                            60, start=START)
+        self.assertFalse([t for t in truth if t["what"] == "party" and _day(t) == night])
+        self.assertFalse([t for t in truth if t.get("after") and _day(t) <= night + timedelta(days=1)])
+        self.assertEqual([t for t in truth if _day(t) < night], [t for t in base if _day(t) < night])
+
+    def test_a_change_can_stop_the_parties(self):
+        h = household_from_dict(asdict(PRESETS["rosa-plus"]) | {"changes": [{"from": "2026-10-01", "parties_per_30_days": 0}]})
+        _, truth = generate(h, 90, start=START)
+        parties = [t["start"] for t in truth if t["what"] == "party"]
+        self.assertTrue(parties and all(p < "2026-10-01" for p in parties), parties)
+
+    def test_monthly_on_a_day_of_the_month_or_the_last_friday(self):
+        for spec, label, text, on_day in (
+                ("15", "monthly outing (the 15th)", "on the 15th of the month", lambda d: d.day == 15),
+                ("last fri", "monthly outing (last Friday)", "on the last Friday of the month",
+                 lambda d: d.weekday() == 4 and (d + timedelta(days=7)).month != d.month)):
+            h = household_from_dict({"monthly_on": spec, "monthly_chance": 1, "away_chance": 0, "outing_days": ""})
+            _, truth = generate(h, 120, start=START)
+            outings = [t for t in truth if t["what"].startswith("monthly")]
+            self.assertEqual({t["what"] for t in outings}, {label})
+            self.assertEqual({t["recurrence"]["text"] for t in outings}, {text})
+            self.assertEqual(len(outings), 4, spec)  # September to December
+            self.assertTrue(all(on_day(_day(t)) for t in outings), [t["start"] for t in outings])
+
+    def test_reads_and_checks_the_new_settings(self):
+        h = household_from_dict({"visit_every_days": "14", "visit_anchor": "2026-09-05", "monthly_on": " Last Fri ",
+                                 "hourly_every_h": "2.5", "parties_per_30_days": "3", "party_days": "Fri, Saturday"})
+        self.assertEqual((h.visit_every_days, h.monthly_on, h.hourly_every_h, h.party_days),
+                         (14, "Last Fri", 2.5, "Fri, Saturday"))
+        for bad in ({"visit_every_days": 14}, {"visit_every_days": 14, "visit_anchor": "soon"},
+                    {"visit_every_days": "14.5", "visit_anchor": "2026-09-05"}, {"visit_every_days": -14},
+                    {"monthly_on": "every sun"}, {"monthly_on": "32"}, {"monthly_on": "fifth sun"},
+                    {"hourly_every_h": 0.1}, {"hourly_every_h": 3, "hourly_from": "20:00", "hourly_until": "08:00"},
+                    {"hourly_from": "8h"}, {"parties_per_30_days": -1}, {"parties_per_30_days": 20},
+                    {"party_days": "someday"}, {"visit_chance": 2}, {"party_minutes": 30}):
+            with self.assertRaises(ValueError, msg=bad):
+                household_from_dict(bad)
+        for name, preset in PRESETS.items():
+            self.assertEqual(household_from_dict(asdict(preset)), preset, name)  # every preset is a valid config
+
+    def test_the_3d_view_serves_it(self):
+        view = day_view("rosa-plus", (ANCHOR - START).days + 1)
+        self.assertIn("visit (every other Saturday)", {t["what"] for t in view["truth"]})
 
 
 class HousesTest(unittest.TestCase):
