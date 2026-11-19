@@ -62,6 +62,19 @@ describe("devices", () => {
     expect(d?.changedAt).toBeNull();
   });
 
+  test("a device with no signal shows only that, until it is heard again", () => {
+    const r = rec({
+      devices: [{ id: "d-lamp", type: "bulb", name: "Lamp" }],
+      initial: [{ device_id: "d-lamp", capability: "power", value: "on" }],
+      events: [
+        { ts: "2026-09-01T03:00:00", device_id: "d-lamp", capability: "reachable", value: false },
+        { ts: "2026-09-01T03:00:00", device_id: "d-lamp", capability: "lastHeard", value: "2026-09-01T01:58:30" },
+        { ts: "2026-09-01T04:00:00", device_id: "d-lamp", capability: "reachable", value: true },
+      ],
+    });
+    expect(stateAt(r, at("2026-09-01T03:30:00")).devices[0]?.values).toEqual({ reachable: false, lastHeard: "2026-09-01T01:58:30" });
+    expect(stateAt(r, at("2026-09-01T04:30:00")).devices[0]?.values.power).toBe("on");
+  });
 });
 
 describe("sensors", () => {
