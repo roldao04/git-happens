@@ -9,7 +9,7 @@ warm-up stand in for the learners (parts B and C are built separately). No netwo
 import json
 import sqlite3
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from unittest import mock
 
 from source import wake
@@ -94,13 +94,33 @@ class Isolated(unittest.TestCase):
         self.enterContext(mock.patch.object(forecast_module, "forecast", lambda db, now, hours=24: []))
 
 
+class DeadlineTest(unittest.TestCase):
+    def test_a_window_past_midnight_belongs_to_the_evening_before(self):
+        bedtime = {"windows": [{"days": list(wake.WEEKDAYS), "usual": "23:29", "earliest": "22:55", "latest": "00:00"}]}
+        self.assertEqual(wake._deadline(bedtime, datetime(2026, 11, 13, 0, 25)),
+                         (datetime(2026, 11, 13, 0, 20), date(2026, 11, 12)))
+        self.assertIsNone(wake._deadline(bedtime, datetime(2026, 11, 13, 0, 10)))
+        morning = {"window": {"usual": "07:08", "earliest": "06:42", "latest": "07:26"}}
+        self.assertEqual(wake._deadline(morning, datetime(2026, 11, 13, 8, 0)),
+                         (datetime(2026, 11, 13, 7, 46), date(2026, 11, 13)))
+
+
+class DeadTimeTest(unittest.TestCase):
+    def test_a_first_step_that_heats_nothing(self):
+        """16 → 21 °C is 19 then 21; with the room already at 19 °C the first write heats nothing for 10 min."""
+        self.assertEqual(wake._dead_time({"target_c": 16.0, "room_c": 18.8, "comfort_c": 21.0}), 10.0)
+        self.assertEqual(wake._dead_time({"target_c": 16.0, "room_c": 18.5, "comfort_c": 21.0}), 0.0)  # it heats
+        self.assertEqual(wake._dead_time({"target_c": 18.0, "room_c": 19.0, "comfort_c": 21.0}), 0.0)  # one write
+        self.assertEqual(wake._dead_time({"target_c": None, "room_c": 19.0}), 0.0)
+
+
 class HabitSoonTest(Isolated):
-    def test_fires_once_lead_time_plus_10_before(self):
+    def test_fires_once_lead_time_plus_15_before(self):
         db = db_with(ana_home_habit())
         with mock.patch.object(forecast_module, "forecast", ana_forecast()):
-            self.assertEqual(wake.learned_wakes(db, NOW - timedelta(minutes=6), state()), [])  # 36 min ahead
-            (w,) = wake.learned_wakes(db, NOW - timedelta(minutes=5), state())  # 35 min: 25 min warm-up + 10
-            self.assertEqual(wake.learned_wakes(db, NOW + timedelta(minutes=1), state()), [])  # once per key
+            self.assertEqual(wake.learned_wakes(db, NOW - timedelta(minutes=11), state(room=18.5)), [])  # 41 min ahead
+            (w,) = wake.learned_wakes(db, NOW - timedelta(minutes=10), state(room=18.5))  # 40 min: 25 min warm-up + 15
+            self.assertEqual(wake.learned_wakes(db, NOW + timedelta(minutes=1), state(room=18.5)), [])  # once per key
 
         self.assertEqual((w.trigger_id, w.kind, w.key), ("habit_soon", "habit_soon", "habit_soon:habit-4:2026-11-19"))
         base = 0.9 * 0.9 * 40 / 41  # habit confidence × probability × n / (n + 1)
@@ -112,7 +132,7 @@ class HabitSoonTest(Isolated):
         self.assertEqual(d["habit"]["person"], {"phone": ANA, "name": "Ana's phone"})
         self.assertEqual(d["habit"]["windows"][0]["days"], WEEKDAYS)
         self.assertEqual(d["forecast"]["basis"], "Thursdays: 8 of 9 since 21 Sept")
-        self.assertEqual((d["home"]["room_c"], d["home"]["target_c"], d["home"]["phones_home"]), (19.0, 16.0, []))
+        self.assertEqual((d["home"]["room_c"], d["home"]["target_c"], d["home"]["phones_home"]), (18.5, 16.0, []))
         self.assertEqual(d["warmup"], WARMUP)
         self.assertEqual(d["planned"], [])
         self.assertIn("Ana gets home expected around 18:40", w.reason)
@@ -134,8 +154,8 @@ class HabitSoonTest(Isolated):
     def test_without_the_warmup_the_lead_is_30_min(self):
         db = db_with(ana_home_habit())
         with part("source.learn.warmup"), mock.patch.object(forecast_module, "forecast", ana_forecast()):
-            self.assertEqual(wake.learned_wakes(db, datetime(2026, 11, 19, 17, 59), state()), [])  # 41 min
-            (w,) = wake.learned_wakes(db, datetime(2026, 11, 19, 18, 0), state())  # 40 = 30 + 10
+            self.assertEqual(wake.learned_wakes(db, datetime(2026, 11, 19, 17, 54), state(room=18.5)), [])  # 46 min
+            (w,) = wake.learned_wakes(db, datetime(2026, 11, 19, 17, 55), state(room=18.5))  # 45 = 30 + 15
         self.assertEqual((w.data["lead_minutes"], w.data["warmup"]), (30, None))
 
     def test_past_occurrence_never_wakes(self):

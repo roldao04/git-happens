@@ -33,12 +33,14 @@ from . import anticipate
 from .learn import to_local, to_ms
 from .learn.forecast import (active_habits, as_local, clip, clock, habit_name, has_table, hhmm, number, occasion_shifts,
                              parse_moment)
+from .guard import MAX_STEP_C, WRITE_EVERY_MIN
 from .model import State, WakeReason
 
 log = logging.getLogger("source.wake")
 
 SOON_PROBABILITY = 0.5  # a forecast habit this likely may wake the agent ahead of it
-EXTRA_LEAD_MIN = 10  # wake this much before the lead time: warming 16 → 21 °C takes two writes 10 min apart (C7)
+EXTRA_LEAD_MIN = 15  # wake this much before the lead time: 16 → 21 °C is two writes 10 min apart (C7), and from a
+# room near 19 °C the first one doesn't even start the heating
 DEFAULT_LEAD_MIN = 30  # the heating's lead while the warm-up isn't measured yet (C4: < 5 samples)
 LAMP_LEAD_MIN = 10  # a lamp only needs a moment (anticipate's soft lamp: 10 min)
 FORECAST_H = 6  # how far ahead habit_soon looks
@@ -48,6 +50,7 @@ OCCASION_AT = 0.5  # the match confidence that wakes
 PHONE_LOOKBACK_MIN = 10  # phone changes this recent count as an arrival or a departure
 PRESENCE_BASE = 0.8  # an arrival or departure is seen, not forecast; a phone is still only a proxy
 COMFORT_C = 21.0  # the warm target people set, until the history says otherwise
+HEAT_ON_BELOW_C = 0.3  # a thermostat heats once the room is this far below its target (the demo house's)
 WARM_FROM_C = 18.0  # targets above this are "warm" (the guard's no-one-home ceiling)
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 IMPORTANT = (None, "normal", "high")  # no namer card yet counts as normal
@@ -221,6 +224,9 @@ def _habit_soon(db: sqlite3.Connection, now: datetime, home: dict) -> list[dict]
             lead = LAMP_LEAD_MIN
         if expected - now > timedelta(minutes=lead + EXTRA_LEAD_MIN):
             continue
+        planned = _planned(db, now, habit_id=h["id"])
+        if prepare == ["lamp"] and any(d.get("kind") == "prepare" for d in planned):
+            continue  # code already prepares the lamp for it (anticipate's recipes): nothing for the LLM to add
         base = clip(number(h.get("confidence")) or 0.0) * clip(p) * _evidence(h.get("occurrences"))
         name = habit_name(h)
         out.append({
@@ -230,8 +236,7 @@ def _habit_soon(db: sqlite3.Connection, now: datetime, home: dict) -> list[dict]
                       f"{' and '.join(prepare)} to prepare, about {round(lead)} min ahead",
             "data": {"habit": habit_card(h), "forecast": f, "expected_at": _iso(expected),
                      "lead_minutes": round(lead, 1), "prepare_at": _iso(max(now, expected - timedelta(minutes=lead))),
-                     "prepare": prepare, "home": home, "warmup": _warmup(db, now),
-                     "planned": _planned(db, now, habit_id=h["id"])}})
+                     "prepare": prepare, "home": home, "warmup": _warmup(db, now), "planned": planned}})
     return out
 
 
@@ -258,7 +263,17 @@ def _lead(db: sqlite3.Connection, now: datetime, home: dict) -> float:
     except Exception:
         log.exception("lead_minutes failed")
         return DEFAULT_LEAD_MIN
-    return DEFAULT_LEAD_MIN if lead is None else max(0.0, lead)
+    return (DEFAULT_LEAD_MIN if lead is None else max(0.0, lead)) + _dead_time(home)
+
+
+def _dead_time(home: dict) -> float:
+    """Minutes lost before the heating can start: two writes are needed (3 °C at most each) and the room is
+    already at the first one's target, so nothing heats until the second, 10 min later (the guard's limits)."""
+    target, room, comfort = home.get("target_c"), home.get("room_c"), home.get("comfort_c") or COMFORT_C
+    if target is None or room is None:
+        return 0.0
+    first = min(comfort, target + MAX_STEP_C)
+    return float(WRITE_EVERY_MIN) if first < comfort and room >= first - HEAT_ON_BELOW_C else 0.0
 
 
 def _warmup(db: sqlite3.Connection, now: datetime) -> dict | None:
@@ -340,17 +355,20 @@ def _habit_missing(db: sqlite3.Connection, now: datetime, home: dict) -> list[di
     if any(clip(number(m.get("confidence")) or 0.0) >= OCCASION_AT for m in anticipate.occasion_matches(db, now)):
         return []  # an occasion going on is the departure from the rhythm: nothing is "missing" during it
     moved = occasion_shifts(db, now)  # (habit, date) an occasion moved: late, not missing (the morning after)
+    patterns = {pid: sig for pid, (sig, _) in anticipate._patterns(db).items()}
     statuses = anticipate.habit_statuses(db, now)
     is_on = anticipate.optional("source.learn.recurrence", "is_on")
     out = []
     for h in habits:
         rec = h.get("recurrence") or {}
-        if h.get("importance") not in IMPORTANT or rec.get("kind") == "hourly":
+        if h.get("importance") not in IMPORTANT or rec.get("kind") == "hourly" or _only_heating(h, patterns):
             continue
-        deadline = _deadline(h, now)
-        if deadline is None:
+        due = _deadline(h, now)
+        if due is None:
             continue
-        day = deadline.date()
+        deadline, day = due
+        if deadline.date() != day:
+            continue  # a window past midnight (bedtime): today's status reads the new day, not that evening
         if (h["id"], day.isoformat()) in moved:
             continue
         st = statuses.get(h["id"])
@@ -371,6 +389,13 @@ def _habit_missing(db: sqlite3.Connection, now: datetime, home: dict) -> list[di
     return out
 
 
+def _only_heating(h: dict, patterns: dict[str, str]) -> bool:
+    """Every step of the habit is someone setting the thermostat (lamp → 21 °C on Wednesdays): Alfred does that
+    now, so when he has heated first, the people's step never comes. That is no habit missing."""
+    sigs = [patterns.get(s.get("pattern"), "") for s in h.get("steps") or [] if isinstance(s, dict)]
+    return bool(sigs) and all("thermostat" in sig for sig in sigs)
+
+
 def window_on(h: dict, day: date) -> dict | None:
     """The habit's window on that day: its weekday window (C3 `windows`) when it has them, else `window`.
     None when its weekday windows leave that day out."""
@@ -381,16 +406,19 @@ def window_on(h: dict, day: date) -> dict | None:
     return h.get("window") if isinstance(h.get("window"), dict) else None
 
 
-def _deadline(h: dict, now: datetime) -> datetime | None:
-    """The most recent "latest + 20 min" that has passed, within MISSING_FOR_H; None otherwise."""
+def _deadline(h: dict, now: datetime) -> tuple[datetime, date] | None:
+    """The most recent "latest + 20 min" that has passed, within MISSING_FOR_H, and the day it belongs to;
+    None otherwise. A latest past midnight (bedtime 23:29, latest 00:10) is the next morning's."""
     for day in (now.date(), now.date() - timedelta(days=1)):
         w = window_on(h, day)
-        latest = clock((w or {}).get("latest"))
+        latest, usual = clock((w or {}).get("latest")), clock((w or {}).get("usual"))
         if latest is None:
             continue
+        if usual is not None:  # the latest as minutes from that day's midnight, next to its usual time
+            latest = usual + (latest - usual + 720) % 1440 - 720
         deadline = datetime.combine(day, datetime.min.time()) + timedelta(minutes=latest + MISSING_AFTER_MIN)
         if deadline <= now <= deadline + timedelta(hours=MISSING_FOR_H):
-            return deadline
+            return deadline, day
     return None
 
 

@@ -222,18 +222,25 @@ def export(db: sqlite3.Connection, as_of: date | None = None, now: datetime | No
     return out
 
 
-def ongoing_happenings(db: sqlite3.Connection, now: datetime, hs: list[Happening]) -> list[Happening]:
-    """On/off signals away from rest at `now` and not stored yet (a happening is written once it ends),
-    read from the events table. Their non-rest value is the one their stored happenings hold."""
-    if not (_table(db, "events") and _table(db, "devices")):
+def ongoing_happenings(db: sqlite3.Connection, now: datetime, hs: list[Happening] = ()) -> list[Happening]:
+    """On/off signals away from rest at `now` and not stored yet (a happening is written once it ends), read from
+    the events table. Their non-rest value is the one their stored happenings hold most often, over the whole
+    history (João's phone, at home all Wednesday, last left on Thursday morning). `hs`: happenings already in
+    hand, newer than the table (a test's)."""
+    if not (_table(db, "events") and _table(db, "devices") and _table(db, "happenings")):
         return []
     held: dict[tuple, Counter] = {}
-    last: dict[tuple, datetime] = {}
+    last: dict[tuple, int] = {}
+    for dev, cap, value, n, end in db.execute(
+            "SELECT device_id, capability, value, count(*), max(end_ms) FROM happenings WHERE value IS NOT NULL"
+            " AND start_ms <= ? GROUP BY device_id, capability, value", (to_ms(now),)):
+        held.setdefault((dev, cap), Counter())[value] += n
+        last[(dev, cap)] = max(last.get((dev, cap), end), end)
     for x in hs:
         key = (x.device_id, x.capability)
         if x.value is not None and x.device_id:
             held.setdefault(key, Counter())[x.value] += 1
-        last[key] = max(last.get(key, x.end), x.end)
+        last[key] = max(last.get(key, to_ms(x.end)), to_ms(x.end))
     types = signal_devices(db.execute("SELECT device_id, type, name FROM devices"))  # "phone:c-8f3a", "plug:tv"
     out = []
     for (dev, cap), values in held.items():
@@ -245,9 +252,8 @@ def ongoing_happenings(db: sqlite3.Connection, now: datetime, hs: list[Happening
             value = json.loads(row[1])
         except (TypeError, ValueError):
             continue
-        start = to_local(row[0])
-        if value == values.most_common(1)[0][0] and start >= last.get((dev, cap), start):
-            out.append(Happening(f"{types.get(dev, dev)}.{cap}", start, now, None, value, None, None, dev))
+        if value == values.most_common(1)[0][0] and row[0] >= last.get((dev, cap), row[0]):
+            out.append(Happening(f"{types.get(dev, dev)}.{cap}", to_local(row[0]), now, None, value, None, None, dev))
     return out
 
 
