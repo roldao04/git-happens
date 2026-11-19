@@ -44,6 +44,8 @@ test.each([
   ".zoom label",
   ".detail-note p",
   ".lanes-legend li",
+  ".cl-left span",
+  ".cl-right span",
 ])("%s is readable from the back of a room", (selector) => {
   expect(fontSize(selector)).toBeGreaterThanOrEqual(16);
 });
@@ -54,6 +56,7 @@ test("the still-learning counter fills its row instead of collapsing to zero wid
 
 test("hours nobody watched cover the lane, so no guessed value shows through", () => {
   expect(css).toMatch(/(^|\n)\.lane-r \.gap\{[^}]*position:absolute[^}]*background:repeating-linear-gradient\([^}]*var\(--surface\)[^}]*z-index:1/);
+  expect(css).toMatch(/(^|\n)\.cl-plot \.gap\{[^}]*position:absolute[^}]*background:repeating-linear-gradient\([^}]*var\(--surface\)[^}]*z-index:1/);
 });
 
 test("the chart can be dragged across without stopping a phone from scrolling the page", () => {

@@ -212,3 +212,56 @@ test("the door is a bar from when it opened to when it closed", () => {
   expect(parseFloat(bar.style.left)).toBeCloseTo(((8 * 60 + 5) / 1440) * 100, 3);
   expect(parseFloat(bar.style.width)).toBeCloseTo((1 / 1440) * 100, 3);
 });
+
+const climate: Recording = recording({
+  devices: [{ id: "lamp", type: "bulb", name: "Light" }, { id: "temp", type: "temperatureSensor", name: "Temperature sensor" }],
+  initial: [{ device_id: "temp", capability: "temperatureValue", value: 19.1 }],
+  events: [
+    ev("temp", "humidityValue", 59.3, at(2, "00:05")),
+    ev("temp", "temperatureValue", 18.4, at(2, "04:30")),
+    ev("temp", "humidityValue", 61.6, at(2, "05:00")),
+    ev("temp", "temperatureValue", 21.2, at(2, "10:00")),
+  ],
+  sensors: [],
+  readings: [],
+});
+const climateChart = () => screen.getByRole("img", { name: /^Temperature and humidity\./ });
+const climatePage = (t: number) => render(<Timeline rec={climate} state={stateAt(climate, t)} playback={playback({ t })} day={2} />);
+
+test("a zoomed climate chart shows only that stretch of the day", async () => {
+  climatePage(at(3, "12:00"));
+  const zoom = screen.getByRole("form", { name: "Zoom" });
+  await userEvent.clear(within(zoom).getByLabelText("From"));
+  await userEvent.type(within(zoom).getByLabelText("From"), "04:00");
+  await userEvent.clear(within(zoom).getByLabelText("To"));
+  await userEvent.type(within(zoom).getByLabelText("To"), "06:30");
+  await userEvent.click(within(zoom).getByRole("button", { name: "Zoom" }));
+  expect(climateChart().querySelector("svg")?.getAttribute("viewBox")).toBe("240 0 150 100");
+});
+
+test("temperature and humidity share one chart, °C on the left and % on the right", () => {
+  climatePage(at(3, "12:00"));
+  const chart = climateChart();
+  expect(chart).toHaveAccessibleName("Temperature and humidity. Temperature: 18.4 to 21.2 °C, on the left. Humidity: 59.3 to 61.6%, on the right.");
+  expect([...chart.querySelectorAll(".cl-left span")].map((s) => s.textContent)).toEqual(["22 °C", "21 °C", "20 °C", "19 °C", "18 °C"]);
+  expect([...chart.querySelectorAll(".cl-right span")].map((s) => s.textContent)).toEqual(["62%", "61%", "60%", "59%"]);
+  const temp = chart.querySelector("polyline.temperature");
+  expect(temp?.getAttribute("points")?.split(" ")).toEqual(["0,72.5", "270,90", "600,20", "1440,20"]);
+  expect(chart.querySelector("polyline.humidity")).not.toBeNull();
+  expect(chart.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 1440 100");
+  const legend = legendItems();
+  expect(legend.map((li) => li.textContent)).toEqual(expect.arrayContaining(["Temperature", "Humidity"]));
+  expect(legend.find((li) => li.textContent === "Humidity")?.querySelector("i")).toHaveClass("k-line", "humidity");
+});
+
+test("a home without a temperature sensor has no climate chart", () => {
+  page(at(2, "20:00"), 2);
+  expect(screen.queryByRole("img", { name: /^Temperature and humidity\./ })).toBeNull();
+});
+
+test("temperature and humidity are drawn only in their chart, not as lanes", () => {
+  climatePage(at(3, "12:00"));
+  const lanes = screen.getByRole("img", { name: /^Light: not on\./ });
+  expect([...lanes.querySelectorAll(".lane-l")].map((l) => l.textContent)).toEqual(["Light", "Alfred"]);
+  expect(lanes).toHaveAccessibleName("Light: not on. Alfred recognized 0 habits.");
+});

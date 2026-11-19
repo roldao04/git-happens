@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { ClimateChart } from "../components/ClimateChart";
 import { LanesLegend } from "../components/LanesLegend";
 import { DayLanes } from "../components/DayLanes";
 import { Shell } from "../components/Shell";
@@ -64,6 +65,7 @@ function DayChart({ view }: { view: DayView }) {
   return (
     <>
       <DayLanes view={view} zoom={zoom} onZoom={setZoom} />
+      <ClimateChart view={view} zoom={zoom} />
       <form className="zoom" onSubmit={submit} aria-label="Zoom">
         <label>From <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label>To <input type="time" value={to} onChange={(e) => setTo(e.target.value)} /></label>

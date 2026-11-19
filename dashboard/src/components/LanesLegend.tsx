@@ -7,6 +7,7 @@ export function LanesLegend({ view }: { view: DayView }) {
   if (has("bulb")) items.push(["k-bar k-lamp", "Lamp on, in its color"]);
   if (has("plug")) items.push(["k-bar", "Plug in use"]);
   if (has("contactSensor")) items.push(["k-bar k-door", "Door open"]);
+  for (const m of view.measures) items.push([`k-line ${m.label.toLowerCase()}`, m.label]);
   if (view.entries.some((e) => !e.weak)) items.push(["k-dia", "Habit Alfred recognized"]);
   if (view.entries.some((e) => e.weak)) items.push(["k-dia k-ring", "Not a sensor yet"]);
   if (view.upTo < view.dayStart + DAY_MS) items.push(["k-future", "Not happened yet"]);
