@@ -5,18 +5,17 @@ import { Learned } from "./Learned";
 
 const weak = sensorNow({ sensor: sensor({ id: "pattern-5", confidence: 0.44 }) });
 
-test("is the Learned tab with the headline, the summary and the honesty line", () => {
+test("is the Learned tab with the headline and the summary", () => {
   render(<Learned rec={recording()} state={state({ cards: [sensorNow({ justLearned: true })], alsoNoticed: [weak] })} playback={playback()} />);
   expect(screen.getByRole("link", { name: "Learned" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("heading", { level: 1, name: "Alfred has learned 1 sensor." })).toBeInTheDocument();
   expect(screen.getByText("1 is new today. 1 more is too weak to show yet.")).toBeInTheDocument();
-  expect(screen.getByText("The rosa home is simulated; the learning is real.")).toBeInTheDocument();
 });
 
-test("a live recording has no honesty line", () => {
-  const rec = recording();
-  render(<Learned rec={{ ...rec, meta: { ...rec.meta, simulated: false } }} state={state({ cards: [sensorNow()] })} playback={playback()} />);
+test("leaves saying the home is simulated to the playback pill", () => {
+  render(<Learned rec={recording()} state={state({ cards: [sensorNow()] })} playback={playback()} />);
   expect(screen.queryByText(/is simulated/)).toBeNull();
+  expect(screen.getByRole("button", { name: /^Simulated · day/ })).toBeInTheDocument();
 });
 
 test("all learned sensors are one list, connectivity included", () => {

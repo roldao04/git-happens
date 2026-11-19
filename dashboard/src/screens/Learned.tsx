@@ -8,13 +8,11 @@ import type { Playback } from "../playback/usePlayback";
 
 export function Learned({ rec, state, playback }: { rec: Recording; state: StateAt; playback: Playback }) {
   const summary = learnedSummary(state.cards.filter((c) => c.justLearned).length, state.alsoNoticed.length);
-  const home = rec.meta.household ? `The ${rec.meta.household} home` : "The home";
   return (
     <Shell state={state} playback={playback} tab="learned" simulated={rec.meta.simulated}>
       <section className="pg-head" aria-label="Summary">
         <h1>{learnedHeadline(state.cards.length)}</h1>
         {summary && <p>{summary}</p>}
-        {rec.meta.simulated && <p className="honesty">{`${home} is simulated; the learning is real.`}</p>}
       </section>
       {state.cards.length === 0 ? (
         <StillLearning day={state.day} days={state.days} />

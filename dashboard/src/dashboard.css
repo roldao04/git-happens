@@ -179,7 +179,6 @@ a.lt-row:hover .nm{text-decoration:underline;text-underline-offset:3px}
 .al-new{font-size:16px;line-height:20px}
 .al-empty .al-counter{width:100%}
 .al-empty p{font-size:16px;line-height:24px;max-width:60ch}
-.honesty{margin:0 0 var(--space-4);font-size:16px}
 .al-list time{font-size:16px;line-height:20px}
 .detail-grid{display:grid;gap:var(--space-6);align-items:start}
 @media (min-width:1024px){.detail-grid{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}}
