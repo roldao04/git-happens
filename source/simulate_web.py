@@ -8,6 +8,12 @@ GET  /visualizer the 3D view of one day (console/visualizer.html)
 GET  /day        household, day[, seed, start] -> that day's snapshots, cut down to what the view draws
 GET  /learned    household, day[, seed, start] -> what Alfred learned by that day, and each habit's status through it
 GET  /knowledge  household, day[, seed, start] -> everything Alfred knows once that day is over (the page's second tab)
+GET  /moments    household[, seed, start] -> the demo's scripted moments: one click jumps to a day and time
+GET  /thoughts   household, day[, seed, start] -> why Alfred woke its LLM that day, what it said and did
+GET  /planted    household, day[, seed, start] -> each planted rhythm (the answer key) and what Alfred found for it
+
+The last three are the demo screen's (docs/demo-plan.md, C11). Each reads the real data when it is there (the
+simulator's moments and answer key, the run's `wakes` and `decisions`) and falls back to console/fixtures/.
 
 "simulated" gives made-up homes (`simulate.houses`), each different. "real" replays the one recorded house
 (home-a). The same choices always give the same zip; for a specific named household, use the command line
@@ -93,6 +99,8 @@ WATCHED = {
     "plug": ("power", "instantPower", "todayConsumption"),
     "smokeSensor": ("sensorState",),
     "gateway": ("alarmState",),
+    "thermostat": ("temperatureValue", "targetTemperature", "heatingState", "mode"),
+    "router": ("connectedClients",),
 }
 VIEW_HOUSEHOLDS = (*PRESETS, REAL_HOME)
 
@@ -117,6 +125,21 @@ def _household(name: str):
     raise ValueError(f"unknown household {name!r}: use {', '.join(VIEW_HOUSEHOLDS)} or house-1 to house-{MAX_HOUSES}")
 
 
+def _default_start(name: str) -> date:
+    """A preset's own first day when it has one (the demo house starts on 21 Sept: the preset's `start`,
+    simulate.PRESET_STARTS, or its demo fixture's), else the simulator's."""
+    from . import simulate
+
+    preset, starts = PRESETS.get(name), getattr(simulate, "PRESET_STARTS", None)
+    for value in (getattr(preset, "start", None), starts.get(name) if isinstance(starts, dict) else None,
+                  (_fixture(name) or {}).get("start")):
+        try:
+            return value if isinstance(value, date) else date.fromisoformat(value)
+        except (TypeError, ValueError):
+            continue
+    return DEFAULT_START
+
+
 def _day_request(query: dict[str, str]) -> tuple[str, int, int, date]:
     """Query fields -> (household, day, seed, start). Raises ValueError with a plain message."""
     name = query.get("household", "rosa")
@@ -126,7 +149,7 @@ def _day_request(query: dict[str, str]) -> tuple[str, int, int, date]:
     except ValueError:
         raise ValueError("day and seed must be whole numbers") from None
     try:
-        start = date.fromisoformat(query["start"]) if "start" in query else DEFAULT_START
+        start = date.fromisoformat(query["start"]) if "start" in query else _default_start(name)
     except ValueError:
         raise ValueError("start must be a date, YYYY-MM-DD") from None
     most = home_a_max_days(start) if name == REAL_HOME else MAX_DAYS
@@ -334,6 +357,7 @@ def _learn_once(name: str, day: int, seed: int, start: date) -> dict:
             after = storage.export(db, target)
             keys = {sid: f"{sid}|{sig}" for sid, sig in db.execute("SELECT id, signature FROM sensors")}
             knowledge = _knowledge(db, target, after["sensors"], keys, parts)  # after the namer: reasons use names
+            thoughts = read_thoughts(db, target)
         finally:
             db.close()
 
@@ -366,7 +390,8 @@ def _learn_once(name: str, day: int, seed: int, start: date) -> dict:
     most = min(MAX_LEARN_DAYS, home_a_max_days(start)) if name == REAL_HOME else MAX_LEARN_DAYS
     return {"learned": learned,
             "knowledge": {"household": name, "day": day, "date": iso, "start": start.isoformat(), "max_days": most,
-                          **knowledge}}
+                          **knowledge},
+            "thoughts": thoughts}  # None: no wakes table in this run (part D not wired in yet)
 
 
 # --- the knowledge tab: the other parts of docs/habits-plan.md, read defensively ---------------------
@@ -376,7 +401,8 @@ class _Parts:
     raises is "failed" (logged once, then left alone for the rest of the run). Either way it gives nothing."""
 
     MODULES = {"habits": (".learn.grouping", "export_habits"), "occasions": (".learn.occasions", "export_occasions"),
-               "forecast": (".learn.forecast", "forecast"), "decisions": (".anticipate", "plan_decisions")}
+               "forecast": (".learn.forecast", "forecast"), "decisions": (".anticipate", "plan_decisions"),
+               "warmup": (".learn.warmup", "warmup")}
 
     def __init__(self) -> None:
         self.modules: dict = {}
@@ -424,6 +450,8 @@ def _knowledge(db: sqlite3.Connection, as_of: date, sensors: list[dict], keys: d
     devices = {}
     for kind, name in _rows(db, "SELECT type, name FROM devices ORDER BY first_ts, device_id"):
         devices.setdefault(kind, name)
+        if name:  # also by the per-device signal name (docs/demo-plan.md, C2): "plug:kettle" -> "Kettle"
+            devices.setdefault(f"{kind}:{_slug(name)}", name)
     try:
         kinds = [_kind_card(k, devices) for k in storage.load_kinds(db)]
     except sqlite3.Error:
@@ -451,8 +479,29 @@ def _knowledge(db: sqlite3.Connection, as_of: date, sensors: list[dict], keys: d
     for o in found["occasions"]:
         o["key"] = f"occasion:{o['id']}"
     named = any(x.get("name") for x in patterns + found["habits"] + found["occasions"])
+    warmup = _warmup(db, now, parts)
     return {"tomorrow": tomorrow.isoformat(), "named": named, "modules": dict(parts.state), "devices": devices,
-            "kinds": kinds, "patterns": patterns, **found}
+            "kinds": kinds, "patterns": patterns, **found, "warmup": warmup}
+
+
+def _warmup(db: sqlite3.Connection, now: datetime, parts: _Parts) -> dict | None:
+    """How fast the house warms (source/learn/warmup.py, C4), or None when it isn't known."""
+    try:
+        out = json.loads(json.dumps(parts.call("warmup", "warmup", db, now), default=_jsonable))
+    except Exception as exc:
+        parts.fail("warmup", exc)
+        return None
+    return out if isinstance(out, dict) and parts.state.get("warmup") == "ok" else None
+
+
+def _slug(name: str) -> str:
+    """"Washing machine" -> "washing-machine", as the signal names have it."""
+    return re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")
+
+
+def _device_type(device: str) -> str:
+    """"plug:kettle" -> "plug" (source.learn.device_type, for a signal's device part)."""
+    return device.split(":", 1)[0]
 
 
 def _kind_card(kind, devices: dict[str, str]) -> dict:
@@ -460,7 +509,8 @@ def _kind_card(kind, devices: dict[str, str]) -> dict:
     from .learn.kinds import UNITS
 
     device, cap = kind.signal.split(".", 1)
-    return {"id": kind.id, "signal": kind.signal, "device": device, "device_name": devices.get(device),
+    return {"id": kind.id, "signal": kind.signal, "device": device,
+            "device_name": devices.get(device) or devices.get(_device_type(device)),
             "count": kind.count, "duration_s": round(kind.duration_s), "size": kind.size, "unit": UNITS.get(cap),
             "value": kind.value, "description": _kind_words(kind, devices)}
 
@@ -482,7 +532,9 @@ def _kind_words(kind, devices: dict[str, str]) -> str:
         m = re.fullmatch(r"after (\w+) until (\w+)", kind.value or "")
         return f"quiet for {lasting}" + (f", after the {devices.get(m[1], m[1]).lower()} until the "
                                          f"{devices.get(m[2], m[2]).lower()}" if m else "")
-    state = "open" if device == "contactSensor" and kind.value == "alarm" else kind.value or "active"
+    if _device_type(device) == "phone":  # a phone on the WiFi: someone is home
+        return f"{'connected' if kind.value in ('on', None) else kind.value} for {lasting}"
+    state = "open" if _device_type(device) == "contactSensor" and kind.value == "alarm" else kind.value or "active"
     return f"{state} for {lasting}"
 
 
@@ -570,6 +622,262 @@ def with_names(view: dict, path: Path, items: str = "sensors") -> dict:
     return {**view, items: named, "named": view["named"] or any(s.get("name") for s in named)}
 
 
+# --- the demo screen (docs/demo-plan.md, C11): moments, thoughts, planted vs found ---------------------
+# Each answer is the real one when the parts it needs are there, else the fixture's (console/fixtures/<household>.json),
+# else empty. `source` says which: "simulator" or "run", "fixture", or "none".
+
+FIXTURES = CONSOLE / "fixtures"
+DEMO_RUNS = Path(__file__).resolve().parent.parent / "data" / "demo"  # runs pre-computed by source/demo.py (part F)
+THOUGHT_KINDS = ("habit_soon", "arrival", "departure", "habit_missing", "occasion")
+MATCHES = ("yes", "partly", "no")
+
+
+def _fixture(name: str) -> dict | None:
+    """The demo fixture for a household, or None. Read on every call, so editing it shows on the next click."""
+    if not re.fullmatch(r"[a-z0-9-]+", name):
+        return None
+    try:
+        out = json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return out if isinstance(out, dict) else None
+
+
+def _demo_request(query: dict[str, str]) -> tuple[str, int, int, date, bool]:
+    """Query fields -> (household, day, seed, start, simulated). The household defaults to "demo"; one only a
+    fixture knows (the demo house before its preset lands) is allowed, with simulated False."""
+    name = query.get("household", "demo")
+    try:
+        return (*_day_request({**query, "household": name}), True)
+    except ValueError as exc:
+        if "unknown household" not in str(exc) or _fixture(name) is None:
+            raise
+    _, day, seed, start = _day_request({k: v for k, v in query.items() if k != "household"})
+    return name, day, seed, (start if "start" in query else _default_start(name)), False
+
+
+def moments_view(name: str, seed: int = 1, start: date = DEFAULT_START, simulated: bool = True) -> dict:
+    """The scripted moments (C12): the simulator's when it has them, else the fixture's."""
+    moments, source = _clean_moments(_sim_moments(name)) if simulated else [], "simulator"
+    if not moments:
+        fixture = _fixture(name) or {}
+        moments, source = _clean_moments(fixture.get("moments")), "fixture"
+        start = _date(fixture.get("start")) or start
+    return {"household": name, "start": start.isoformat(), "seed": seed, "moments": moments,
+            "source": source if moments else "none"}
+
+
+def _sim_moments(name: str):
+    """A preset's moments, wherever part A puts them: simulate.MOMENTS[name], simulate.moments(name), or the
+    preset's own `moments`. Read defensively: anything else is no moments."""
+    from . import simulate
+
+    try:
+        table = getattr(simulate, "MOMENTS", None)
+        if isinstance(table, dict) and name in table:
+            return table[name]
+        if callable(getattr(simulate, "moments", None)):
+            return simulate.moments(name)
+        return getattr(PRESETS.get(name), "moments", None)
+    except Exception:
+        log.exception("reading the moments of %s failed", name)
+        return None
+
+
+def _clean_moments(rows) -> list[dict]:
+    """Only moments the page can jump to: a whole day from 1 and an "HH:MM" time. Sorted by day and time."""
+    out = []
+    for m in rows if isinstance(rows, (list, tuple)) else []:
+        m = asdict(m) if is_dataclass(m) and not isinstance(m, type) else m
+        if not isinstance(m, dict):
+            continue
+        try:
+            day, time_ = int(m.get("day")), str(m.get("time"))
+        except (TypeError, ValueError):
+            continue
+        if day < 1 or not re.fullmatch(r"\d\d:\d\d", time_):
+            continue
+        focus = m.get("focus")
+        out.append({"id": str(m.get("id") or f"day-{day}-{time_}"), "title": str(m.get("title") or f"Day {day}, {time_}"),
+                    "day": day, "time": time_, "focus": [str(f) for f in focus] if isinstance(focus, list) else [],
+                    "say": str(m.get("say") or "")})
+    return sorted(out, key=lambda m: (m["day"], m["time"]))
+
+
+def thoughts_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START, simulated: bool = True) -> dict:
+    """Why Alfred woke its LLM on day `day`, and what came of it: one entry per decision a wake led to (one with
+    no decision when it led to none), by time. From the run's `wakes` and `decisions` tables, a run pre-computed
+    in data/demo/, or the fixture."""
+    first = start + timedelta(days=day - 1)
+    wakes, source = None, "run"
+    if simulated:
+        wakes = _learned(name, day, seed, start).get("thoughts")  # the run the other views share
+        if wakes is None:
+            wakes, source = _precomputed_thoughts(name, seed, start, first), "precomputed"
+    if wakes is None:
+        days = (_fixture(name) or {}).get("thoughts")
+        rows = days.get(str(day)) if isinstance(days, dict) else None
+        wakes, source = ([_thought(r) for r in rows if isinstance(r, dict)] if isinstance(rows, list) else None), "fixture"
+    return {"household": name, "day": day, "date": first.isoformat(), "wakes": wakes or [],
+            "source": source if wakes is not None else "none"}
+
+
+def _precomputed_thoughts(name: str, seed: int, start: date, day: date) -> list[dict] | None:
+    path = DEMO_RUNS / f"{_names_file(name, seed, start).stem}.sqlite3"
+    if not path.exists():
+        return None
+    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return read_thoughts(db, day)
+    finally:
+        db.close()
+
+
+def read_thoughts(db: sqlite3.Connection, day: date) -> list[dict] | None:
+    """The wakes of `day` (part D's `wakes` table: key, ts, data) with the decisions each led to (`decisions`
+    rows whose data has `wake`: that key). None when there is no wakes table. Every field is read defensively."""
+    if not _rows(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wakes'"):
+        return None
+    by_wake: dict = defaultdict(list)
+    for (data,) in _rows(db, "SELECT data FROM decisions ORDER BY ts, id"):
+        d = _json(data)
+        if isinstance(d, dict) and d.get("wake"):
+            by_wake[str(d["wake"])].append(d)
+    iso, out = day.isoformat(), []
+    for key, ts, data in _rows(db, "SELECT key, ts, data FROM wakes ORDER BY ts"):
+        at = _clock(ts)
+        if not isinstance(at, str) or at[:10] != iso:
+            continue
+        wake = _json(data)
+        wake = wake if isinstance(wake, dict) else {}
+        for d in by_wake.get(str(key)) or [None]:
+            out.append(_thought({**wake, "key": key, "at": at}, d))
+    return sorted(out, key=lambda t: (t["at"] or "", t["key"] or ""))
+
+
+def _thought(wake: dict, decision: dict | None = None) -> dict:
+    """One entry of /thoughts (C11), from a wake (its WakeReason data) and a decision it led to. A fixture row is
+    already in this shape and passes through the same reading."""
+    key = str(wake.get("key") or "")
+    parts = key.split(":")
+    kind = wake.get("kind") or (parts[0] if parts[0] in THOUGHT_KINDS else None)
+    card = lambda what: wake.get(what) if isinstance(wake.get(what), dict) else {}  # noqa: E731
+    habit_id = wake.get("habit_id") or card("habit").get("id") or (
+        parts[1] if kind in ("habit_soon", "habit_missing") and len(parts) > 1 else None)
+    occasion_id = wake.get("occasion_id") or card("occasion").get("id") or (
+        parts[1] if kind == "occasion" and len(parts) > 1 else None)
+    d = decision or {}
+    confidence = d.get("confidence", wake.get("confidence"))
+    return {"at": _clock(wake.get("at")), "kind": kind, "key": key or None, "habit_id": habit_id, "occasion_id": occasion_id,
+            "subject": wake.get("subject") or card("habit").get("name") or card("occasion").get("name"),
+            "sentence": d.get("reason") or wake.get("sentence"),
+            "confidence": confidence if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) else None,
+            "mode": d.get("mode", wake.get("mode")), "status": d.get("status", wake.get("status")),
+            "action": d.get("action", wake.get("action")), "due": d.get("at", wake.get("due"))}
+
+
+def planted_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START, simulated: bool = True) -> dict:
+    """Each rhythm the simulator planted (its answer key, in plain words) and the habit or occasion Alfred found
+    for it by the end of day `day`. The simulator's answer key matched against /knowledge when there is one,
+    else the fixture's rows for the latest day up to `day`."""
+    key = _answer_key(name, seed, start) if simulated else None
+    if key:
+        k = knowledge_view(name, day, seed, start)
+        rows, source = [_planted_row(entry, k) for entry in key], "simulator"
+    else:
+        days = (_fixture(name) or {}).get("planted")
+        days = {int(d): r for d, r in days.items() if str(d).isdigit() and isinstance(r, list)} if isinstance(days, dict) else {}
+        upto = max((d for d in days if d <= day), default=None)
+        rows = [_planted_row(r, None) for r in days[upto] if isinstance(r, dict)] if upto else []
+        source = "fixture" if upto else "none"
+    return {"household": name, "day": day, "date": (start + timedelta(days=day - 1)).isoformat(), "rows": rows,
+            "source": source}
+
+
+def _answer_key(name: str, seed: int, start: date) -> list[dict]:
+    """The planted rhythms (C12's answer key), wherever part A puts them: simulate.answer_key(name) or
+    simulate.ANSWER_KEYS[name] or the preset's `answer_key`. Each a dict with at least `planted`."""
+    from . import simulate
+
+    try:
+        if callable(getattr(simulate, "answer_key", None)):
+            rows = simulate.answer_key(name)
+        elif isinstance(getattr(simulate, "ANSWER_KEYS", None), dict):
+            rows = simulate.ANSWER_KEYS.get(name)
+        else:
+            rows = getattr(PRESETS.get(name), "answer_key", None)
+    except Exception:
+        log.exception("reading the answer key of %s failed", name)
+        return []
+    return [r for r in rows if isinstance(r, dict) and r.get("planted")] if isinstance(rows, (list, tuple)) else []
+
+
+def _planted_row(entry: dict, k: dict | None) -> dict:
+    """One row of /planted. An entry that already says what was found (a fixture's, or a key that was matched
+    elsewhere) keeps it; else it is matched against what Alfred knows (`k`, the knowledge view)."""
+    row = {"planted": str(entry.get("planted")), "found": entry.get("found"), "found_text": entry.get("found_text"),
+           "match": entry.get("match") if entry.get("match") in MATCHES else None}
+    if k is not None and row["match"] is None:
+        row.update(_match(entry, k))
+    if row["match"] is None:
+        row["match"] = "yes" if row["found"] else "no"
+    return row
+
+
+def _match(entry: dict, k: dict) -> dict:
+    """The answer key's hints -> what Alfred found. Hints (all optional): `kind` ("habit", the default,
+    "occasion" or "warmup"), `usual` ("HH:MM"), `days` (["mon", …]), `person` (a phone's client id)."""
+    kind, days = entry.get("kind") or "habit", set(entry.get("days") or [])
+    if kind == "warmup":
+        w = k.get("warmup") or {}
+        rate = w.get("rate_c_per_h")
+        return {"found": "warmup" if rate else None, "match": "yes" if rate else "no",
+                "found_text": f"warms {rate} °C an hour" if rate else None}
+    if kind == "occasion":
+        found = [o for o in k.get("occasions", []) if not days or not o.get("weekdays") or days & set(o["weekdays"])]
+        if not found:
+            return {"found": None, "found_text": None, "match": "no"}
+        o = max(found, key=lambda o: o.get("episodes") or 0)
+        many = isinstance(o.get("episodes"), (int, float)) and o["episodes"] >= 2
+        return {"found": o.get("id"), "found_text": o.get("name") or o.get("id"), "match": "yes" if many else "partly"}
+    usual, person, best = _minute(entry.get("usual")), entry.get("person"), None
+    for habit in k.get("habits", []):
+        if habit.get("status", "active") != "active":
+            continue
+        who = (habit.get("person") or {}).get("phone") if isinstance(habit.get("person"), dict) else None
+        if person and who and who != person:
+            continue
+        windows = [w for w in habit.get("windows") or [] if isinstance(w, dict)] or [{**(habit.get("window") or {}),
+                   "days": (habit.get("recurrence") or {}).get("weekdays") or []}]
+        for w in windows:
+            on = set(w.get("days") or [])
+            if days and on and not days & on:
+                continue
+            gap = abs(_minute(w.get("usual")) - usual) if usual is not None and _minute(w.get("usual")) is not None else 0
+            gap = min(gap, 1440 - gap)
+            score = gap + (0 if not person or who == person else 60)
+            if best is None or score < best[0]:
+                best = (score, habit, w)
+    if best is None or best[0] > 90:
+        return {"found": None, "found_text": None, "match": "no"}
+    score, habit, w = best
+    when = f"{w.get('earliest')}–{w.get('latest')}" if w.get("earliest") and w.get("latest") else w.get("usual")
+    text = " · ".join(str(x) for x in (habit.get("name") or habit.get("id"), (habit.get("recurrence") or {}).get("text"), when) if x)
+    return {"found": habit.get("id"), "found_text": text, "match": "yes" if score <= 30 else "partly"}
+
+
+def _minute(hhmm) -> int | None:
+    m = re.fullmatch(r"(\d\d?):(\d\d)", str(hhmm or ""))
+    return int(m[1]) * 60 + int(m[2]) if m else None
+
+
+def _date(value) -> date | None:
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "AlfredSimulator"
 
@@ -623,6 +931,17 @@ class Handler(BaseHTTPRequestHandler):
                 log.exception("%s failed", self.path)
                 return self._error(500, "Learning failed on this day: the simulator's log has the details.")
             return self._send(200, json.dumps(view, separators=(",", ":")).encode(), "application/json")
+        if url.path in ("/moments", "/thoughts", "/planted"):
+            try:
+                household, day, seed, start, simulated = _demo_request({k: v[-1] for k, v in parse_qs(url.query).items()})
+                view = (moments_view(household, seed, start, simulated) if url.path == "/moments"
+                        else (thoughts_view if url.path == "/thoughts" else planted_view)(household, day, seed, start, simulated))
+            except ValueError as exc:
+                return self._error(400, str(exc))
+            except Exception:
+                log.exception("%s failed", self.path)
+                return self._error(500, "That failed on the simulator: its log has the details.")
+            return self._send(200, json.dumps(view, separators=(",", ":"), default=_jsonable).encode(), "application/json")
         self._error(404, "Not found")
 
     def do_POST(self) -> None:

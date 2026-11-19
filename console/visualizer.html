@@ -87,6 +87,26 @@
   #learned-note { font-size: 12px; }
   #learned-note.bad { color: var(--bad); }
   #truth li button { width: 100%; justify-content: flex-start; border-color: transparent; padding: 3px 8px; min-height: 28px; gap: 10px; }
+  /* The demo: the moments bar over the time bar, and what Alfred thought (GET /moments, /thoughts). */
+  #moments-row { flex-wrap: wrap; gap: 6px; }
+  #moments-row > .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-right: 2px; }
+  #moments button { min-height: 28px; border-radius: 999px; font-size: 13px; padding: 0 12px; }
+  #moments button .num { color: var(--muted); font-size: 12px; }
+  #moments button[aria-pressed="true"] .num { color: inherit; }
+  #moments { display: flex; flex-wrap: wrap; gap: 6px; }
+  #moment-say { font-size: 13px; flex-basis: 100%; }
+  body.with-moments #panel { max-height: calc(100vh - 290px); }
+  body.with-moments #habits { max-height: calc(100vh - 358px); }
+  #thinks li button { width: 100%; justify-content: flex-start; align-items: flex-start; text-align: left; border-color: transparent; padding: 6px 8px; gap: 10px; }
+  #thinks .what { display: grid; gap: 2px; flex: 1; min-width: 0; }
+  #thinks .title { font-weight: 600; overflow-wrap: anywhere; }
+  #thinks .said { color: var(--text); font-size: 13px; }
+  #thinks small { color: var(--muted); font-size: 12px; }
+  #thinks .acts { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 12px; color: var(--muted); }
+  #thinks li.later { opacity: .55; }
+  #thinks li.focus button { box-shadow: inset 3px 0 0 var(--accent); }
+  #thinks-note { font-size: 12px; }
+  #thinks-note.bad { color: var(--bad); }
   #lanes { width: 100%; height: 104px; display: block; cursor: ew-resize; touch-action: none; }
   /* The slider sits under the lanes: its thumb is 14px wide, so its travel starts 7px in, like the lanes' plot. */
   #scrub { -webkit-appearance: none; appearance: none; display: block; width: calc(100% - 44px); margin: 0 0 0 44px; height: 16px; background: transparent; }
@@ -184,6 +204,14 @@
   .k-card code { font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
   .k-older > summary { cursor: pointer; color: var(--muted); padding: 6px 0; width: fit-content; }
   .k-older > .k-grid { margin-top: 6px; }
+  .k-planted { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+  .k-planted > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px; gap: 4px 16px; padding: 9px 16px; align-items: baseline; }
+  .k-planted > div + div { border-top: 1px solid var(--line); }
+  .k-planted .k-th { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: var(--chip); }
+  .k-planted .pill { justify-self: start; }
+  .k-shift { color: var(--muted); }
+  .k-shift s { text-decoration-thickness: 1px; }
+  @media (max-width: 720px) { .k-planted > div { grid-template-columns: minmax(0, 1fr) auto; } .k-planted .k-found { grid-column: 1 / -1; grid-row: 2; } }
   @media (max-width: 720px) {
     #k-head { position: static; }
     .k-wrap { padding: 0 16px; }
@@ -219,6 +247,7 @@
           <option value="couple">couple</option>
           <option value="students">students</option>
           <option value="rosa-plus">rosa-plus (rarer rhythms, parties)</option>
+          <option value="demo">demo (heating, two people, gatherings)</option>
           <option value="home-a">home-a (a real kitchen)</option>
         </optgroup>
         <optgroup label="Made-up houses (the form's zip)" id="made-up"></optgroup>
@@ -249,6 +278,15 @@
 </aside>
 
 <aside id="habits" class="float" aria-label="Learned by Alfred">
+  <!-- GET /thoughts: each time what Alfred learned woke its LLM that day, what it said and what it did. -->
+  <div id="thinks-box" style="display: grid; gap: 8px" hidden>
+    <div class="row spread">
+      <h2 title="Alfred wakes its LLM ahead of a habit, when a phone arrives or leaves, when a habit is missing, or when it recognises an occasion. The confidence is set by code; from 75 % Alfred acts.">Alfred thinks</h2>
+      <span id="thinks-count" class="muted num"></span>
+    </div>
+    <p id="thinks-note" class="muted" hidden></p>
+    <ul id="thinks"></ul>
+  </div>
   <div id="learned-box" style="display: grid; gap: 8px">
     <div class="row spread">
       <h2 title="Sensors the learners found from day 1 up to this day, with no LLM. Statuses are what Alfred knew during the day.">Learned by Alfred</h2>
@@ -266,6 +304,12 @@
 </div>
 
 <section id="bar" class="float" aria-label="Time">
+  <!-- GET /moments: the demo's scripted moments. One click opens that day at that time. -->
+  <div id="moments-row" class="row" hidden>
+    <span class="label">Moments</span>
+    <div id="moments" role="group" aria-label="Moments"></div>
+    <p id="moment-say" class="muted" hidden></p>
+  </div>
   <div class="row" style="flex-wrap: wrap">
     <button id="prev" type="button" title="Previous change (Left arrow)" aria-label="Previous change"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h2v10H3zm10 0v10L6 8z"/></svg></button>
     <button id="play" class="main" type="button" title="Play or pause (Space)" aria-label="Play"><svg viewBox="0 0 16 16" aria-hidden="true"><path id="play-icon" d="M4 2.5v11l9-5.5z"/></svg></button>
@@ -301,6 +345,14 @@
       <nav id="k-nav" aria-label="Sections" hidden></nav>
     </section>
     <div id="k-sections" hidden>
+      <!-- GET /planted: the simulator's answer key next to what Alfred found by itself. Only for a house that has one. -->
+      <section id="k-planted" class="k-section" aria-labelledby="k-planted-h" hidden>
+        <header>
+          <h2 id="k-planted-h">Planted vs found</h2>
+          <p>What the simulator planted in this house (its answer key, never shown to the learners), and what Alfred found by itself from the devices' data.</p>
+        </header>
+        <div id="k-planted-list"></div>
+      </section>
       <section id="k-habits" class="k-section" aria-labelledby="k-habits-h">
         <header>
           <h2 id="k-habits-h">Habits</h2>
@@ -315,10 +367,17 @@
         </header>
         <div id="k-occasions-list" class="k-list"></div>
       </section>
+      <section id="k-heating" class="k-section" aria-labelledby="k-heating-h" hidden>
+        <header>
+          <h2 id="k-heating-h">Heating</h2>
+          <p>How fast this house warms when the heating is on, and cools when it is off, measured from its own past heating. Alfred starts the heating this far ahead of a habit.</p>
+        </header>
+        <div id="k-heating-list" class="k-list"></div>
+      </section>
       <section id="k-tomorrow" class="k-section" aria-labelledby="k-tomorrow-h">
         <header>
           <h2 id="k-tomorrow-h">Tomorrow</h2>
-          <p>What each habit will probably do in the 24 hours after this day, and what Alfred plans for it. From 75 % sure it acts (the lamp only; it never switches the plug on). Below that it only suggests.</p>
+          <p>What each habit will probably do in the 24 hours after this day, and what Alfred plans for it. From 75 % sure it acts (the lamp and the thermostat, within the guard's limits; it never switches a plug on). Below that it only suggests.</p>
         </header>
         <h3 class="k-subhead">Forecast</h3>
         <div id="k-forecast-list" class="k-list"></div>
@@ -357,10 +416,14 @@ const WATCHED = {
   plug: ['power', 'instantPower', 'todayConsumption'],
   smokeSensor: ['sensorState'],
   gateway: ['alarmState'],
+  thermostat: ['temperatureValue', 'targetTemperature', 'heatingState', 'mode'],
+  router: ['connectedClients'],
 };
 // A step to "the next change" stops at these; temperature, humidity and the kWh counter drift all day.
-const EVENTS = ['sensorState', 'power', 'brightness', 'color_rgb', 'instantPower', 'alarmState', 'status', 'isAlarmed'];
-const MAIN = { bulb: 'power', contactSensor: 'sensorState', plug: 'instantPower', smokeSensor: 'sensorState', gateway: 'alarmState' };
+const EVENTS = ['sensorState', 'power', 'brightness', 'color_rgb', 'instantPower', 'alarmState', 'status', 'isAlarmed',
+                'targetTemperature', 'heatingState', 'mode', 'connectedClients'];
+const MAIN = { bulb: 'power', contactSensor: 'sensorState', plug: 'instantPower', smokeSensor: 'sensorState', gateway: 'alarmState',
+               thermostat: 'heatingState', router: 'connectedClients' };
 const GAP_MS = 15 * 60000;  // longer than this without a snapshot is an outage
 
 const clockFmt = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
@@ -474,6 +537,20 @@ function reading(type, s, security) {
   if (type === 'temperatureSensor') {
     const t = s.temperatureValue != null ? `${Number(s.temperatureValue).toFixed(1)} °C` : '–';
     return { text: `${t} · ${s.humidityValue != null ? Math.round(s.humidityValue) + ' %' : '–'}`, short: t, on: true, color: tempColor(s.temperatureValue) };
+  }
+  if (type === 'thermostat') {  // the room's temperature, where it is heading, and whether it heats now
+    const t = s.temperatureValue != null ? `${Number(s.temperatureValue).toFixed(1)} °C` : '–';
+    const goal = s.targetTemperature != null ? `${Number(s.targetTemperature).toFixed(1).replace(/\.0$/, '')} °C` : '–';
+    const mode = s.mode && s.mode !== 'heat' ? ` · ${s.mode}` : '';
+    const text = `${t} · set to ${goal}${mode}`;
+    return s.heatingState === 'on' ? { text: `${text} · heating`, short: `${t} → ${goal}`, on: true, color: 'var(--plug)' }
+      : { text, short: `${t} · set ${goal}`, on: false };
+  }
+  if (type === 'router') {  // phones on the WiFi: who is home, and guests
+    const phones = (Array.isArray(s.connectedClients) ? s.connectedClients : []).filter((c) => c && (c.kind || 'phone') === 'phone');
+    const known = phones.filter((c) => c.known).map((c) => c.name || c.id), guests = phones.length - known.length;
+    const text = [known.join(', '), guests ? `${guests} guest phone${guests > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ') || 'No phones';
+    return phones.length ? { text, short: `${phones.length} phone${phones.length > 1 ? 's' : ''}`, on: true, color: 'var(--accent)' } : off(text);
   }
   if (type === 'smokeSensor') return s.sensorState === 'alarm' ? on('Smoke!', 'var(--bad)') : off('No smoke');
   if (type === 'gateway') {
@@ -738,6 +815,22 @@ function houseScene(THREE, canvas) {
     add(new THREE.SphereGeometry(0.075, 10, 8), mat(0xffffff), -2.5, 2.14, backZ + 0.13, g);
     add(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0x11151c }), -2.5, 2.12, backZ + 0.19, g);
   }
+  { // Thermostat: on the back wall, its face tinted by the room's temperature, and a radiator under the left
+    // window that glows while it heats. Only in a home that has one (setState shows it).
+    const x = -0.55, g = device('thermostat', x, 1.68, backZ + 0.04);
+    box(0.14, 0.14, 0.03, mat(0xffffff), x, 1.5, backZ + 0.015, g);
+    const face = box(0.09, 0.05, 0.01, new THREE.MeshBasicMaterial({ color: 0x9aa3b2 }), x, 1.52, backZ + 0.034, g);
+    const ring = add(new THREE.TorusGeometry(0.055, 0.008, 6, 24), new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0 }), x, 1.5, backZ + 0.034, g);
+    ring.castShadow = false;
+    const rx = -W / 2 + T / 2 + 0.07, hot = mat(0xe9e6e1, { emissive: 0x000000 });
+    for (let k = 0; k < 9; k++) box(0.06, 0.5, 0.07, hot, rx, 0.42, -1.1 - 0.48 + k * 0.12, g);  // the fins
+    box(0.03, 0.03, 1.1, mat(0xcfcac3), rx, 0.69, -1.1, g);
+    const warmth = new THREE.PointLight(0xff8a3c, 0, 3.5, 2);
+    warmth.position.set(rx + 0.3, 0.5, -1.1);
+    scene.add(warmth);
+    g.visible = false;
+    parts.thermostat = { group: g, face, ring, hot, warmth, level: 0, on: false };
+  }
 
   function glowTexture() {
     const c = document.createElement('canvas');
@@ -902,6 +995,11 @@ function houseScene(THREE, canvas) {
     smoke.light.intensity = smoke.alarm ? 1.5 * flash : 0;
     smoke.body.material.emissive.setRGB(smoke.alarm ? flash : 0, 0, 0);
     if (parts.gateway.alarm) parts.gateway.strip.material.color.setRGB(0.4 + 0.6 * flash, 0.1, 0.05);
+    const heat = parts.thermostat;  // the radiator warms up and cools down slowly, as a real one does
+    heat.level = lerp(heat.level, heat.on && heat.group.visible ? 1 : 0, dt * 2.5);
+    heat.hot.emissive.setRGB(0.85 * heat.level, 0.3 * heat.level, 0.08 * heat.level);
+    heat.warmth.intensity = 0.9 * heat.level;
+    heat.ring.material.opacity = heat.on ? 0.45 + 0.4 * Math.sin(beat * 2.5) : 0;
     renderer.render(scene, camera);
   }
 
@@ -958,7 +1056,14 @@ function houseScene(THREE, canvas) {
           const armed = security.status && security.status !== 'DISARMED';
           if (!parts.gateway.alarm) parts.gateway.strip.material.color.set(armed ? 0x2f80ed : 0x8a94a3);
         }
+        if (d.type === 'thermostat') {
+          parts.thermostat.on = s.heatingState === 'on';
+          parts.thermostat.face.material.color.set(tempColor(s.temperatureValue));
+        }
       });
+      // A device this home doesn't have shows no label (and no thermostat or radiator is drawn).
+      for (const type in labels) if (!seen[type]) { labels[type].name = ''; labels[type].sprite.visible = false; }
+      parts.thermostat.group.visible = !!seen.thermostat;
       const day = Math.max(0, Math.sin((hour - 7) / 13 * Math.PI)) * (hour > 7 && hour < 20 ? 1 : 0), a = (hour - 7) / 13 * Math.PI;
       sun.position.set(-8 * Math.cos(a), 1 + 9 * day, 4.5);
       sun.intensity = 0.62 * day;
@@ -971,7 +1076,13 @@ function houseScene(THREE, canvas) {
 
 // The lanes over the slider: when the light was on, the door open, the plug drawing, the temperature,
 // and when a learned habit occurred (its readings, as the learners saw them that night).
-function drawLanes(canvas, day, t, css, learned, habit) {
+function drawLanes(canvas, day, t, css, learned, habit, wakes) {
+  const find = (type) => day.devices.findIndex((d) => d.type === type);
+  const rows = [['Light', find('bulb'), css.lamp], ['Door', find('contactSensor'), css.door], ['Plug', find('plug'), css.plug], ['Temp', find('temperatureSensor'), css.temp]];
+  const heater = find('thermostat');
+  if (heater >= 0) rows.push(['Heat', heater, css.plug]);  // a home with a thermostat gets one more lane
+  const tall = `${104 + 18 * (rows.length - 4)}px`;
+  if (canvas.style.height !== tall) canvas.style.height = tall;
   const ratio = Math.min(window.devicePixelRatio || 1, 2), w = canvas.clientWidth, h = canvas.clientHeight;
   if (canvas.width !== Math.round(w * ratio)) canvas.width = Math.round(w * ratio);
   if (canvas.height !== Math.round(h * ratio)) canvas.height = Math.round(h * ratio);
@@ -979,8 +1090,6 @@ function drawLanes(canvas, day, t, css, learned, habit) {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, w, h);
   const x0 = 51, x1 = w - 7, lane = 15, gap = 3, X = (ms) => x0 + (x1 - x0) * (ms - day.start) / (day.end - day.start);
-  const find = (type) => day.devices.findIndex((d) => d.type === type);
-  const rows = [['Light', find('bulb'), css.lamp], ['Door', find('contactSensor'), css.door], ['Plug', find('plug'), css.plug], ['Temp', find('temperatureSensor'), css.temp]];
   const n = day.times.length, until = (i) => (i + 1 < n ? day.times[i + 1] : day.end);
   let top = 0, temps = [];
   if (rows[3][1] >= 0) temps = day.states.map((s) => s[rows[3][1]].temperatureValue).filter((v) => v != null);
@@ -996,6 +1105,37 @@ function drawLanes(canvas, day, t, css, learned, habit) {
     ctx.fillText(name, 0, top + lane / 2 + 1);
     if (d < 0) return;
     ctx.fillStyle = ctx.strokeStyle = color;
+    if (r === 4) {  // the heating: shaded while it heats, the room's temperature, and the target as a dashed step
+      const temps = day.states.flatMap((s) => [s[d].temperatureValue, s[d].targetTemperature]).filter((v) => v != null).map(Number);
+      const tlo = Math.min(...temps), thi = Math.max(...temps), Y = (v) => top + lane - 2 - (lane - 4) * (thi > tlo ? (v - tlo) / (thi - tlo) : 0.5);
+      for (let i = 0; i < n;) {
+        const on = day.states[i][d].heatingState === 'on';
+        let j = i;
+        while (j + 1 < n && until(j) - day.times[j] <= GAP_MS && (day.states[j + 1][d].heatingState === 'on') === on) j++;
+        ctx.globalAlpha = 0.3;
+        if (on) ctx.fillRect(X(day.times[i]), top, Math.max(1.5, X(Math.min(until(j), day.times[j] + GAP_MS)) - X(day.times[i])), lane);
+        i = j + 1;
+      }
+      ctx.globalAlpha = 1;
+      for (const [key, dash] of [['targetTemperature', [3, 2]], ['temperatureValue', []]]) {
+        ctx.beginPath();
+        let started = false, last = null;
+        for (let i = 0; i < n; i++) {
+          const v = day.states[i][d][key];
+          if (v == null) continue;
+          const x = X(day.times[i]), y = Y(Number(v));
+          if (!started) { ctx.moveTo(x, y); started = true; } else if (key === 'targetTemperature' && last != null) ctx.lineTo(x, last);
+          ctx.lineTo(x, y);
+          last = y;
+        }
+        ctx.setLineDash(dash);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = key === 'temperatureValue' ? css.temp : css.text;
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      return;
+    }
     if (r === 3) {  // a line from the day's lowest to its highest
       ctx.beginPath();
       for (let i = 0; i < n; i++) {
@@ -1035,6 +1175,16 @@ function drawLanes(canvas, day, t, css, learned, habit) {
     if (a >= day.start) ctx.fillRect(Math.round(xa) - 1, top, 2.5, lane);  // when it started
   }
   ctx.globalAlpha = 1;
+  ctx.fillStyle = css.text;
+  for (const at of wakes || []) {  // when Alfred woke its LLM: a small triangle on top of the lane
+    if (at < day.start || at >= day.end) continue;
+    const x = X(at);
+    ctx.beginPath();
+    ctx.moveTo(x - 4, top);
+    ctx.lineTo(x + 4, top);
+    ctx.lineTo(x, top + 6);
+    ctx.fill();
+  }
   const bottom = top + lane;
   ctx.fillStyle = css.bg;  // an outage: no snapshots, so nothing is known
   for (let i = 0; i < n; i++) if (until(i) - day.times[i] > GAP_MS) ctx.fillRect(X(day.times[i] + GAP_MS), 0, X(until(i)) - X(day.times[i] + GAP_MS), bottom);
@@ -1057,7 +1207,8 @@ function drawLanes(canvas, day, t, css, learned, habit) {
 // --- the page ----------------------------------------------------------------------------------------
 const view = { day: null, t: 0, index: -1, playing: false, selected: null, fileDays: null, plot: { x0: 51, x1: 100 },
                learned: null, habit: null, frame: -2,
-               tab: 'house', loaded: null, knowledge: null, knowScroll: 0 };  // loaded: the house tab's "household|day"
+               tab: 'house', loaded: null, knowledge: null, knowScroll: 0,  // loaded: the house tab's "household|day"
+               thoughts: null, moments: null, moment: null, focus: [], want: null, planted: null };  // the demo screen
 const status = $('status');
 const say = (text, bad) => { status.textContent = text; status.className = bad ? 'bad' : 'muted'; };
 const house = window.THREE ? houseScene(window.THREE, $('scene')) : null;
@@ -1080,8 +1231,9 @@ function render(force) {
   const i = indexAt(day, view.t), state = day.states[i];
   $('clock').textContent = clock(view.t);
   $('scrub').value = Math.round((view.t - day.start) / 1000);
-  view.plot = drawLanes($('lanes'), day, view.t, css, view.learned, view.habit);
+  view.plot = drawLanes($('lanes'), day, view.t, css, view.learned, view.habit, view.thoughts && view.thoughts.times);
   updateLearned(force);
+  updateThoughts(force);
   if (house) house.setState(day.devices, state, (view.t - day.start) / 3600000, words);
   if (i === view.index && !force) return;
   view.index = i;
@@ -1298,6 +1450,166 @@ async function loadLearned(household, n) {
   }
 }
 
+// --- the demo screen: what Alfred thought (GET /thoughts) and the moments (GET /moments) -------------------
+// A local "YYYY-MM-DDTHH:MM[:SS]" of the day showing -> its time in ms; null for another day.
+function localMs(day, iso) {
+  const m = /^(\d{4}-\d\d-\d\d)T(\d\d):(\d\d)(?::(\d\d))?/.exec(String(iso || ''));
+  return m && m[1] === day.date ? day.start + ((+m[2] * 60 + +m[3]) * 60 + +(m[4] || 0)) * 1000 : null;
+}
+
+// Device names by type and by per-device signal name ("plug:tv" -> "TV"), for what an action does.
+function houseNames() {
+  const names = deviceNames();
+  for (const d of view.day ? view.day.devices : []) if (d.name) names[`${d.type}:${slug(d.name)}`] = d.name;
+  return names;
+}
+const slug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+const WAKE_TITLES = { habit_soon: (s) => `Ahead of ${s}`, arrival: (s) => `${s} arrived`, departure: (s) => `${s} left`,
+                      habit_missing: (s) => `${s} hasn't happened`, occasion: (s) => `Looks like ${s}` };
+function thoughtTitle(x) {
+  const k = view.knowledge && view.knowledge.household === $('household').value ? view.knowledge : null;
+  const subject = x.subject || (k && x.habit_id ? habitName(k, x.habit_id) : k && x.occasion_id ? occasionName(k, x.occasion_id) : '')
+    || (x.habit_id ? numbered(x.habit_id, 'Habit') : x.occasion_id ? numbered(x.occasion_id, 'Occasion') : 'someone');
+  return (WAKE_TITLES[x.kind] || ((s) => s))(subject);
+}
+
+function thinksNote(text, bad) {
+  $('thinks-note').textContent = text;
+  $('thinks-note').className = bad ? 'bad' : 'muted';
+  $('thinks-note').hidden = !text;
+}
+
+// One row per wake and what came of it: when, why, the LLM's sentence, and what Alfred did or only suggested.
+function showThoughts() {
+  const th = view.thoughts, day = view.day, names = houseNames();
+  const wakes = th && day && th.date === day.date ? th.wakes : [];
+  th.times = wakes.map((x) => localMs(day, x.at)).filter((t) => t != null);
+  $('thinks-box').hidden = !wakes.length && th.source === 'none';
+  $('thinks-count').textContent = wakes.length ? plural(new Set(wakes.map((x) => x.key)).size, 'wake') : '';
+  thinksNote(th.source === 'fixture' ? 'Sample thoughts (console/fixtures): the real ones show once Alfred\'s wake-ups run on this house.'
+    : wakes.length ? '' : 'Alfred did not wake its LLM on this day.');
+  $('thinks').replaceChildren(...wakes.map((x) => {
+    const at = localMs(day, x.at), due = localMs(day, x.due), doIt = x.mode === 'do';
+    const acts = x.action || x.mode ? [
+      x.action ? h('span', {}, actionText({ action: x.action }, { devices: names }) + (x.due && hhmm(x.due) !== hhmm(x.at) ? ` at ${hhmm(x.due)}` : '')) : null,
+      x.mode ? pill(doIt ? 'Alfred does it' : 'suggestion', doIt ? 'do' : '', doIt ? 'At 75 % sure or more: Alfred does it, and reports it.' : 'Under 75 % sure: shown and logged, never sent.') : null,
+      x.status ? pill(x.status, DECISION_STATUS[x.status]) : null,
+      sure(x.confidence, 'Set by code from the habit and the forecast; the LLM can only lower it')] : [];
+    const li = h('li', { 'data-at': at ?? '', 'data-due': due ?? '' },
+      h('button', { type: 'button', title: x.key || '' },
+        h('span', { class: 'chip' }, hhmm(x.at) || '–'),
+        h('span', { class: 'what' }, h('span', { class: 'title' }, thoughtTitle(x)),
+          x.sentence ? h('span', { class: 'said' }, `“${x.sentence}”`) : null,
+          acts.some(Boolean) ? h('span', { class: 'acts' }, acts) : null)));
+    li.classList.toggle('focus', view.focus.includes(x.habit_id) || view.focus.includes(x.occasion_id));
+    li.firstChild.addEventListener('click', () => { play(false); if (at != null) seek(at); });
+    return li;
+  }));
+  view.thinkKey = null;
+  updateThoughts(true);
+}
+
+// As the day plays: a wake still to come is dimmed; one whose action is done shows it once its time has come.
+function updateThoughts(force) {
+  if (!view.thoughts || !view.day) return;
+  const rows = [...$('thinks').children], key = rows.map((li) => `${+li.dataset.at <= view.t}${+li.dataset.due <= view.t}`).join();
+  if (key === view.thinkKey && !force) return;
+  view.thinkKey = key;
+  for (const li of rows) {
+    const later = li.dataset.at !== '' && +li.dataset.at > view.t, chip = li.querySelector('.chip');
+    li.classList.toggle('later', later);
+    chip.className = `chip ${later ? '' : li.dataset.due !== '' && +li.dataset.due <= view.t && li.querySelector('.pill.do') ? 'done' : 'now'}`;
+    chip.title = later ? 'Not yet: Alfred wakes at this time.' : '';
+  }
+}
+
+let thinkToken = 0;
+async function loadThoughts(household, n) {
+  const token = ++thinkToken;
+  view.thoughts = null;
+  $('thinks').replaceChildren();
+  $('thinks-count').textContent = '';
+  thinksNote('');
+  try {
+    const res = await fetch(`/thoughts?household=${encodeURIComponent(household)}&day=${n}`);
+    const body = await res.json().catch(() => ({}));
+    if (token !== thinkToken) return;
+    if (!res.ok) throw new Error(body.error || `Failed (${res.status})`);
+    if (!view.day || body.date !== view.day.date) return;
+    view.thoughts = body;
+    showThoughts();
+    render(true);
+  } catch (err) {
+    if (token !== thinkToken) return;
+    $('thinks-box').hidden = false;
+    thinksNote(err instanceof TypeError ? 'Could not reach the simulator.' : err.message, true);
+  }
+}
+
+function showMoments() {
+  const list = (view.moments && view.moments.moments) || [], start = view.moments && view.moments.start;
+  $('moments-row').hidden = !list.length;
+  document.body.classList.toggle('with-moments', !!list.length);
+  const on = (m) => (start ? shortDate.format(noon(start) + (m.day - 1) * 864e5) : `Day ${m.day}`);
+  $('moments').replaceChildren(...list.map((m) => {
+    const b = h('button', { type: 'button', 'aria-pressed': String(view.moment === m.id), title: m.say || '' },
+      m.title, h('span', { class: 'num' }, `${on(m)} · ${m.time}`));
+    b.addEventListener('click', () => jumpTo(m));
+    return b;
+  }));
+  const shown = list.find((m) => m.id === view.moment);
+  $('moment-say').textContent = shown ? shown.say : '';
+  $('moment-say').hidden = !(shown && shown.say);
+}
+
+let momentToken = 0;
+async function loadMoments(household) {
+  if (view.moments && view.moments.household === household) return;
+  const token = ++momentToken;
+  view.moments = { household, moments: [] };
+  leaveMoment();
+  try {
+    const res = await fetch(`/moments?household=${encodeURIComponent(household)}`);
+    const body = await res.json().catch(() => ({}));
+    if (token !== momentToken || !res.ok) return;
+    view.moments = body;
+    showMoments();
+  } catch { /* no simulator: no moments, the rest says so */ }
+}
+
+// One click: that day of the house at that time, with the moment's habits marked in "Alfred thinks".
+function jumpTo(m) {
+  play(false);
+  view.moment = m.id;
+  view.focus = m.focus || [];
+  view.want = m.time;
+  showMoments();
+  if (view.tab !== 'house') setTab('house', false);
+  if (view.loaded === `${$('household').value}|${m.day}` && view.day && !view.fileDays) {
+    seek(takeWant(view.day));
+    if (view.thoughts) showThoughts();
+    return render(true);
+  }
+  view.fileDays = null;
+  $('day').value = m.day;
+  go(m.day);
+}
+
+function leaveMoment() {
+  view.moment = null;
+  view.focus = [];
+  view.want = null;
+  showMoments();
+}
+
+// The time a moment asked for, on the day now showing (once), else null.
+function takeWant(day) {
+  const want = view.want;
+  view.want = null;
+  return want ? localMs(day, `${day.date}T${want}`) : null;
+}
+
 function seek(t) {
   if (!view.day) return;
   view.t = Math.max(view.day.start, Math.min(view.day.end - 1000, t));
@@ -1358,14 +1670,16 @@ function show(day, keepTime) {
     return li;
   }));
   // Start where the day starts to move: just before its first change, or at the time already showing.
-  const first = day.changes.length ? day.times[day.changes[0]] - 60000 : day.start;
-  seek(offset != null ? day.start + offset : first);
+  // A moment that was clicked (jumpTo) asks for its own time.
+  const first = day.changes.length ? day.times[day.changes[0]] - 60000 : day.start, want = takeWant(day);
+  seek(want != null ? want : offset != null ? day.start + offset : first);
   render(true);
 }
 
 async function load(household, n, keepTime) {
   play(false);
   say('Loading…');
+  loadMoments(household);  // first: a house the simulator can't show yet may still have its moments
   try {
     const res = await fetch(`/day?household=${encodeURIComponent(household)}&day=${n}`);
     const body = await res.json().catch(() => ({}));
@@ -1376,6 +1690,7 @@ async function load(household, n, keepTime) {
     show(fromServer(body), keepTime);
     view.loaded = `${household}|${n}`;
     loadLearned(household, n);
+    loadThoughts(household, n);
     setUrl();
   } catch (err) {
     say(err instanceof TypeError ? 'Could not reach the simulator. Start it (uv run python -m source.simulate --serve), or open a .jsonl file.' : err.message, true);
@@ -1389,6 +1704,11 @@ function go(n, keepTime) {
   $('day').value = n;
   if (view.fileDays) {
     learnToken++;
+    thinkToken++;
+    view.thoughts = null;
+    $('thinks-box').hidden = true;
+    view.moments = null;
+    leaveMoment();
     clearLearned('Learning runs on the simulator\'s households, not on an opened file.');
     knowFile();
     return show(view.fileDays[n - 1], keepTime);
@@ -1457,7 +1777,8 @@ $('tabs').addEventListener('keydown', (e) => {  // arrows, Home and End move bet
 const ACT = 0.75;  // from this confidence Alfred acts; below it, it only suggests (docs/habits-plan.md)
 const WEEK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
-const PART_NAMES = { habits: 'The habit learner', occasions: 'The occasion learner', forecast: 'The forecast', decisions: 'Anticipation' };
+const PART_NAMES = { habits: 'The habit learner', occasions: 'The occasion learner', forecast: 'The forecast', decisions: 'Anticipation',
+                     warmup: 'The warm-up learner' };
 const IMPORTANCE = { high: 'Its absence is worth checking', normal: 'A real habit; its absence alone means little',
                      low: 'Weak, rare or minor', hidden: 'Repeats another card' };
 const DEVICE_ORDER = ['bulb', 'contactSensor', 'plug', 'home', 'smokeSensor', 'gateway', 'temperatureSensor'];  // people's first
@@ -1575,17 +1896,32 @@ function stepsList(x, k) {
   })) : null;
 }
 
+// A habit's weekday windows (docs/demo-plan.md, C3), when the days differ: "weekdays 06:55–07:30 · weekends 08:20–09:10".
+function windowsText(x) {
+  const ws = (Array.isArray(x.windows) ? x.windows : []).filter((w) => w && (w.usual || w.earliest));
+  if (ws.length < 2) return '';
+  return ws.map((w) => `${weekdaysText(w.days).replace(/^(on|at) /, '')} ${w.earliest && w.latest && w.earliest !== w.latest
+    ? `${w.earliest}–${w.latest}` : w.usual || w.earliest}`).join(' · ');
+}
+
+// Whose habit it is: the person whose phone is one of its steps.
+function personPill(x) {
+  const p = x.person && typeof x.person === 'object' ? x.person : null;
+  return p && (p.name || p.phone) ? pill(p.name || p.phone, 'do', 'One person\'s habit: their phone arriving or leaving is one of its steps.') : null;
+}
+
 function habitCard(x, k) {
-  const w = x.window || {}, drift = trendWords(x.trend), spread = x.variation && x.variation.spread_min;
+  const w = x.window || {}, drift = trendWords(x.trend), spread = x.variation && x.variation.spread_min, wins = windowsText(x);
   const between = w.earliest && w.latest && w.earliest !== w.latest ? `usually between ${w.earliest} and ${w.latest}`
     : w.usual || w.earliest ? `usually around ${w.usual || w.earliest}` : '';
   const vary = [variationText(x.variation), drift && drift !== 'steady' ? `drifting ${drift}` : ''].filter(Boolean).join('; ');
   const age = x.first_seen && k.date ? Math.round((noon(k.date) - noon(x.first_seen)) / 864e5) + 1 : 0;
   const tried = Number(x.opportunities) > 0 && x.occurrences != null;
   return h('article', { class: `k-card${x.status && x.status !== 'active' ? ' off' : ''}`, id: `k-${x.id}` },
-    cardHead(x.name || numbered(x.id, 'Habit'), x.name && x.importance ? tag(x.importance) : null,
+    cardHead(x.name || numbered(x.id, 'Habit'), personPill(x), x.name && x.importance ? tag(x.importance) : null,
              x.status && x.status !== 'active' ? pill(x.status) : null),
-    sentence(rhythmText(x.recurrence), between),
+    sentence(rhythmText(x.recurrence), wins ? '' : between),
+    wins ? h('p', { class: 'k-lead' }, `${cap(wins)}.`) : null,
     vary ? h('p', {}, `${cap(vary)}.`) : null,
     namerLines(x),
     stepsList(x, k),
@@ -1602,6 +1938,7 @@ const FINGERPRINT = {  // the occasion learner's features, in words; any other f
   light_hours_after_21: (v) => `the light on for ${v} h after 21:00`,
   quiet_start: (v) => `quiet only from ${v}`,
   plug_uses: (v) => `the plug used ${plural(v, 'time')}`,
+  guest_phones: (v) => `up to ${plural(v, 'guest phone')}`,
 };
 function fingerprintWords(f) {
   return Object.entries(f && typeof f === 'object' ? f : {}).filter(([, v]) => v != null && typeof v !== 'object').map(([key, v]) => {
@@ -1644,13 +1981,27 @@ function matchCard(m, k) {
     facts(sure(m.confidence)));
 }
 
+const windowOf = (w) => (Array.isArray(w) && w.length === 2 ? ` (${w[0]}–${w[1]})` : '');
+
+// An occasion moved this forecast (C6): what it was before, struck through, and by how much.
+function shiftLine(f, k) {
+  const s = f.shifted;
+  if (!s || typeof s !== 'object') return null;
+  const before = s.before || {}, by = Number(s.minutes);
+  return h('p', { class: 'k-shift' }, Number.isFinite(by) && by ? `Moved ${minutes(by)} ${by > 0 ? 'later' : 'earlier'}` : 'Moved',
+    s.occasion_id ? [' by ', cardLink(k, s.occasion_id, occasionName(k, s.occasion_id))] : '', ': usually ',
+    h('s', {}, `${before.expected || '?'}${windowOf(before.window)}`), `, now ${f.expected || '?'}${windowOf(f.window)}.`);
+}
+
 function forecastCard(f, k) {
-  const win = Array.isArray(f.window) && f.window.length === 2 ? ` (${f.window[0]}–${f.window[1]})` : '';
+  const win = windowOf(f.window);
   const other = f.date && f.date !== k.tomorrow ? ` on ${onDay(f.date, shortDate)}` : '';
   const likely = f.probability != null ? `${pct(f.probability)} likely` : 'Expected';
   return h('article', { class: 'k-card' },
-    cardHead(cardLink(k, f.habit_id, habitName(k, f.habit_id))),
+    cardHead(cardLink(k, f.habit_id, habitName(k, f.habit_id)),
+             f.shifted ? pill('moved', 'new', 'An occasion moved this habit: after it, the habit came later (or earlier) in past episodes.') : null),
     h('p', { class: 'k-lead' }, `${likely}${f.expected ? `, around ${f.expected}${win}` : ''}${other}.`),
+    shiftLine(f, k),
     f.basis ? h('p', { class: 'muted' }, f.basis) : null,
     facts(sure(f.confidence, 'How sure Alfred is of this forecast')));
 }
@@ -1658,7 +2009,10 @@ function forecastCard(f, k) {
 function actionText(d, k) {
   const a = d.action;
   if (!a) return d.kind === 'adapt' ? 'Expect a different day' : 'Get ready';
-  const body = (a.args && (a.args.body || a.args)) || {}, what = String((k.devices || {})[a.target] || a.target || 'device').toLowerCase();
+  const named = String((k.devices || {})[a.target] || (k.devices || {})[String(a.target).split(':')[0]] || a.target || 'device');
+  const body = (a.args && (a.args.body || a.args)) || {}, what = named === named.toUpperCase() ? named : named.toLowerCase();  // "TV" stays
+  if (body.type === 'targetTemperature') return `Set the ${what} to ${body.value} °C`;
+  if (body.type === 'mode') return `Put the ${what} on ${body.value}`;
   if (body.type === 'power') return `Turn the ${what} ${body.value}`;
   if (body.type === 'brightness') return `Set the ${what} to ${body.value} %`;
   if (body.type === 'temperature') return `Set the ${what}'s warmth to ${body.value}`;
@@ -1676,6 +2030,7 @@ function decisionCard(d, k) {
     : d.expectation;
   return h('article', { class: 'k-card' },
     cardHead(`${actionText(d, k)}${at}`,
+             d.kind === 'llm' ? pill('LLM', '', `Proposed by the LLM${d.wake ? `, woken by ${d.wake}` : ''}. Its confidence is set by code; the LLM can only lower it.`) : null,
              pill(doIt ? 'Alfred does it' : 'suggestion', doIt ? 'do' : '',
                   doIt ? 'At 75 % sure or more: Alfred does it, and reports it.' : 'Under 75 % sure: shown and logged, never sent.'),
              d.status ? pill(d.status, DECISION_STATUS[d.status]) : null),
@@ -1713,6 +2068,37 @@ function kindCards(k) {
       h('span', { class: 'k-num' }, plural(x.count, 'time')), h('code', {}, `${x.id} · ${x.signal}`))))));
 }
 
+// How fast the house warms (C4): the rate, the loss, and what that means for a warm-up.
+function warmupCard(w) {
+  const num = (x) => Number(x).toFixed(1).replace(/\.0$/, ''), rate = Number(w.rate_c_per_h);
+  return h('article', { class: 'k-card', id: 'k-warmup' },
+    cardHead('How fast the house warms'),
+    rate > 0 ? h('p', { class: 'k-lead' }, `It warms ${num(rate)} °C an hour with the heating on`,
+                 w.loss_c_per_h != null ? `, and cools ${num(w.loss_c_per_h)} °C an hour with it off` : '', '.') : null,
+    rate > 0 ? h('p', {}, `So going from 16 °C to 21 °C takes about ${minutes(5 / rate * 60, 5)}: Alfred starts the heating that far ahead.`) : null,
+    facts(sure(w.confidence, 'How sure Alfred is of this rate'), fact('from', w.samples, 'heating stretches'), fact('as of', onDay(w.as_of))));
+}
+
+// Planted vs found (GET /planted): one row per planted rhythm, with what Alfred found and how well it matches.
+const MATCH = { yes: ['found', 'done', 'Alfred found this rhythm by itself.'], partly: ['partly', '', 'Alfred found something close: the time, the days or the person differ.'],
+                no: ['not found', 'bad', 'Alfred has not found this rhythm (yet).'] };
+function plantedRows(p, k) {
+  const found = (r) => {
+    if (!r.found) return h('span', { class: 'muted' }, '–');
+    const href = r.found === 'warmup' ? '#k-warmup' : [...k.habits, ...k.occasions].some((x) => x.id === r.found) ? `#k-${r.found}` : null;
+    const text = r.found_text || r.found;
+    return href ? h('a', { href }, text) : h('span', {}, text);
+  };
+  return h('div', { class: 'k-planted', role: 'table', 'aria-label': 'Planted vs found' },
+    h('div', { class: 'k-th', role: 'row' }, h('span', { role: 'columnheader' }, 'Planted'), h('span', { class: 'k-found', role: 'columnheader' }, 'Found by Alfred'),
+      h('span', { role: 'columnheader' }, 'Match')),
+    p.rows.map((r) => {
+      const [text, cls, title] = MATCH[r.match] || MATCH.no;
+      return h('div', { role: 'row' }, h('span', { role: 'cell' }, r.planted), h('span', { class: 'k-found', role: 'cell' }, found(r)),
+        h('span', { role: 'cell' }, pill(text, cls, title)));
+    }));
+}
+
 // An empty section says why: the part isn't there yet, it failed, or there is nothing to know yet.
 function nothing(k, part, text) {
   const state = part && (k.modules || {})[part];
@@ -1743,11 +2129,24 @@ function showKnowledge() {
                           older.length ? h('details', { class: 'k-older' }, h('summary', {}, `${plural(older.length, 'older pattern')}, fading or merged`),
                                            h('div', { class: 'k-grid' }, byTime(older).map((p) => patternCard(p, k)))) : null].filter(Boolean),
        h('p', { class: 'k-empty' }, 'No patterns yet. A pattern needs at least 5 occurrences that beat chance in this home, so the first ones appear after about a week.'));
+  const p = view.planted && view.planted.household === k.household && view.planted.day === k.day ? view.planted : null;
+  $('k-planted').hidden = !(p && p.rows.length);
+  if (p && p.rows.length) {
+    const yes = p.rows.filter((r) => r.match === 'yes').length, partly = p.rows.filter((r) => r.match === 'partly').length;
+    $('k-planted-list').replaceChildren(
+      h('p', { class: 'k-lead' }, `${yes} of ${p.rows.length} found${partly ? `, ${partly} partly` : ''}.`),
+      plantedRows(p, k),
+      p.source === 'fixture' ? h('p', { class: 'muted' }, 'Sample rows (console/fixtures): the real ones show once the simulator has this house\'s answer key.') : null);
+  }
+  $('k-heating').hidden = !k.warmup;
+  $('k-heating-list').replaceChildren(...(k.warmup ? [warmupCard(k.warmup)] : []));
   fill('k-kinds-list', kindCards(k),
        h('p', { class: 'k-empty' }, 'No event types yet. Alfred sorts what each device does into types once it has seen 5 alike, usually after a day or two.'));
-  $('k-nav').replaceChildren(...[['habits', 'Habits', k.habits.length], ['occasions', 'Occasions', k.occasions.length],
+  $('k-nav').replaceChildren(...[p && p.rows.length ? ['planted', 'Planted vs found', p.rows.length] : null,
+                                 ['habits', 'Habits', k.habits.length], ['occasions', 'Occasions', k.occasions.length],
+                                 k.warmup ? ['heating', 'Heating', 1] : null,
                                  ['tomorrow', 'Tomorrow', k.forecast.length + k.decisions.length], ['patterns', 'Patterns', active.length],
-                                 ['kinds', 'Event types', k.kinds.length]]
+                                 ['kinds', 'Event types', k.kinds.length]].filter(Boolean)
     .map(([id, label, n]) => h('a', { href: `#k-${id}` }, label, h('span', { class: 'num' }, String(n)))));
   $('k-nav').hidden = $('k-sections').hidden = false;
 }
@@ -1776,11 +2175,16 @@ function loadKnowledge(household, n) {
   $('k-body').setAttribute('aria-busy', 'true');  // what shows is dimmed: it is another day's
   knowSay(`Alfred is learning from day 1 to day ${n}… The first time takes a few seconds for each week.`, 'busy');
   knowTimer = setTimeout(async () => {  // a moment's wait, so clicking through days only asks for the last one
+    // Planted vs found comes with it; a house without an answer key, or a failure, just leaves that section out.
+    const planted = fetch(`/planted?household=${encodeURIComponent(household)}&day=${n}`)
+      .then((res) => (res.ok ? res.json() : null)).catch(() => null);
     try {
       const res = await fetch(`/knowledge?household=${encodeURIComponent(household)}&day=${n}`);
       const body = await res.json().catch(() => ({}));
       if (token !== knowToken) return;  // another day was picked meanwhile
       if (!res.ok) throw new Error(body.error || `Failed (${res.status})`);
+      view.planted = await planted;
+      if (token !== knowToken) return;
       view.knowledge = body;
       $('day').max = body.max_days;
       knowSay('');
@@ -1796,10 +2200,16 @@ function loadKnowledge(household, n) {
   }, 150);
 }
 
-$('household').addEventListener('change', () => { if ($('household').value !== 'file') { view.fileDays = null; go(Number($('day').value), true); } });
-$('day').addEventListener('change', () => go(Number($('day').value), true));
-$('day-prev').addEventListener('click', () => go(Number($('day').value) - 1, true));
-$('day-next').addEventListener('click', () => go(Number($('day').value) + 1, true));
+$('household').addEventListener('change', () => {
+  if ($('household').value === 'file') return;
+  view.fileDays = null;
+  leaveMoment();
+  if (view.tab === 'knowledge') loadMoments($('household').value);  // the house tab loads them with the day
+  go(Number($('day').value), true);
+});
+$('day').addEventListener('change', () => { leaveMoment(); go(Number($('day').value), true); });
+$('day-prev').addEventListener('click', () => { leaveMoment(); go(Number($('day').value) - 1, true); });
+$('day-next').addEventListener('click', () => { leaveMoment(); go(Number($('day').value) + 1, true); });
 $('open').addEventListener('click', () => $('file').click());
 $('file').addEventListener('change', async () => {
   const file = $('file').files[0];
@@ -1887,7 +2297,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 try { const saved = localStorage.getItem('alfred-visualizer-theme'); if (saved) document.documentElement.dataset.theme = saved; } catch { /* no storage */ }
 // On a narrow window there is no room for a second panel: the habits join the left one.
 const narrow = window.matchMedia('(max-width: 1100px)');
-const placeHabits = () => { (narrow.matches ? $('panel') : $('habits')).append($('learned-box')); $('habits').hidden = narrow.matches; };
+const placeHabits = () => { (narrow.matches ? $('panel') : $('habits')).append($('thinks-box'), $('learned-box')); $('habits').hidden = narrow.matches; };
 narrow.addEventListener('change', placeHabits);
 placeHabits();
 for (let n = 1; n <= 20; n++) $('made-up').append(new Option(`house-${n}`, `house-${n}`));
