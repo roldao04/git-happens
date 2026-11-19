@@ -41,12 +41,26 @@ test.each([
   ".alfred-note p",
   ".alfred-note .sign",
   ".real-badge",
+  ".zoom label",
 ])("%s is readable from the back of a room", (selector) => {
   expect(fontSize(selector)).toBeGreaterThanOrEqual(16);
 });
 
 test("the still-learning counter fills its row instead of collapsing to zero width", () => {
   expect(css).toMatch(/\.al-empty \.al-counter\s*\{[^}]*width:\s*100%/);
+});
+
+test("hours nobody watched cover the lane, so no guessed value shows through", () => {
+  expect(css).toMatch(/(^|\n)\.lane-r \.gap\{[^}]*position:absolute[^}]*background:repeating-linear-gradient\([^}]*var\(--surface\)[^}]*z-index:1/);
+});
+
+test("the chart can be dragged across without stopping a phone from scrolling the page", () => {
+  expect(css).toMatch(/(^|\n)\.lanes\{[^}]*touch-action:pan-y[^}]*cursor:crosshair/);
+  expect(css).toMatch(/(^|\n)\.lane-r \.sel\{[^}]*position:absolute[^}]*z-index:2/);
+});
+
+test("the zoom buttons are at least 44px tall", () => {
+  expect(css).toMatch(/(^|\n)\.zoom input,\.zoom \.al-btn\{[^}]*min-height:44px/);
 });
 
 test("the playback pill floats in the bottom right corner", () => {

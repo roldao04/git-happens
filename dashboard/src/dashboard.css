@@ -88,7 +88,7 @@ a.lt-row:hover .nm{text-decoration:underline;text-underline-offset:3px}
 .issues{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:var(--space-2)}
 .issues .al-pill{font-size:16px;line-height:22px}
 .daynav{display:flex;gap:var(--space-4);margin-top:-32px}
-.lanes{display:grid;gap:0}
+.lanes{display:grid;gap:0;touch-action:pan-y;cursor:crosshair;user-select:none}
 .lane{display:grid;grid-template-columns:160px minmax(0,1fr);column-gap:var(--space-4)}
 .lane-l{display:flex;align-items:center;min-height:48px;font:500 16px/22px var(--font-sans);color:var(--muted)}
 .lane-r{position:relative;min-height:48px;border-top:1px solid var(--line)}
@@ -98,7 +98,13 @@ a.lt-row:hover .nm{text-decoration:underline;text-underline-offset:3px}
 .lane-r .dia{position:absolute;top:17px;width:14px;height:14px;margin-left:-7px;background:var(--accent);transform:rotate(45deg);border-radius:2px}
 .lane-r .dia.ring{background:var(--surface);box-shadow:inset 0 0 0 2px var(--accent)}
 .lane-r .future{position:absolute;top:0;bottom:0;right:0;background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--line) 70%,transparent) 6px 7px)}
+.lane-r .gap{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--muted) 45%,transparent) 4px 5px),var(--surface);z-index:1}
+.lane-r .sel{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--accent) 18%,transparent);box-shadow:inset 0 0 0 1px var(--accent);z-index:2;pointer-events:none}
 .lane-r .nowl{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--text);z-index:1}
+.zoom{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);margin-top:var(--space-4)}
+.zoom label{display:inline-flex;align-items:center;gap:var(--space-2);font:500 16px/22px var(--font-sans);color:var(--muted)}
+.zoom input,.zoom .al-btn{min-height:44px}
+.zoom input{padding:0 var(--space-2);background:var(--surface);color:var(--text);border:1px solid var(--line-strong);border-radius:var(--radius-sm);font:400 16px/22px var(--font-sans);color-scheme:dark}
 .ticks2{position:relative;height:24px;margin-top:6px;font:400 16px/24px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums}
 .ticks2 span{position:absolute;transform:translateX(-50%);white-space:nowrap}
 .ticks2 span:first-child{transform:none}

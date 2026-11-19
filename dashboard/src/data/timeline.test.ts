@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { recording, sensor } from "../test/fixtures";
 import type { DeviceEvent, Recording } from "./recording";
 import { DAY_MS, stateAt } from "./stateAt";
-import { dayView } from "./timeline";
+import { dayView, ticksFor, timeAt, zoomBetween } from "./timeline";
 
 const D1 = Date.UTC(2026, 8, 1);
 const at = (day: number, hhmm: string) => {
@@ -133,4 +133,77 @@ test("a brightness change does not end the lamp's on span", () => {
     ],
   });
   expect(dayView(r, stateAt(r, at(3, "12:00")), 2).lanes[0]?.spans).toEqual([{ start: at(2, "08:00"), end: at(2, "09:00") }]);
+});
+
+test("losing the signal ends the lamp's bar, and hearing it again still on starts a new one", () => {
+  const r = rec({
+    events: [
+      ev("lamp", "power", "on", at(2, "08:00")),
+      ev("lamp", "reachable", false, at(2, "10:00")),
+      ev("lamp", "lastHeard", "2026-09-02T08:58:00", at(2, "10:00")),
+      ev("lamp", "reachable", true, at(2, "15:00")),
+    ],
+  });
+  const view = dayView(r, stateAt(r, at(2, "16:00")), 2);
+  expect(view.lanes[0]?.spans).toEqual([{ start: at(2, "08:00"), end: at(2, "10:00") }, { start: at(2, "15:00"), end: null }]);
+});
+
+test("the hours nobody was watching are cut to the day", () => {
+  const r = rec({ gaps: [{ start: iso(at(1, "12:05")), end: iso(at(3, "01:50")) }] });
+  expect(dayView(r, stateAt(r, at(3, "12:00")), 2).gaps).toEqual([{ start: at(2, "00:00"), end: at(3, "00:00") }]);
+  expect(dayView(r, stateAt(r, at(3, "12:00")), 3).gaps).toEqual([{ start: at(3, "00:00"), end: at(3, "01:50") }]);
+  expect(dayView(r, stateAt(r, at(1, "18:00")), 1).gaps).toEqual([{ start: at(1, "12:05"), end: at(1, "18:00") }]);
+});
+
+test("a device on at the first reading starts its bar then, not at a midnight nobody watched", () => {
+  const r = rec({
+    initial: [{ device_id: "lamp", capability: "power", value: "on" }],
+    events: [ev("lamp", "power", "off", at(1, "12:23"))],
+    gaps: [{ start: iso(at(1, "00:00")), end: iso(at(1, "11:44")) }],
+  });
+  expect(dayView(r, stateAt(r, at(1, "18:00")), 1).lanes[0]?.spans).toEqual([{ start: at(1, "11:44"), end: at(1, "12:23") }]);
+});
+
+test("the lamp's bar takes the color it was, at full strength, and white light keeps the plain bar", () => {
+  const r = rec({
+    initial: [
+      { device_id: "lamp", capability: "power", value: "off" },
+      { device_id: "lamp", capability: "workMode", value: "colour" },
+      { device_id: "lamp", capability: "color_rgb", value: "255,0,0" },
+    ],
+    events: [
+      ev("lamp", "power", "on", at(2, "08:00")),
+      ev("lamp", "color_rgb", "0,0,255", at(2, "08:30")),
+      ev("lamp", "color_rgb", "46,46,46", at(2, "09:00")),
+      ev("lamp", "workMode", "white", at(2, "09:30")),
+      ev("lamp", "power", "off", at(2, "10:00")),
+    ],
+  });
+  const view = dayView(r, stateAt(r, at(3, "12:00")), 2);
+  expect(view.lanes[0]?.spans).toEqual([
+    { start: at(2, "08:00"), end: at(2, "08:30"), color: "255,0,0" },
+    { start: at(2, "08:30"), end: at(2, "09:00"), color: "0,0,255" },
+    { start: at(2, "09:00"), end: at(2, "09:30"), color: "255,255,255" },
+    { start: at(2, "09:30"), end: at(2, "10:00") },
+  ]);
+});
+
+test("hour labels get finer as the window gets narrower", () => {
+  const hm = (ms: number) => iso(ms).slice(11, 16);
+  expect(ticksFor({ start: at(1, "00:00"), end: at(2, "00:00") }).map(hm)).toEqual(["00:00", "06:00", "12:00", "18:00", "00:00"]);
+  expect(ticksFor({ start: at(1, "11:30"), end: at(1, "12:30") }).map(hm)).toEqual(["11:30", "11:45", "12:00", "12:15", "12:30"]);
+  expect(ticksFor({ start: at(1, "11:44"), end: at(1, "12:24") }).map(hm)).toEqual(["11:50", "12:00", "12:10", "12:20"]);
+});
+
+test("a point on the chart is a time in the window, to the minute", () => {
+  const zoom = { start: at(1, "12:00"), end: at(1, "14:00") };
+  expect(timeAt(150, 100, 200, zoom)).toBe(at(1, "12:30"));
+  expect(timeAt(151, 100, 200, zoom)).toBe(at(1, "12:31"));
+  expect(timeAt(20, 100, 200, zoom)).toBe(at(1, "12:00"));
+  expect(timeAt(900, 100, 200, zoom)).toBe(at(1, "14:00"));
+});
+
+test("a drag zooms to the stretch it covers, either way round, unless it is under five minutes", () => {
+  expect(zoomBetween(at(1, "12:30"), at(1, "11:30"))).toEqual({ start: at(1, "11:30"), end: at(1, "12:30") });
+  expect(zoomBetween(at(1, "12:00"), at(1, "12:04"))).toBeNull();
 });
