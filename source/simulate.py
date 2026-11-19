@@ -14,7 +14,8 @@ Two kinds of household:
 - A config (`Household`): a wake time, an appliance on the plug, a bedtime and so on, each with random
   variation and skipped days. Change the config and the same code gives a different home. Off by default, it
   can also have rarer rhythms (a visit every n days, a monthly outing, the appliance every few hours) and
-  parties; "rosa-plus" has them all.
+  parties; "rosa-plus" has them all. With `people` it is a household of people with phones, a thermostat they set
+  and three named plugs: "demo", the demo house (docs/demo-plan.md).
 - "home-a": a real kitchen, replayed. Door, light, temperature and humidity are the recordings of one house
   (UMass Smart* Home A, May-July 2012, see tools/extract_smart_home_a.py). Its coffee maker was only metered
   on 17 days; on the other days a recorded use is replayed at a recorded start time.
@@ -25,10 +26,12 @@ stale and ingest sees no gaps.
 import argparse
 import copy
 import gzip
+import hashlib
 import json
 import math
 import random
 import sys
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timedelta
@@ -111,10 +114,42 @@ class Household:
     holidays: list = field(default_factory=list)  # "2026-09-20..2026-09-26" or "2026-09-20": nobody home
     outages: list = field(default_factory=list)  # "2026-09-10T22:00..2026-09-11T08:00": no snapshots at all
     changes: list = field(default_factory=list)  # {"from": "2026-10-01", "wake": "09:00"}: settings from that day
+    # A household of people (docs/demo-plan.md, C12), off by default. With `people`, the home has the demo kit
+    # (phones on the router, a thermostat, plugs named Kettle, TV and Washing machine) and the room's temperature
+    # follows the heating. `wake`, `bed`, the kettle (`appliance_*`, `morning_use_*`), `outing_*` (out together),
+    # `extra_door_openings`, `lamp_evening_on` and `party_at`/`party_minutes`/`party_lie_in_min` keep their meaning.
+    people: list = field(default_factory=list)  # {"name": "Ana", "phone": "c-8f3a", "leave": "08:10", "home": "18:40", ...}
+    start: str = ""  # the first day it is meant to run from, e.g. "2026-09-21"; empty: 2026-09-01
+    weekend_wake_spread_min: float = 0.0  # 0: as on weekdays
+    gatherings: list = field(default_factory=list)  # evenings with guests: "2026-10-02", ...
+    guests_min: int = 5
+    guests_max: int = 6
+    tv_at: str = "21:00"
+    tv_spread_min: float = 15.0
+    tv_minutes: float = 120.0
+    tv_chance: float = 0.85
+    tv_watts: float = 100.0
+    washing_days: str = "mon"  # empty for none
+    washing_at: str = "19:30"
+    washing_spread_min: float = 15.0
+    washing_chance: float = 0.9
+    heat_home_c: float = 21.0  # what people set when they wake up or get home
+    heat_away_c: float = 16.0  # at night, when the last one leaves, and the "eco" setting
+    heat_rate_c_per_h: float = 5.0  # how fast the heating warms the room
+    heat_loss_per_h: float = 0.035  # the room loses this share of its difference with outside each hour
+    heat_gain_per_person_c_per_h: float = 0.05  # people (and guests) warm the room a little
+    outside_from: str = ""  # outside temperature falls from `outside_from_c` on this day...
+    outside_from_c: float = 18.0
+    outside_to_c: float = 10.0  # ...to this, `outside_days` later (and stays there)
+    outside_days: int = 60
+    outside_swing_c: float = 3.0  # each side of the day's mean: coolest before dawn, warmest mid-afternoon
+    scripted: dict = field(default_factory=dict)  # {"2026-11-19": {"Ana home": "18:41"}}: times pinned on a day
 
 
 TEST_OPTIONS = ("holidays", "outages", "changes")
-FIXED = {"name", *TEST_OPTIONS, "idle_watts", "temp_base", "temp_swing", "humidity_base"}  # `changes` can't change these
+PEOPLE_OPTIONS = ("people", "gatherings", "scripted")
+FIXED = {"name", *TEST_OPTIONS, *PEOPLE_OPTIONS, "start", "idle_watts", "temp_base", "temp_swing",
+         "humidity_base"}  # `changes` can't change these
 
 
 PRESETS: dict[str, Household] = {
@@ -138,7 +173,36 @@ PRESETS: dict[str, Household] = {
     "rosa-plus": Household(
         name="rosa-plus", visit_every_days=14, visit_anchor="2026-09-05", monthly_on="first sun",
         hourly_every_h=3, hourly_from="11:00", hourly_until="20:00", parties_per_30_days=3.5),
+    # The demo house (docs/demo-plan.md, C12): Ana and João, their phones, a thermostat they set, a kettle, a TV and
+    # a washing machine, and four Friday evenings with friends. 60 days from Monday 21 Sep: day 60 is Thu 19 Nov.
+    "demo": Household(
+        name="demo", start="2026-09-21", wake="07:12", wake_spread_min=12, weekend_shift_min=93,
+        weekend_wake_spread_min=17, bed="23:15", bed_spread_min=20, away_chance=0, door_after_wake_chance=0.85,
+        morning_use_delay_min=4, morning_use_spread_min=2, morning_use_chance=0.95,
+        outing_days="sat,sun", outing_at="11:00", outing_spread_min=60, outing_minutes=150, outing_chance=0.5,
+        extra_door_openings=0.5, lamp_evening_on="18:30", humidity_base=58,
+        party_at="20:00", party_spread_min=10, party_minutes=300, party_lie_in_min=90,
+        people=[{"name": "Ana", "phone": "c-8f3a", "leave": "08:10", "home": "18:40"},
+                {"name": "João", "phone": "c-2b71", "leave": "08:30", "home": "19:30", "home_at": {"tue": "21:00"},
+                 "remote_days": "wed"}],
+        gatherings=["2026-10-02", "2026-10-16", "2026-10-30", "2026-11-13"], outside_from="2026-09-21",
+        # The demo's moments (DEMO_MOMENTS), pinned so they show what they are about whatever the draws.
+        scripted={"2026-11-13": {"gathering": "20:04"}, "2026-11-14": {"wake": "10:08"},
+                  "2026-11-18": {"wake": "07:08"}, "2026-11-19": {"Ana home": "18:41"}}),
 }
+
+# The demo's moments (docs/demo-plan.md, C11 and C12): day 1 is the household's start. `planted`: the answer key's
+# rows each one is about; the integration fills `focus` with the habits Alfred found for them.
+DEMO_MOMENTS = [
+    {"id": "weekday-morning", "title": "Waking up, a weekday", "day": 59, "time": "06:30", "planted": ["waking-up"],
+     "focus": [], "say": "Wednesday, 06:30: Alfred starts the heating before anyone is up."},
+    {"id": "ana-arrives", "title": "Ana gets home", "day": 60, "time": "18:00", "planted": ["ana-home", "warmup"],
+     "focus": [], "say": "Ana usually gets home at 18:40: the house is warm when her phone connects."},
+    {"id": "gathering", "title": "A Friday gathering, live", "day": 54, "time": "20:30", "planted": ["gathering"],
+     "focus": [], "say": "Guests' phones, the door again and again: Alfred recognises a gathering."},
+    {"id": "morning-after", "title": "The morning after", "day": 55, "time": "07:45",
+     "planted": ["waking-up", "gathering"], "focus": [], "say": "Saturday after a gathering: the warm-up moves later."},
+]
 
 
 # What a made-up house may have on its plug: (label, watts, minutes, watts at rest, used in the evening).
@@ -191,8 +255,13 @@ def household_from_dict(values: dict) -> Household:
     for key, raw in values.items():
         if key not in known:
             raise ValueError(f"unknown household setting: {key}")
-        if key in TEST_OPTIONS:
+        if key in TEST_OPTIONS or key == "gatherings":
             setattr(h, key, _option_list(key, raw))
+            continue
+        if key in PEOPLE_OPTIONS:
+            if not isinstance(raw, known[key]):
+                raise ValueError(f"{key} must be a {'list' if known[key] is list else 'mapping'}")
+            setattr(h, key, copy.deepcopy(raw))
             continue
         try:
             setattr(h, key, known[key](raw) if known[key] is not str else str(raw).strip())
@@ -214,6 +283,7 @@ def household_from_dict(values: dict) -> Household:
     if h.appliance_watts <= 0 or h.appliance_minutes <= 0 or h.idle_watts < 0:
         raise ValueError("appliance_watts and appliance_minutes must be above 0, idle_watts 0 or more")
     _check_rhythms(h)
+    _check_people(h)
     _holidays(h)
     _outages(h)
     _phases(h)
@@ -444,21 +514,23 @@ class _Plan:
     def lamp(self, ts: int, on: bool) -> None:
         self.set(ts, "bulb", "power", "on" if on else "off")
 
-    def burst(self, start: int, points: list[tuple[float, float]]) -> int:
+    def burst(self, start: int, points: list[tuple[float, float]], plug: str = "plug") -> int:
         """Plug power as (seconds after start, watts) points. Returns when it ends."""
         for offset, watts in points:
-            self.set(start + int(offset * 1000), "plug", "instantPower", round(watts))
+            self.set(start + int(offset * 1000), plug, "instantPower", round(watts))
         return start + int(points[-1][0] * 1000)
 
 
 # --- a household from a config ---------------------------------------------------------------------
 
 def _config_plan(h: Household, start: date, days: int, rng: random.Random,
-                 room_rng: random.Random | None = None) -> _Plan:
+                 room_rng: random.Random | None = None, writes: list = ()) -> _Plan:
     """`room_rng` draws the plug's idle wobble and the room's drift. They are drawn after every day's habits,
     so on the habits' `rng` they would differ with the number of days. With their own, day N is the same
     however many days are simulated, and so is what the learners find in it."""
     room_rng = room_rng or rng
+    if h.people:
+        return _people_plan(h, start, days, rng, room_rng, writes)
     plan = _Plan()
     holidays, phases = _holidays(h), _phases(h)
     busy: list[tuple[int, int]] = []  # when the appliance runs, so the idle wobble stays out of it
@@ -708,6 +780,528 @@ def _config_plan(h: Household, start: date, days: int, rng: random.Random,
     return plan
 
 
+# --- a household of people: phones, a thermostat and named plugs (docs/demo-plan.md, C12) ------------------------
+
+KETTLE, TV, WASHER = "plug:kettle", "plug:tv", "plug:washing-machine"  # the home has three plugs: named by name
+THERMOSTAT, ROUTER = "thermostat", "router"
+PERSON = {"name": "", "phone": "", "leave": "08:00", "leave_spread_min": 5.0, "home": "18:30", "home_spread_min": 10.0,
+          "work_days": "mon,tue,wed,thu,fri", "remote_days": "", "home_at": {}}
+SCRIPT_KEYS = ("wake", "bed", "gathering")  # and "<name> leaves", "<name> home"
+HEAT_ON_BELOW, HEAT_OFF_ABOVE = 0.3, 0.2  # the thermostat's hysteresis around its target, °C
+PHYSICS_STEP_S = 60
+PLURAL = ("Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays")
+
+
+def _slug(name: str) -> str:
+    return "-".join("".join(c if c.isalnum() else " " for c in name.lower()).split())
+
+
+def _device_keys(devices: list[dict]) -> list[str]:
+    """How changes name each device: its type, or "<type>:<slug of its name>" when the home has more than one of
+    that type (docs/demo-plan.md, C2), so today's kit keeps its names."""
+    count = Counter(d["type"] for d in devices)
+    return [d["type"] if count[d["type"]] == 1 else f"{d['type']}:{_slug(d['name'])}" for d in devices]
+
+
+def _person(raw) -> dict:
+    """One person's settings with the defaults filled in. `home_at`: weekdays they get home at another time."""
+    if not isinstance(raw, dict) or not str(raw.get("name", "")).strip() or not str(raw.get("phone", "")).strip():
+        raise ValueError(f"people: {raw!r} needs a name and a phone (the router's client id, like c-8f3a)")
+    unknown = set(raw) - set(PERSON)
+    if unknown:
+        raise ValueError(f"people: {raw['name']} has unknown settings: {', '.join(sorted(unknown))}")
+    p = PERSON | raw
+    for key in ("leave", "home"):
+        _minutes(str(p[key]), f"{p['name']}'s {key}")
+    for key in ("leave_spread_min", "home_spread_min"):
+        try:
+            p[key] = float(p[key])
+        except (TypeError, ValueError):
+            raise ValueError(f"{p['name']}'s {key}: {p[key]!r} is not a number") from None
+        if p[key] < 0:
+            raise ValueError(f"{p['name']}'s {key} must be 0 or more")
+    for key in ("work_days", "remote_days"):
+        _weekdays(str(p[key]), f"{p['name']}'s {key}")
+    if not isinstance(p["home_at"], dict):
+        raise ValueError(f"{p['name']}'s home_at must be like {{\"tue\": \"21:00\"}}")
+    home_at = {}
+    for day, at in p["home_at"].items():
+        days = _weekdays(str(day), f"{p['name']}'s home_at")
+        if len(days) != 1:
+            raise ValueError(f"{p['name']}'s home_at: {day!r} is not one weekday")
+        home_at[WEEKDAYS[days.pop()]] = _hhmm(_minutes(str(at), f"{p['name']}'s home_at"))
+    return p | {"home_at": home_at}
+
+
+def _check_people(h: Household) -> None:
+    """A household of people: plain errors for settings that could not happen."""
+    if not isinstance(h.people, list) or not isinstance(h.scripted, dict):
+        raise ValueError("people must be a list and scripted a mapping of days to times")
+    for key in ("start", "outside_from"):
+        if getattr(h, key):
+            try:
+                date.fromisoformat(getattr(h, key))
+            except ValueError:
+                raise ValueError(f"{key}: {getattr(h, key)!r} is not a day like 2026-09-21") from None
+    if not h.people:
+        if h.gatherings or h.scripted:
+            raise ValueError("gatherings and scripted need people")
+        return
+    people = [_person(p) for p in h.people]
+    for key in ("name", "phone"):
+        if len({p[key] for p in people}) != len(people):
+            raise ValueError(f"people: two people have the same {key}")
+    if h.holidays or h.changes:
+        raise ValueError("holidays and changes don't work with people yet")
+    for day in h.gatherings:
+        try:
+            date.fromisoformat(str(day))
+        except ValueError:
+            raise ValueError(f"gatherings: {day!r} is not a day like 2026-10-02") from None
+    allowed = {*SCRIPT_KEYS, *(f"{p['name']} {k}" for p in people for k in ("leaves", "home"))}
+    for day, pins in h.scripted.items():
+        try:
+            date.fromisoformat(str(day))
+        except ValueError:
+            raise ValueError(f"scripted: {day!r} is not a day like 2026-11-19") from None
+        if not isinstance(pins, dict) or set(pins) - allowed:
+            raise ValueError(f"scripted: {day} pins times by name, of {', '.join(sorted(allowed))}")
+        for key, at in pins.items():
+            _minutes(str(at), f"scripted {day} {key}")
+    _minutes(h.tv_at, "tv_at")
+    _minutes(h.washing_at, "washing_at")
+    _weekdays(h.washing_days, "washing_days")
+    for key in ("tv_chance", "washing_chance"):
+        if not 0 <= getattr(h, key) <= 1:
+            raise ValueError(f"{key} must be between 0 and 1")
+    if not 0 <= h.guests_min <= h.guests_max:
+        raise ValueError("guests_min must be 0 or more, and no more than guests_max")
+    if not 5 <= h.heat_away_c <= h.heat_home_c <= 30:
+        raise ValueError("heat_away_c and heat_home_c must be between 5 and 30 °C, away no warmer than home")
+    if h.heat_rate_c_per_h <= 0 or not 0 < h.heat_loss_per_h < 1 or h.heat_gain_per_person_c_per_h < 0:
+        raise ValueError("heat_rate_c_per_h must be above 0, heat_loss_per_h between 0 and 1, the gain 0 or more")
+    if h.outside_days < 1 or h.tv_minutes <= 0 or h.tv_watts <= 0:
+        raise ValueError("outside_days must be 1 or more, tv_minutes and tv_watts above 0")
+
+
+def start_for(household: "Household | str") -> date:
+    """The first day a household is meant to run from: its `start`, or 2026-09-01."""
+    h = PRESETS.get(household) if isinstance(household, str) else household
+    return date.fromisoformat(h.start) if h is not None and h.start else DEFAULT_START
+
+
+def _outside_c(h: Household, ts: int, since: date) -> float:
+    """Outside: falling from `outside_from_c` to `outside_to_c` over `outside_days`, coolest before dawn."""
+    local = datetime.fromtimestamp(ts / 1000, TZ)
+    days = (local.date() - since).days + (local.hour * 60 + local.minute) / 1440
+    mean = h.outside_from_c + (h.outside_to_c - h.outside_from_c) * min(1.0, max(0.0, days / h.outside_days))
+    return mean + h.outside_swing_c * math.sin(2 * math.pi * (local.hour + local.minute / 60 - 9) / 24)
+
+
+def _guest_id(day: date, n: int) -> str:
+    """A guest phone's client id: new for each gathering, the same in every run."""
+    return "c-" + hashlib.sha256(f"guest-{day}-{n}".encode()).hexdigest()[:4]
+
+
+def _days_text(days: list[str]) -> str:
+    """["mon", ..., "fri"] -> "weekdays"; ["mon"] -> "Mondays"; ["sat", "sun"] -> "weekends"."""
+    names = [d for d in WEEKDAYS if d in days]
+    if len(names) == 7:
+        return "every day"
+    if names == list(WEEKDAYS[:5]):
+        return "weekdays"
+    if names == ["sat", "sun"]:
+        return "weekends"
+    words = [PLURAL[WEEKDAYS.index(d)] for d in names]
+    return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
+
+
+def _window(days: list[str], usual_min: float, spread_min: float) -> dict:
+    """A habit's window in the shape of docs/demo-plan.md C3: usual time, ± 1.5 spreads, to 5 minutes."""
+    def five(m: float) -> str:
+        return _hhmm(5 * round(m / 5))
+    return {"days": [d for d in WEEKDAYS if d in days], "usual": _hhmm(round(usual_min)),
+            "earliest": five(usual_min - 1.5 * spread_min), "latest": five(usual_min + 1.5 * spread_min)}
+
+
+def _row(key: str, kind: str, text: str, *, person: dict | None = None, windows: list | None = None,
+         signals: list | None = None, recurrence: dict | None = None, **extra) -> dict:
+    return {"key": key, "kind": kind, "planted": text, "person": person, "windows": windows or [],
+            "signals": signals or [], "recurrence": recurrence, **extra}
+
+
+def planted(household: "Household | str", start: date | None = None, days: int | None = None) -> list[dict]:
+    """The rhythms planted in a household of people, one row each, in the words of the demo's "planted" column
+    (docs/demo-plan.md, C11): what the learners should find. Each answer key entry of `generate` says which row it
+    belongs to (its "planted"). `start` and `days` only count the gatherings in a run. Empty for other households."""
+    h = PRESETS[household] if isinstance(household, str) else household
+    if not h.people:
+        return []
+    people = [_person(p) for p in h.people]
+    weekdays, weekend, every = list(WEEKDAYS[:5]), ["sat", "sun"], list(WEEKDAYS)
+    door = "contactSensor.sensorState"
+    rows = []
+
+    wake = _minutes(h.wake)
+    on_weekdays = _window(weekdays, wake, h.wake_spread_min)
+    at_weekends = _window(weekend, wake + h.weekend_shift_min, h.weekend_wake_spread_min or h.wake_spread_min)
+    then = ", then the front door" if h.door_after_wake_chance else ""
+    rows.append(_row("waking-up", "habit", f"Waking up: weekdays {on_weekdays['earliest']}–{on_weekdays['latest']} · "
+                     f"weekends {at_weekends['earliest']}–{at_weekends['latest']}. Kettle{then}",
+                     windows=[on_weekdays, at_weekends], signals=[f"{KETTLE}.instantPower", door],
+                     recurrence=_recurrence("daily", "every day")))
+
+    for p in people:
+        name, slug, signal = p["name"], _slug(p["name"]), f"phone:{p['phone']}.connected"
+        who = {"phone": p["phone"], "name": f"{name}'s phone"}
+        work, remote = _weekdays(p["work_days"]), _weekdays(p["remote_days"])
+        out = [WEEKDAYS[d] for d in sorted(work - remote)]
+        if not out:
+            continue
+        but = f", not {_days_text([WEEKDAYS[d] for d in sorted(remote & work)])}" if remote & work else ""
+        span = _days_text([WEEKDAYS[d] for d in sorted(work)])
+        rows.append(_row(f"{slug}-leaves", "habit", f"{name} leaves {span} {p['leave']}{but}", person=who,
+                         windows=[_window(out, _minutes(p["leave"]), p["leave_spread_min"])], signals=[door, signal],
+                         recurrence=_recurrence("weekly", _days_text(out), weekdays=out)))
+        usual = [d for d in out if d not in p["home_at"]]
+        others = [d for d in out if d in p["home_at"]]
+        windows = [_window(usual, _minutes(p["home"]), p["home_spread_min"])] if usual else []
+        windows += [_window([d], _minutes(p["home_at"][d]), p["home_spread_min"]) for d in others]
+        extra = "".join(f", {_days_text([d])} {p['home_at'][d]}" for d in others)
+        rows.append(_row(f"{slug}-home", "habit", f"{name} home {span} {p['home']}{extra}{but}", person=who,
+                         windows=windows, signals=[signal, door],
+                         recurrence=_recurrence("weekly", _days_text(out), weekdays=out)))
+        if remote & work:
+            home_days = [WEEKDAYS[d] for d in sorted(remote & work)]
+            rows.append(_row(f"{slug}-at-home", "note", f"{name} works from home on {_days_text(home_days)}",
+                             person=who, signals=[signal]))
+
+    if h.tv_chance:
+        rows.append(_row("tv", "habit", f"TV evenings {h.tv_at}–{_hhmm(_minutes(h.tv_at) + h.tv_minutes)}",
+                         windows=[_window(every, _minutes(h.tv_at), h.tv_spread_min)], signals=[f"{TV}.instantPower"],
+                         recurrence=_recurrence("daily", "every day")))
+    washing = [WEEKDAYS[d] for d in sorted(_weekdays(h.washing_days))]
+    if washing and h.washing_chance:
+        rows.append(_row("washing", "habit", f"Washing machine {_days_text(washing)} {h.washing_at}",
+                         windows=[_window(washing, _minutes(h.washing_at), h.washing_spread_min)],
+                         signals=[f"{WASHER}.instantPower"], recurrence=_recurrence("weekly", _days_text(washing),
+                                                                                     weekdays=washing)))
+    rows.append(_row("bed", "habit", f"Bed about {h.bed}: lamp off, heating down to {h.heat_away_c:g} °C",
+                     windows=[_window(every, _minutes(h.bed), h.bed_spread_min)],
+                     signals=["bulb.power", "thermostat.targetTemperature"], recurrence=_recurrence("daily", "every day")))
+    outings = [WEEKDAYS[d] for d in sorted(_weekdays(h.outing_days))]
+    if outings and h.outing_chance:
+        rows.append(_row("outings", "habit", f"Out together on {_days_text(outings)} about {h.outing_at}, "
+                         f"{round(h.outing_minutes / 60, 1):g} h, some weeks",
+                         windows=[_window(outings, _minutes(h.outing_at), h.outing_spread_min)],
+                         signals=[door, *(f"phone:{p['phone']}.connected" for p in people)],
+                         recurrence=_recurrence("weekly", _days_text(outings), weekdays=outings)))
+
+    dates = sorted(date.fromisoformat(d) for d in h.gatherings)
+    if start is not None and days is not None:
+        dates = [d for d in dates if start <= d < start + timedelta(days=days)]
+    if dates:
+        weekday = {d.weekday() for d in dates}
+        when = f"{DAY_NAMES[weekday.pop()]} night" if len(weekday) == 1 else "Evening"
+        rows.append(_row("gathering", "occasion",
+                         f"{when} gathering, {len(dates)} times: guests' phones, door often, late night, "
+                         f"next morning ~{round(h.party_lie_in_min)} min later",
+                         signals=["router.guestPhones", door], dates=[d.isoformat() for d in dates],
+                         guest_phones=h.guests_max, usual_hours=[h.party_at, _hhmm(_minutes(h.party_at) + h.party_minutes)],
+                         lie_in_min=h.party_lie_in_min))
+
+    rows.append(_row("heating", "rule", f"Heating: {h.heat_home_c:g} °C when someone gets home or wakes up, "
+                     f"{h.heat_away_c:g} °C at night and when the last one leaves",
+                     signals=["thermostat.targetTemperature"]))
+    outside = (h.outside_from_c + h.outside_to_c) / 2
+    net = h.heat_rate_c_per_h - h.heat_loss_per_h * (h.heat_home_c - 2 - outside)  # about 19 °C, a mean day outside
+    rows.append(_row("warmup", "warmup", f"The house warms 1 °C in about {round(60 / net)} min",
+                     signals=["thermostat.temperatureValue", "thermostat.heatingState"],
+                     rate_c_per_h=round(net, 2), loss_c_per_h=round(h.heat_loss_per_h * (h.heat_home_c - 2 - outside), 2)))
+    return rows
+
+
+def _people_plan(h: Household, start: date, days: int, rng: random.Random, room_rng: random.Random,
+                 writes: list = ()) -> _Plan:
+    """Each person's day (up, out to work, home, bed) and the evenings with guests, drawn day by day; then the
+    heating and the room minute by minute: people set the thermostat, the physics answers.
+    `writes`: (epoch ms, "targetTemperature" | "mode", value), someone else at the thermostat (Alfred)."""
+    plan = _Plan()
+    rows = {r["key"]: r["planted"] for r in planted(h)}
+    people = [_person(p) for p in h.people]
+    names = [p["name"] for p in people]
+    by_name = {p["name"]: p for p in people}
+    gatherings = {date.fromisoformat(d) for d in h.gatherings}
+    scripted = {date.fromisoformat(d): pins for d, pins in h.scripted.items()}
+    outing_days, washing_days = _weekdays(h.outing_days), _weekdays(h.washing_days)
+    phones: list[tuple[int, str, bool]] = []  # (ms, client id, connected)
+    guests: list[str] = []  # guest phones, in the order they first came
+    settings: list[tuple[int, float, str, str]] = []  # (ms, target °C, who, why): people at the thermostat
+    crowd: list[tuple[int, int]] = []  # (ms, +n or -n): people in the house, for their warmth
+
+    def kettle(at: int, what: str) -> None:
+        watts = max(1.0, rng.gauss(h.appliance_watts, h.appliance_watts_spread))
+        seconds = max(30.0, rng.gauss(h.appliance_minutes, h.appliance_minutes_spread) * 60)
+        points = [(0.0, watts)] + [(float(t), watts * (1 + rng.gauss(0, 0.004))) for t in range(30, int(seconds), 30)]
+        end = plan.burst(at, points + [(seconds, 0)], KETTLE)
+        plan.note(what, at, end, appliance="kettle", watts=round(watts), planted=rows["waking-up"])
+
+    def live(day: date, lie_in: float) -> float:
+        """One day. `lie_in`: minutes later than usual the morning starts (after a gathering). Every draw is made
+        whatever happens, so a time pinned in `scripted` leaves the other days alone. Returns the next lie-in."""
+        pins = scripted.get(day, {})
+
+        def pin(key: str, seconds: float) -> float:
+            return _minutes(pins[key]) * 60 if key in pins else seconds
+
+        wd, weekend = day.weekday(), day.weekday() >= 5
+        spread = (h.weekend_wake_spread_min or h.wake_spread_min) if weekend else h.wake_spread_min
+        spread /= 2 if lie_in else 1  # after a late night the morning is late, and less varied
+        wake = pin("wake", (_minutes(h.wake) + (h.weekend_shift_min if weekend else 0) + rng.gauss(0, spread)
+                            + lie_in) * 60)
+        bed_min = _minutes(h.bed) + (24 * 60 if _minutes(h.bed) <= _minutes(h.wake) else 0)
+        bed = (bed_min + rng.gauss(0, h.bed_spread_min)) * 60
+        riser = rng.choice(names)
+        set_at_wake = rng.uniform(0.5, 3) * 60
+        kettle_go = rng.random() < h.morning_use_chance
+        kettle_at = wake + max(1.0, rng.gauss(h.morning_use_delay_min, h.morning_use_spread_min)) * 60
+        door_go = rng.random() < h.door_after_wake_chance
+        door_at, door_s = kettle_at + rng.uniform(15, 25) * 60, rng.uniform(20, 90)
+        lamp_off = wake + rng.uniform(40, 70) * 60
+
+        trips = {}  # name -> (leave, back), seconds after midnight: out to work
+        for p in people:
+            leave = pin(f"{p['name']} leaves", (_minutes(p["leave"]) + rng.gauss(0, p["leave_spread_min"])) * 60)
+            back = (_minutes(p["home_at"].get(WEEKDAYS[wd], p["home"])) + rng.gauss(0, p["home_spread_min"])) * 60
+            back = pin(f"{p['name']} home", back)
+            if wd in _weekdays(p["work_days"]) and wd not in _weekdays(p["remote_days"]):
+                trips[p["name"]] = (max(leave, wake + 25 * 60), back)
+        if trips and not weekend:
+            riser = min(trips, key=lambda n: trips[n][0])  # who leaves first is up first
+
+        gathering = None
+        if day in gatherings:
+            arrive = pin("gathering", (_minutes(h.party_at) + rng.gauss(0, h.party_spread_min)) * 60)
+            gathering = (arrive, arrive + h.party_minutes * 60 * rng.uniform(0.92, 1.08))
+            bed = max(bed, gathering[1] + rng.uniform(15, 40) * 60)
+        if "bed" in pins:
+            bed = _minutes(pins["bed"]) * 60 + (86400 if _minutes(pins["bed"]) * 60 < wake else 0)
+        bed = max(bed, *(back + 1800 for _, back in trips.values()), wake + 4 * 3600)
+
+        out_go = rng.random() < h.outing_chance
+        out_at = max((_minutes(h.outing_at) + rng.gauss(0, h.outing_spread_min)) * 60, wake + 45 * 60)
+        out_back = out_at + h.outing_minutes * 60 * rng.uniform(0.8, 1.2)
+        together = (wd in outing_days and out_go and not trips and out_back < bed - 3600
+                    and (gathering is None or out_back < gathering[0] - 3600))
+
+        # Out and back: the door, the phones (they leave the WiFi a minute or two after the door, and join it a
+        # little before), and the thermostat when the house empties or fills.
+        moves = [(at, kind, [name]) for name, (leave, back) in trips.items()
+                 for at, kind in ((leave, "leave"), (back, "home"))]
+        if together:
+            moves += [(out_at, "leave", names), (out_back, "home", names)]
+        home, empty, since = set(names), [], 0.0  # empty: (from, to) while nobody is home
+        for at, kind, who in sorted(moves, key=lambda m: m[0]):
+            seconds, lag, fiddle = rng.uniform(15, 45), rng.uniform(30, 120), rng.uniform(30, 120)
+            if kind == "leave":
+                home -= set(who)
+                if not home:
+                    settings.append((_at(day, at - fiddle), h.heat_away_c, who[0], "last out"))
+                    since = at
+                plan.door(_at(day, at), seconds)
+                for name in who:
+                    phones.append((_at(day, at + lag), by_name[name]["phone"], False))
+            else:
+                for name in who:
+                    phones.append((_at(day, at - lag), by_name[name]["phone"], True))
+                plan.door(_at(day, at), seconds)
+                if not home:
+                    settings.append((_at(day, at + fiddle), h.heat_home_c, who[0], "home"))
+                    empty.append((since, at))
+                home |= set(who)
+            crowd.append((_at(day, at), len(who) if kind == "home" else -len(who)))
+        for name, (leave, back) in trips.items():
+            p = by_name[name]
+            plan.note("leave", _at(day, leave), person=name, phone=p["phone"], planted=rows[f"{_slug(name)}-leaves"])
+            plan.note("home", _at(day, back), person=name, phone=p["phone"], planted=rows[f"{_slug(name)}-home"])
+        if together:
+            plan.note("out together", _at(day, out_at), _at(day, out_back), people=names, planted=rows["outings"])
+
+        # The morning: up, the lamp, the heating, the kettle, then the door on weekdays.
+        plan.note("wake", _at(day, wake), person=riser, planted=rows["waking-up"],
+                  **({"after": "gathering"} if lie_in else {}))
+        plan.lamp(_at(day, wake), True)
+        plan.lamp(_at(day, min([lamp_off] + [a for a, _ in empty])), False)
+        settings.append((_at(day, wake + set_at_wake), h.heat_home_c, riser, "wake"))
+        if kettle_go:
+            kettle(_at(day, kettle_at), "kettle")
+        first_out = min((leave for leave, _ in trips.values()), default=None)
+        if not weekend and door_go and (first_out is None or door_at + door_s < first_out - 180):
+            plan.door(_at(day, door_at), door_s)
+            plan.note("door after waking", _at(day, door_at), planted=rows["waking-up"])
+
+        # The evening: the lamp, the TV, the washing machine, guests, bed.
+        evening = (_minutes(h.lamp_evening_on) + rng.gauss(0, 15)) * 60
+        for a, b in empty:
+            if a <= evening <= b:
+                evening = b + 90  # nobody home to switch it on
+        if gathering:
+            evening = min(evening, gathering[0])
+        if evening < bed - 300:
+            plan.lamp(_at(day, evening), True)
+
+        tv_go = rng.random() < h.tv_chance
+        tv_at = (_minutes(h.tv_at) + rng.gauss(0, h.tv_spread_min)) * 60
+        tv_end = min(tv_at + h.tv_minutes * 60 * rng.uniform(0.8, 1.1), bed - 300)
+        if tv_go and not gathering and tv_end - tv_at > 1800 and not _overlaps(tv_at, tv_end, empty):
+            points, t = [], 0.0
+            while t < tv_end - tv_at:
+                points.append((t, h.tv_watts * (1 + rng.gauss(0, 0.04))))
+                t += rng.uniform(120, 240)
+            end = plan.burst(_at(day, tv_at), points + [(tv_end - tv_at, 0)], TV)
+            plan.note("tv", _at(day, tv_at), end, planted=rows["tv"])
+
+        wash_go = rng.random() < h.washing_chance
+        wash_at = (_minutes(h.washing_at) + rng.gauss(0, h.washing_spread_min)) * 60
+        if wd in washing_days and wash_go and wake + 3600 < wash_at < bed - 1800 and not _overlaps(wash_at, wash_at, empty):
+            heat = rng.gauss(2000, 40)  # the water first: 2 kW for 15 minutes, then the drum turning, in pulses
+            points = [(float(t), heat * (1 + rng.gauss(0, 0.005))) for t in range(0, 900, 30)]
+            t, stop = 900.0, 900 + 3600 * rng.uniform(0.9, 1.1)
+            while t < stop:
+                points.append((t, rng.uniform(200, 500)))
+                t += rng.uniform(60, 150)
+                points.append((t, rng.uniform(3, 8)))
+                t += rng.uniform(20, 60)
+            end = plan.burst(_at(day, wash_at), points + [(t, 0)], WASHER)
+            plan.note("washing machine", _at(day, wash_at), end, planted=rows["washing"])
+
+        lie_in_next = 0.0
+        if gathering:
+            evening_with_guests(day, *gathering)
+            lie_in_next = h.party_lie_in_min * rng.uniform(0.85, 1.15)
+
+        plan.lamp(_at(day, bed), False)
+        settings.append((_at(day, bed - rng.uniform(1, 3) * 60), h.heat_away_c, rng.choice(names), "night"))
+        plan.note("bed", _at(day, bed), planted=rows["bed"], **({"after": "gathering"} if gathering else {}))
+
+        openings = int(h.extra_door_openings) + (rng.random() < h.extra_door_openings % 1)
+        for _ in range(openings):
+            at = rng.uniform(wake + 3600, bed - 3600)
+            if not _overlaps(at, at, empty, 300):
+                plan.door(_at(day, at), rng.uniform(10, 120))
+        return lie_in_next
+
+    def evening_with_guests(day: date, arrive: float, end: float) -> None:
+        """Guests arrive a few minutes apart (now and then two together), their phones join the WiFi, someone
+        steps out now and then, and they leave in two or three groups. No TV tonight."""
+        n = rng.randint(h.guests_min, h.guests_max)
+        ids = [_guest_id(day, k) for k in range(n)]
+        guests.extend(ids)
+        opened, at, k = [], arrive, 0
+        while k < n:
+            size = 2 if k + 1 < n and rng.random() < 0.3 else 1
+            for client in ids[k:k + size]:
+                phones.append((_at(day, at - rng.uniform(20, 90)), client, True))
+            crowd.append((_at(day, at), size))
+            opened.append(at)
+            k, at = k + size, at + rng.uniform(2, 9) * 60
+        settled = at
+        groups = rng.randint(2, 3) if n > 1 else 1
+        cuts = [round(n * g / groups) for g in range(groups + 1)]
+        going = sorted(end - g * rng.uniform(5, 15) * 60 for g in range(groups))
+        for t, (a, b) in zip(going, zip(cuts, cuts[1:])):
+            opened.append(t)
+            crowd.append((_at(day, t), -(b - a)))
+            for client in ids[a:b]:
+                phones.append((_at(day, t + rng.uniform(60, 150)), client, False))
+        for _ in range(rng.randint(2, 4)):
+            t = rng.uniform(settled + 600, going[0] - 600)
+            if all(abs(t - o) > 120 for o in opened):
+                opened.append(t)
+        for t in opened:
+            plan.door(_at(day, t), rng.uniform(5, 30))
+        if rng.random() < 0.5:  # tea before they go
+            kettle(_at(day, rng.uniform(going[0] - 90 * 60, going[0] - 30 * 60)), "kettle (gathering)")
+        plan.note("gathering", _at(day, arrive), _at(day, end), guests=n, guest_phones=ids, door_openings=len(opened),
+                  planted=rows["gathering"])
+
+    lie_in = 0.0
+    for i in range(days):
+        lie_in = live(start + timedelta(days=i), lie_in)
+
+    first, last = _at(start, 0), _at(start + timedelta(days=days), 0)
+    for plug in (KETTLE, TV, WASHER):
+        plan.set(first, plug, "instantPower", 0)
+    plan.set(first, "bulb", "power", "off")
+    plan.set(first, "contactSensor", "sensorState", "normal")
+
+    # The router: everyone's phone at home at midnight, then each join and leave.
+    known = [{"id": p["phone"], "name": f"{p['name']}'s phone", "kind": "phone", "known": True} for p in people]
+    online = {p["phone"] for p in people}
+
+    def clients() -> list[dict]:
+        return ([c for c in known if c["id"] in online]
+                + [{"id": g, "name": "", "kind": "phone", "known": False} for g in guests if g in online])
+
+    plan.set(first, ROUTER, "connectedClients", clients())
+    for ms, client, on in sorted(phones, key=lambda c: c[0]):
+        (online.add if on else online.discard)(client)
+        plan.set(ms, ROUTER, "connectedClients", clients())
+
+    # The heating and the room, minute by minute: dT/dt = heat × rate + people × gain − (T − outside) × loss.
+    acts = sorted([(ms, "targetTemperature", value, who, why) for ms, value, who, why in settings]
+                  + [(int(ms), cap, value, None, None) for ms, cap, value in writes], key=lambda a: a[0])
+    crowd.sort()
+    since = date.fromisoformat(h.outside_from) if h.outside_from else start
+    target, mode, heating, temp, inside = h.heat_away_c, "heat", False, h.heat_away_c + 3, len(people)
+    plan.set(first, THERMOSTAT, "targetTemperature", target)
+    plan.set(first, THERMOSTAT, "mode", mode)
+    plan.set(first, THERMOSTAT, "heatingState", "off")
+    drift = damp = 0.0
+    sent_temp = sent_sensor = sent_humidity = None
+    a = c = 0
+    for ts in range(first, last, PHYSICS_STEP_S * 1000):
+        while a < len(acts) and acts[a][0] <= ts:
+            ms, cap, value, who, why = acts[a]
+            a += 1
+            if who is None:  # someone else (Alfred): applied as it comes
+                if cap == "mode":
+                    mode = value
+                else:
+                    target = float(value)
+                plan.set(ms, THERMOSTAT, cap, value)
+            elif value != target or mode != "heat":  # a person: only when it changes something
+                target, mode = value, "heat"
+                plan.set(ms, THERMOSTAT, "targetTemperature", value)
+                plan.set(ms, THERMOSTAT, "mode", "heat")
+                plan.note("heating set", ms, value=value, by=who, why=why, planted=rows["heating"])
+        while c < len(crowd) and crowd[c][0] <= ts:
+            inside += crowd[c][1]
+            c += 1
+        setpoint = target if mode == "heat" else h.heat_away_c if mode == "eco" else None
+        want = setpoint is not None and (temp < setpoint + HEAT_OFF_ABOVE if heating
+                                         else temp <= setpoint - HEAT_ON_BELOW)
+        if want != heating:
+            heating = want
+            plan.set(ts, THERMOSTAT, "heatingState", "on" if heating else "off")
+        temp += (h.heat_rate_c_per_h * heating + h.heat_gain_per_person_c_per_h * max(0, inside)
+                 - h.heat_loss_per_h * (temp - _outside_c(h, ts, since))) * PHYSICS_STEP_S / 3600
+        # The thermostat and the sensor read the same room; the sensor wobbles a little and reports by steps.
+        drift = 0.98 * drift + room_rng.gauss(0, 0.01)
+        damp = 0.98 * damp + room_rng.gauss(0, 0.08)
+        sensor, humidity = temp + drift, h.humidity_base - 2 * (temp - 20) + damp
+        if sent_temp is None or abs(temp - sent_temp) >= TEMP_REPORT_STEP:
+            sent_temp = round(temp, 1)
+            plan.set(ts, THERMOSTAT, "temperatureValue", sent_temp)
+        if sent_sensor is None or abs(sensor - sent_sensor) >= TEMP_REPORT_STEP:
+            sent_sensor = round(sensor, 1)
+            plan.set(ts, "temperatureSensor", "temperatureValue", sent_sensor)
+        if sent_humidity is None or abs(humidity - sent_humidity) >= HUMIDITY_REPORT_STEP:
+            sent_humidity = round(humidity, 1)
+            plan.set(ts, "temperatureSensor", "humidityValue", sent_humidity)
+    return plan
+
+
 # --- the real house --------------------------------------------------------------------------------
 
 REAL_FIRST, REAL_LAST = date(2012, 5, 1), date(2012, 7, 30)
@@ -783,9 +1377,15 @@ def _template_text() -> str:
     return (DATA / "home_template.json").read_text()
 
 
-def _template() -> dict:
-    """A real get_home snapshot of the kit, set to a quiet home."""
+def _template(kit: str = "") -> dict:
+    """A real get_home snapshot of the kit, set to a quiet home. kit "demo": its plug becomes three plugs named
+    Kettle, TV and Washing machine, and it has a thermostat and the WiFi router (docs/demo-plan.md, C1)."""
     home = json.loads(_template_text())
+    demo = home.pop("demo_devices")
+    if kit == "demo":
+        at = next(n for n, dev in enumerate(home["devices"]) if dev["type"] == "plug")
+        home["devices"][at:at + 1] = [dev for dev in demo if dev["type"] == "plug"]
+        home["devices"] += [dev for dev in demo if dev["type"] != "plug"]
     home["security"]["isAlarmed"] = False
     home.get("energy", {})["todayConsumption"] = 0
     quiet = {("contactSensor", "sensorState"): "normal", ("bulb", "power"): "off", ("plug", "instantPower"): 0,
@@ -799,10 +1399,13 @@ def _template() -> dict:
 
 
 def _lines(changes: list[Change], start_ms: int, end_ms: int, interval_s: int,
-           outages: list[tuple[int, int]] = ()) -> Iterator[str]:
-    """outages: [start, end) stretches with no snapshot at all; the home carries on underneath."""
-    home = _template()
-    caps = {(dev["type"], cap["type"]): cap for dev in home["devices"] for cap in dev["capabilities"]}
+           outages: list[tuple[int, int]] = (), kit: str = "") -> Iterator[str]:
+    """outages: [start, end) stretches with no snapshot at all; the home carries on underneath.
+    A change names its device by type, or "<type>:<slug of its name>" when the kit has several (`_device_keys`)."""
+    home = _template(kit)
+    keys = _device_keys(home["devices"])
+    caps = {(key, cap["type"]): cap for key, dev in zip(keys, home["devices"]) for cap in dev["capabilities"]}
+    plugs = [key for key, dev in zip(keys, home["devices"]) if dev["type"] == "plug"]
 
     # Keep only real changes, grouped by time: a repeated value must not add a snapshot.
     by_ts: dict[int, list[Change]] = {}
@@ -815,22 +1418,25 @@ def _lines(changes: list[Change], start_ms: int, end_ms: int, interval_s: int,
             current[(device_type, capability)] = value
             by_ts.setdefault(ts, []).append(change)
 
-    watts, kwh, last_ts, day = 0.0, 0.0, start_ms, None
+    watts, kwh, last_ts, day = dict.fromkeys(plugs, 0.0), dict.fromkeys(plugs, 0.0), start_ms, None
     for ts in sorted(set(by_ts) | set(range(start_ms, end_ms, interval_s * 1000))):
-        kwh += watts * (ts - last_ts) / 3_600_000_000  # energy used since the last snapshot
+        for plug in plugs:
+            kwh[plug] += watts[plug] * (ts - last_ts) / 3_600_000_000  # energy used since the last snapshot
         last_ts = ts
         today = datetime.fromtimestamp(ts / 1000, TZ).date()
-        if day is not None and today != day:  # the plug's counter starts again at local midnight
-            caps[("plug", "yesterdayConsumption")]["value"] = round(kwh, 3)
-            kwh = 0.0
+        if day is not None and today != day:  # the plugs' counters start again at local midnight
+            for plug in plugs:
+                caps[(plug, "yesterdayConsumption")]["value"] = round(kwh[plug], 3)
+                kwh[plug] = 0.0
         day = today
         for _, device_type, capability, value in by_ts.get(ts, ()):
             caps[(device_type, capability)]["value"] = value
-            if (device_type, capability) == ("plug", "instantPower"):
-                watts = float(value)
-                caps[("plug", "instantCurrent")]["value"] = round(watts / VOLTAGE * 1000)  # mA, as the kit reports
-        caps[("plug", "todayConsumption")]["value"] = round(kwh, 3)
-        home["energy"]["todayConsumption"] = round(kwh, 3)
+            if device_type in watts and capability == "instantPower":
+                watts[device_type] = float(value)
+                caps[(device_type, "instantCurrent")]["value"] = round(watts[device_type] / VOLTAGE * 1000)  # mA
+        for plug in plugs:
+            caps[(plug, "todayConsumption")]["value"] = round(kwh[plug], 3)
+        home["energy"]["todayConsumption"] = round(sum(kwh.values()), 3)
         for n, dev in enumerate(home["devices"]):
             dev["lastCommunicationTime"] = ts - 1000 * (n + 1)  # every device reported just before the poll
         if any(a <= ts < b for a, b in outages):
@@ -838,19 +1444,23 @@ def _lines(changes: list[Change], start_ms: int, end_ms: int, interval_s: int,
         yield json.dumps({"ts": ts, "home": home}, separators=(",", ":")) + "\n"
 
 
-def generate(household: Household | str, days: int, *, start: date = DEFAULT_START, seed: int = 1,
-             interval_s: int = 300) -> tuple[Iterator[str], list[dict]]:
+def generate(household: Household | str, days: int, *, start: date | None = None, seed: int = 1,
+             interval_s: int = 300, thermostat_writes: list = ()) -> tuple[Iterator[str], list[dict]]:
     """JSONL lines for `days` local days from `start`, and the answer key of what was planted.
 
-    `household` is a Household, a preset name, or "home-a" for the real house. The same arguments always
-    give the same lines.
+    `household` is a Household, a preset name, or "home-a" for the real house. `start` defaults to the household's
+    own (`start_for`). `thermostat_writes`, for a household of people only: (epoch ms, "targetTemperature" or
+    "mode", value), someone other than the people at the thermostat (Alfred); the room answers. The same
+    arguments always give the same lines.
     """
     if days < 1:
         raise ValueError("days must be at least 1")
     if not 60 <= interval_s <= 1800:
         raise ValueError("the snapshot interval must be between 1 and 30 minutes (ingest reports longer gaps)")
+    start = start or start_for(household)
     rng = random.Random(seed)
     outages: list[tuple[int, int]] = []
+    kit = ""
     if household == REAL_HOME:
         plan = _home_a_plan(start, days, rng)
     else:
@@ -858,11 +1468,17 @@ def generate(household: Household | str, days: int, *, start: date = DEFAULT_STA
             if household not in PRESETS:
                 raise ValueError(f"unknown household {household!r}: use {', '.join(PRESETS)} or {REAL_HOME}")
             household = PRESETS[household]
-        plan = _config_plan(household, start, days, rng, random.Random(f"{seed}-room"))
+        if thermostat_writes and not household.people:
+            raise ValueError("thermostat_writes need a household of people (it has the thermostat)")
+        for write in thermostat_writes:
+            if len(write) != 3 or write[1] not in ("targetTemperature", "mode"):
+                raise ValueError(f"thermostat_writes: {write!r} is not (ms, \"targetTemperature\" or \"mode\", value)")
+        plan = _config_plan(household, start, days, rng, random.Random(f"{seed}-room"), list(thermostat_writes))
         outages = _outages(household)
+        kit = "demo" if household.people else ""
     end_ms = _at(start + timedelta(days=days), 0)
     truth = sorted((t for t in plan.truth if t["start"] < _iso(end_ms)), key=lambda t: t["start"])
-    return _lines(plan.changes, _at(start, 0), end_ms, interval_s, outages), truth
+    return _lines(plan.changes, _at(start, 0), end_ms, interval_s, outages, kit), truth
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -873,7 +1489,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--houses", type=int, help="make this many different made-up homes instead; --out is then a folder")
     p.add_argument("--out", type=Path, help="the JSONL file to write, e.g. data/sim/rosa.jsonl")
     p.add_argument("--truth", type=Path, help="also write the answer key (what was planted) as JSON")
-    p.add_argument("--start", type=date.fromisoformat, default=DEFAULT_START, help="first day, YYYY-MM-DD")
+    p.add_argument("--start", type=date.fromisoformat, help="first day, YYYY-MM-DD (default: the household's, "
+                   "mostly 2026-09-01)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--interval", type=int, default=300, help="seconds between snapshots when nothing changes")
     p.add_argument("--list", action="store_true", help="show the households and their settings")
@@ -888,7 +1505,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         for name, h in PRESETS.items():
             print(f"{name}: {json.dumps(asdict(h))}")
-        print(f"{REAL_HOME}: a real kitchen replayed (up to {home_a_max_days(args.start)} days), no settings")
+        print(f"{REAL_HOME}: a real kitchen replayed (up to {home_a_max_days(args.start or DEFAULT_START)} days), no settings")
         return 0
     if not args.out:
         p.error("--out is required")
@@ -896,7 +1513,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             for h in houses(args.houses, args.seed):
                 lines, _ = generate(h, args.days, start=args.start, seed=args.seed, interval_s=args.interval)
-                _write(lines, args.out / f"{h.name}.jsonl", args.days, args.start)
+                _write(lines, args.out / f"{h.name}.jsonl", args.days, args.start or start_for(h))
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
@@ -912,7 +1529,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    _write(lines, args.out, args.days, args.start)
+    _write(lines, args.out, args.days, args.start or start_for(household))
     if args.truth:
         args.truth.write_text(json.dumps(truth, indent=1))
     return 0

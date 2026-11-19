@@ -545,5 +545,301 @@
       "roomName": "Hack 1",
       "lastCommunicationTime": 1794910193085
     }
+  ],
+  "demo_devices": [
+    {
+      "name": "Kettle",
+      "id": "a291277c-8ba5-480a-b3a3-35b5f49bb459",
+      "type": "plug",
+      "capabilities": [
+        {
+          "name": "",
+          "type": "instantPower",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "instantVoltage",
+          "value": 225,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "multiPower",
+          "value": [
+            {
+              "id": "1",
+              "name": "switch_1",
+              "order": 1,
+              "partnerType": "switch_1",
+              "type": "multiplugSwitch",
+              "value": "on"
+            }
+          ]
+        },
+        {
+          "name": "",
+          "type": "power",
+          "availableValues": [
+            "on",
+            "off"
+          ],
+          "value": "on"
+        },
+        {
+          "name": "",
+          "type": "additionalEnergyConsumption",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "instantCurrent",
+          "value": 0,
+          "min": 0,
+          "max": 30000
+        },
+        {
+          "name": "",
+          "type": "todayConsumption",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "yesterdayConsumption",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        }
+      ],
+      "categories": [
+        "energy"
+      ],
+      "roomName": "Hack 1",
+      "lastCommunicationTime": 1794913246599
+    },
+    {
+      "name": "TV",
+      "id": "3e0c1f52-7d4b-4c8e-9a61-2f5b8d0e7c14",
+      "type": "plug",
+      "capabilities": [
+        {
+          "name": "",
+          "type": "instantPower",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "instantVoltage",
+          "value": 225,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "multiPower",
+          "value": [
+            {
+              "id": "1",
+              "name": "switch_1",
+              "order": 1,
+              "partnerType": "switch_1",
+              "type": "multiplugSwitch",
+              "value": "on"
+            }
+          ]
+        },
+        {
+          "name": "",
+          "type": "power",
+          "availableValues": [
+            "on",
+            "off"
+          ],
+          "value": "on"
+        },
+        {
+          "name": "",
+          "type": "additionalEnergyConsumption",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "instantCurrent",
+          "value": 0,
+          "min": 0,
+          "max": 30000
+        },
+        {
+          "name": "",
+          "type": "todayConsumption",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "yesterdayConsumption",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        }
+      ],
+      "categories": [
+        "energy"
+      ],
+      "roomName": "Hack 1",
+      "lastCommunicationTime": 1794913251208
+    },
+    {
+      "name": "Washing machine",
+      "id": "8b7d2a90-15c3-4f6e-b2d8-6a4e9c1f0d37",
+      "type": "plug",
+      "capabilities": [
+        {
+          "name": "",
+          "type": "instantPower",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "instantVoltage",
+          "value": 225,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "multiPower",
+          "value": [
+            {
+              "id": "1",
+              "name": "switch_1",
+              "order": 1,
+              "partnerType": "switch_1",
+              "type": "multiplugSwitch",
+              "value": "on"
+            }
+          ]
+        },
+        {
+          "name": "",
+          "type": "power",
+          "availableValues": [
+            "on",
+            "off"
+          ],
+          "value": "on"
+        },
+        {
+          "name": "",
+          "type": "additionalEnergyConsumption",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "instantCurrent",
+          "value": 0,
+          "min": 0,
+          "max": 30000
+        },
+        {
+          "name": "",
+          "type": "todayConsumption",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        },
+        {
+          "name": "",
+          "type": "yesterdayConsumption",
+          "value": 0,
+          "min": 0,
+          "max": 50000
+        }
+      ],
+      "categories": [
+        "energy"
+      ],
+      "roomName": "Hack 1",
+      "lastCommunicationTime": 1794913255731
+    },
+    {
+      "name": "Thermostat",
+      "id": "5d2e8f1a-9c47-4b3d-8e65-0f7a1c2b9d48",
+      "type": "thermostat",
+      "capabilities": [
+        {
+          "name": "",
+          "type": "temperatureValue",
+          "value": 19.4,
+          "min": -50,
+          "max": 60
+        },
+        {
+          "name": "",
+          "type": "targetTemperature",
+          "value": 16.0,
+          "min": 5,
+          "max": 30,
+          "step": 0.5
+        },
+        {
+          "name": "",
+          "type": "heatingState",
+          "availableValues": [
+            "on",
+            "off"
+          ],
+          "value": "off"
+        },
+        {
+          "name": "",
+          "type": "mode",
+          "availableValues": [
+            "heat",
+            "eco",
+            "off"
+          ],
+          "value": "heat"
+        }
+      ],
+      "categories": [
+        "climate"
+      ],
+      "roomName": "Hack 1",
+      "lastCommunicationTime": 1794913260114
+    },
+    {
+      "name": "Router",
+      "id": "c81f4e07-6a2d-4b95-9d3c-7e1b0a5f2c66",
+      "type": "router",
+      "capabilities": [
+        {
+          "name": "",
+          "type": "connectedClients",
+          "value": []
+        }
+      ],
+      "categories": [
+        "network"
+      ],
+      "roomName": "Hack 1",
+      "lastCommunicationTime": 1794913262950
+    }
   ]
 }
