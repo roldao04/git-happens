@@ -64,7 +64,7 @@ def ingest(snaps: Iterable[Snapshot], store: Store, *, stale_ms: int, gap_ms: in
         if today != day:
             day, day_first, day_count = today, ts, 0
         day_count += 1
-        state = normalize(home)
+        state = normalize(home, prev)  # with prev, a phone that left reads "off" instead of being gone
         if prev is None:
             found = _initial(state, ts) + initially_stale(state, ts, stale_ms)
         else:

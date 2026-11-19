@@ -23,5 +23,60 @@ class NormalizeTest(unittest.TestCase):
         self.assertEqual(types[HOME_SECURITY], "security")
 
 
+def router(*clients, comm=5):
+    """A home with only the router (docs/demo-plan.md, C1), its clients as (id, name, known) or dicts."""
+    value = [c if isinstance(c, dict) else {"id": c[0], "name": c[1], "kind": "phone", "known": c[2]}
+             for c in clients]
+    return {"devices": [{"id": "rt-1", "name": "Router", "type": "router", "lastCommunicationTime": comm,
+                         "capabilities": [{"type": "connectedClients", "value": value}]}]}
+
+
+ANA = ("c-8f3a", "Ana's phone", True)
+GUEST = ("c-91d0", "", False)
+
+
+class RouterTest(unittest.TestCase):
+    def test_one_reading_per_phone_and_a_count_of_guests(self):
+        state = normalize(router(ANA, GUEST, ("c-55b4", "", False)))
+        ana = state[("c-8f3a", "connected")]
+        self.assertEqual((ana.value, ana.device, ana.device_type, ana.comm_ts), ("on", "Ana's phone", "phone", 5))
+        self.assertEqual(state[("c-91d0", "connected")].device, "Guest phone")
+        guests = state[("rt-1", "guestPhones")]
+        self.assertEqual((guests.value, guests.device_type), (2, "router"))
+        self.assertNotIn(("rt-1", "connectedClients"), state)  # the raw list is not a reading
+
+    def test_only_phones_count(self):
+        laptop = {"id": "c-0e19", "name": "Laptop", "kind": "laptop", "known": False}
+        state = normalize(router(ANA, laptop))
+        self.assertNotIn(("c-0e19", "connected"), state)
+        self.assertEqual(state[("rt-1", "guestPhones")].value, 0)
+
+    def test_no_one_home_is_zero_guests(self):
+        state = normalize(router())
+        self.assertEqual(list(state), [("rt-1", "guestPhones")])
+        self.assertEqual(state[("rt-1", "guestPhones")].value, 0)
+
+    def test_a_phone_that_left_reads_off_given_the_state_before(self):
+        before = normalize(router(ANA, GUEST))
+        after = normalize(router(GUEST, comm=9), before)
+        self.assertEqual(after[("c-8f3a", "connected")].value, "off")
+        self.assertEqual(after[("c-8f3a", "connected")].device, "Ana's phone")
+        self.assertEqual(after[("c-8f3a", "connected")].comm_ts, 9)  # heard through the router, now
+        again = normalize(router(ANA, comm=12), after)
+        self.assertEqual((again[("c-8f3a", "connected")].value, again[("c-91d0", "connected")].value), ("on", "off"))
+
+    def test_without_the_state_before_a_phone_that_left_is_simply_not_there(self):
+        self.assertNotIn(("c-8f3a", "connected"), normalize(router(GUEST)))
+
+    def test_demo_fixture_reads_in_the_contract_shapes(self):
+        line = (Path(__file__).parent / "fixtures" / "demo-snapshots.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+        state = normalize(json.loads(line)["home"])
+        self.assertEqual(state[("th-1", "targetTemperature")].value, 16.0)
+        self.assertEqual(state[("th-1", "heatingState")].device_type, "thermostat")
+        self.assertEqual(sorted(r.device for r in state.values() if r.device_type == "plug" and
+                                r.capability == "instantPower"), ["Kettle", "TV", "Washing machine"])
+        self.assertEqual(state[("c-8f3a", "connected")].value, "on")
+
+
 if __name__ == "__main__":
     unittest.main()
