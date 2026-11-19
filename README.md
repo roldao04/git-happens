@@ -30,6 +30,7 @@ Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimag
 | [`docs/event-loop.md`](docs/event-loop.md) | The built loop: polling, triggers, the agent, ingest and the learners, how to run and test it |
 | [`docs/simulator.md`](docs/simulator.md) | The simulator: how to generate a household's history, the presets, the real house |
 | [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; how to connect |
+| [`docs/phone-api.md`](docs/phone-api.md) | The phone app's API (`--api` on the loop): devices, status, skip / undo, chat, voice |
 | [`docs/reference/hardware-list.md`](docs/reference/hardware-list.md) | The physical kit and its **safety rules** |
 
 **Hackathon**
@@ -72,6 +73,7 @@ uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/
 uv run python -m source.learn.happenings data/sim/rosa/        # what it found
 uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recording.json --household rosa   # that run, for the dashboard
 cd dashboard && npm install && npm run dev                      # jury dashboard: plays back dashboard/public/recording.json
+cd mobile-interaction-interface && npm install && npm run demo    # the phone app on the demo house (no kit); npm run home: your home, look-only
 ```
 ## The demo: learned rhythms that run the house
 The plan is [`docs/demo-plan.md`](docs/demo-plan.md): the demo house (two people with phones, a thermostat, three plugs, Friday gatherings) learns its own rhythms over 60 days, and on the moment days Alfred wakes its LLM from what it learned and heats ahead of them.
@@ -101,6 +103,7 @@ deliverables/           report, executive summary, slides (+ organiser templates
 assets/                 logo and images
 console/                live device page (debugging)
 dashboard/              jury dashboard (React + Vite): plays back a recorded simulated run (dashboard/README.md)
+mobile-interaction-interface/   the phone app (React + Vite): chat, voice, status, device controls (its README.md)
 tools/                  connected_home_auth.py (OAuth helper used by .mcp.json), extract_smart_home_a.py (builds the real-house data)
 source/                 event loop: poll the MCP, diff, store, triggers, agent (LangGraph + stub), logs, show
   learn/                learners: kinds, links, habits, sensor storage (docs/learners.md)

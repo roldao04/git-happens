@@ -1,0 +1,174 @@
+/* Alfred components. Every colour, font and size comes from tokens.css. */
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:400 14px/20px var(--font-sans);-webkit-font-smoothing:antialiased}
+.al-pad{padding:var(--space-4)}
+.al-tnum{font-variant-numeric:tabular-nums}
+.al-muted{color:var(--muted)}
+.al-label{font:600 11px/16px var(--font-sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.al-row{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.al-mark{display:block;flex:none}
+
+/* App header */
+.al-header{display:flex;align-items:center;gap:var(--space-4);padding:var(--space-3) var(--space-6);background:var(--surface);border-bottom:1px solid var(--line)}
+.al-brand{display:flex;align-items:center;gap:10px;color:var(--text);text-decoration:none}
+.al-brand .al-word{font:600 22px/1 var(--font-display);letter-spacing:-.005em}
+.al-header .al-spacer{flex:1}
+
+/* Panel */
+.al-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-6)}
+.al-panel>h2{margin:0 0 var(--space-4);font:600 24px/30px var(--font-display);color:var(--text)}
+.al-panel>h2 small{display:block;margin-top:4px;font:400 14px/20px var(--font-sans);color:var(--muted)}
+
+/* Buttons */
+.al-btn{font:500 14px/20px var(--font-sans);color:var(--text);background:var(--surface-raised);border:1px solid var(--line-strong);border-radius:var(--radius-md);padding:7px var(--space-3);cursor:pointer}
+.al-btn:hover{border-color:var(--accent)}
+.al-btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.al-btn.quiet{background:none;border-color:transparent;color:var(--muted)}
+.al-btn.quiet:hover{color:var(--text)}
+.al-btn:focus-visible,.al-focus:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Status pill: the word always carries the meaning; the marker shape repeats it */
+.al-pill{display:inline-flex;align-items:center;gap:6px;padding:2px 10px 2px 8px;border-radius:var(--radius-pill);background:var(--surface-raised);font:500 12px/18px var(--font-sans);color:var(--text);white-space:nowrap}
+.al-pill::before{content:"";width:7px;height:7px;flex:none;background:var(--muted);border-radius:50%}
+.al-pill.ok{color:var(--ok)}.al-pill.ok::before{background:var(--ok)}
+.al-pill.warn{color:var(--warn)}.al-pill.warn::before{background:var(--warn);border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%);width:8px;height:7px}
+.al-pill.bad{color:var(--bad)}.al-pill.bad::before{background:var(--bad);border-radius:1px}
+.al-pill.learning{color:var(--accent)}.al-pill.learning::before{background:none;box-shadow:inset 0 0 0 1.5px var(--accent)}
+
+/* Simulated clock */
+.al-clock{display:inline-grid;gap:2px;padding:var(--space-3) var(--space-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md)}
+.al-clock .al-time{font:500 32px/36px var(--font-sans);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.al-clock .al-sub{font:400 12px/16px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums}
+.al-clock.compact{display:inline-flex;align-items:baseline;gap:var(--space-2);padding:6px var(--space-3)}
+.al-clock.compact .al-time{font-size:20px;line-height:24px}
+
+/* Device tiles */
+.al-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tile-min),1fr));gap:var(--space-3)}
+.al-tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);display:grid;gap:6px;align-content:start}
+.al-tile .al-name{font:500 14px/20px var(--font-sans)}
+.al-tile .al-value{font:500 20px/24px var(--font-sans);font-variant-numeric:tabular-nums}
+.al-tile .al-value small{font:400 12px/16px var(--font-sans);color:var(--muted);margin-left:2px}
+.al-tile .al-seen{font:400 12px/16px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* Day timeline: 24 hours, the habit's usual window, each day it happened, and now */
+.al-timeline{display:grid;gap:6px}
+.al-track{position:relative;height:28px;background:var(--surface-raised);border-radius:var(--radius-sm)}
+.al-track .al-axis{position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--line-strong)}
+.al-track .al-hour{position:absolute;bottom:0;width:1px;height:6px;background:var(--line-strong)}
+.al-track .al-window{position:absolute;top:4px;bottom:4px;min-width:6px;background:color-mix(in srgb,var(--accent) 22%,transparent);box-shadow:inset 0 0 0 1.5px var(--accent);border-radius:3px}
+.al-track .al-hit{position:absolute;top:50%;width:6px;height:6px;margin:-4px 0 0 -3px;border-radius:50%;background:var(--accent)}
+.al-track .al-now{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--text);border-radius:1px}
+.al-ticks{position:relative;height:16px;font:400 11px/16px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums}
+.al-ticks span{position:absolute;transform:translateX(-50%)}
+.al-ticks span:first-child{transform:none}.al-ticks span:last-child{transform:translateX(-100%)}
+
+/* Days seen: 14 days, oldest first */
+.al-days{display:grid;grid-template-columns:repeat(14,1fr);gap:var(--space-1)}
+.al-day{height:14px;border-radius:3px;border:1.5px solid var(--line-strong)}
+.al-day.seen{background:var(--accent);border-color:var(--accent)}
+.al-day.today{outline:2px solid var(--text);outline-offset:1px}
+.al-days-caption{display:flex;justify-content:space-between;font:400 12px/16px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums;margin-top:6px}
+.al-days-caption b{font-weight:500;color:var(--text)}
+
+/* Confidence */
+.al-conf{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:var(--space-3)}
+.al-conf .al-pct{font:500 20px/24px var(--font-sans);font-variant-numeric:tabular-nums}
+.al-bar{height:6px;border-radius:var(--radius-sm);background:var(--surface-raised);box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}
+.al-bar i{display:block;height:100%;background:var(--accent);border-radius:var(--radius-sm)}
+
+/* Sensor card */
+.al-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--card-min),1fr));gap:var(--space-4);align-items:start}
+.al-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-4) var(--space-4);display:grid;gap:var(--space-3)}
+.al-card .al-top{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-2)}
+.al-card h3{margin:0;font:600 18px/24px var(--font-display)}
+.al-card h3.unnamed{color:var(--muted)}
+.al-card .al-looks{margin:2px 0 0;font:400 14px/20px var(--font-sans);color:var(--muted)}
+.al-card .al-evidence{margin:0;font:400 14px/20px var(--font-sans);color:var(--text)}
+.al-card .al-when{display:flex;align-items:baseline;gap:var(--space-2);flex-wrap:wrap}
+.al-card .al-when strong{font:500 20px/24px var(--font-sans);font-variant-numeric:tabular-nums}
+.al-card .al-when span{font:400 12px/16px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums}
+.al-card .al-foot{display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);border-top:1px solid var(--line);padding-top:var(--space-3)}
+
+/* The moment a sensor is learned: a quiet wash and a line of text, no confetti */
+.al-card.just-learned{background:var(--accent-soft);border-color:var(--accent)}
+.al-new{display:flex;align-items:center;gap:var(--space-2);font:400 12px/16px var(--font-sans);color:var(--accent);font-variant-numeric:tabular-nums}
+.al-new::before{content:"";width:14px;height:1.5px;background:var(--accent)}
+@media (prefers-reduced-motion:no-preference){
+  .al-card.just-learned{animation:al-arrive 900ms cubic-bezier(.2,.7,.2,1) both}
+  @keyframes al-arrive{from{transform:translateY(6px);border-color:var(--line)}to{transform:none;border-color:var(--accent)}}
+}
+
+/* Raw signals */
+.al-feed{display:grid;gap:2px;font:400 12px/18px var(--font-mono)}
+.al-feed div{display:grid;grid-template-columns:auto 1fr auto;gap:var(--space-3);padding:2px 0}
+.al-feed time{color:var(--muted)}
+.al-feed .v{text-align:right}
+.al-code{margin:0;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-3);font:400 12px/18px var(--font-mono);color:var(--text);overflow:auto;white-space:pre}
+
+/* Tabs: page navigation. Selected is navy with a text underline; the underline carries the contrast */
+.al-tabs{display:flex;gap:var(--space-1)}
+.al-tab{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--space-3);font:500 14px/20px var(--font-sans);color:var(--muted);text-decoration:none;border-radius:var(--radius-md) var(--radius-md) 0 0;box-shadow:inset 0 -2px 0 transparent}
+.al-tab:hover{color:var(--text)}
+.al-tab[aria-current="page"]{color:var(--text);background:var(--navy);box-shadow:inset 0 -2px 0 var(--text)}
+.al-tab:focus-visible,.al-tabbar a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[data-theme="light"] .al-tab[aria-current="page"]{color:var(--surface);box-shadow:inset 0 -2px 0 var(--surface)}
+.al-tabbar{display:grid;grid-auto-columns:minmax(0,1fr);grid-auto-flow:column;background:var(--surface);border-top:1px solid var(--line)}
+.al-tabbar a{display:grid;justify-items:center;align-content:center;gap:2px;min-height:56px;font:500 12px/16px var(--font-sans);color:var(--muted);text-decoration:none;box-shadow:inset 0 2px 0 transparent}
+.al-tabbar a svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.al-tabbar a[aria-current="page"]{color:var(--text);font-weight:600;box-shadow:inset 0 2px 0 var(--text)}
+
+/* Toggle: a switch for one device. The knob's side and the word beside it say on or off */
+.al-toggle{position:relative;width:52px;height:32px;flex:none;padding:0;border-radius:var(--radius-pill);border:1px solid var(--line-strong);background:var(--surface-raised);cursor:pointer}
+.al-toggle::before{content:"";position:absolute;inset:-7px -4px}
+.al-toggle::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:var(--muted)}
+.al-toggle[aria-checked="true"]{background:var(--navy);border-color:var(--text)}
+.al-toggle[aria-checked="true"]::after{left:23px;background:var(--text)}
+[data-theme="light"] .al-toggle[aria-checked="true"]::after{background:var(--surface)}
+.al-toggle:disabled{cursor:not-allowed;border-style:dashed}
+.al-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* List row: time, what, and a value or action, separated by hairlines */
+.al-list{display:grid;margin:0;padding:0;list-style:none}
+.al-list>li,.al-list>a{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:var(--space-4);min-height:56px;padding:var(--space-3) 0;border-top:1px solid var(--line);color:inherit;text-decoration:none}
+.al-list>:first-child{border-top:0}
+.al-list>a:hover{background:var(--surface-raised)}
+.al-list>a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.al-list.no-time>li,.al-list.no-time>a{grid-template-columns:minmax(0,1fr) auto}
+.al-list time{font:400 12px/16px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums}
+.al-list .al-what{display:grid;gap:2px;min-width:0}
+.al-list .al-what b{font:500 14px/20px var(--font-sans)}
+.al-list .al-what b.al-sensor{font:600 18px/24px var(--font-display)}
+.al-list .al-what span{font:400 12px/16px var(--font-sans);color:var(--muted)}
+.al-list .al-aside{display:flex;align-items:center;gap:var(--space-3);font:500 14px/20px var(--font-sans);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.al-list .al-aside small{font:400 12px/16px var(--font-sans);color:var(--muted)}
+
+/* Ask card: Alfred proposes one change and waits. On a phone it opens as a sheet */
+.al-ask{display:grid;gap:var(--space-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-6)}
+.al-ask h3{margin:0;font:600 24px/30px var(--font-display)}
+.al-ask p{margin:0;font:400 14px/20px var(--font-sans);color:var(--muted)}
+.al-ask .al-actions{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.al-ask .al-btn,.al-later .al-btn{min-height:44px;padding:0 var(--space-4)}
+.al-scrim{position:absolute;inset:0;background:var(--bg);opacity:.72}
+.al-ask.al-sheet{position:absolute;left:0;right:0;bottom:0;border-radius:20px 20px 0 0;border:0;border-top:1px solid var(--line-strong);padding:var(--space-3) var(--space-6) var(--space-8)}
+.al-sheet .al-grab{justify-self:center;width:40px;height:4px;border-radius:2px;background:var(--line-strong)}
+
+/* Coming later: a learner that is planned, not built. The dashed edge means "not real yet" */
+.al-later{display:grid;gap:var(--space-2);justify-items:start;padding:var(--space-6);border:1.5px dashed var(--line-strong);border-radius:var(--radius-lg)}
+.al-later h3{margin:0;font:600 18px/24px var(--font-display);color:var(--text)}
+.al-later p{margin:0;font:400 14px/20px var(--font-sans);color:var(--muted)}
+
+/* Legend: one key per mark, drawn exactly like the DayTimeline marks it explains */
+.al-legend{display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-6);font:400 12px/16px var(--font-sans);color:var(--muted)}
+.al-legend>span{display:inline-flex;align-items:center;gap:var(--space-2)}
+.al-key{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.al-key.hollow{background:none;box-shadow:inset 0 0 0 1.5px var(--accent)}
+.al-key.window{width:18px;height:12px;border-radius:3px;background:color-mix(in srgb,var(--accent) 22%,transparent);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.al-key.now{width:2px;height:14px;border-radius:1px;background:var(--text)}
+
+/* Day counter: how far along learning is, not which days a pattern was seen */
+.al-counter{display:grid;grid-template-columns:repeat(var(--al-days,14),minmax(0,1fr));gap:var(--space-1);max-width:360px}
+.al-counter i{height:8px;border-radius:2px;box-shadow:inset 0 0 0 1.5px var(--line-strong)}
+.al-counter i.done{background:var(--text);box-shadow:none}
+.al-empty{display:grid;gap:var(--space-3);justify-items:start}
+.al-empty h3{margin:0;font:600 24px/30px var(--font-display)}
+.al-empty p{margin:0;max-width:52ch;font:400 14px/20px var(--font-sans);color:var(--muted)}
