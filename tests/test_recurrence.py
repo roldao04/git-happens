@@ -8,7 +8,7 @@ from datetime import date, timedelta
 
 from source.learn import ALPHA
 from source.learn.recurrence import (describe, drift, evenly_spaced, find_recurrence, hourly_rhythm, is_on,
-                                     on_days, rhythm, weekday_shift)
+                                     on_days, rhythm, weekday_shift, weekday_windows)
 
 START = date(2026, 9, 1)  # a Tuesday
 
@@ -186,6 +186,36 @@ class TimingTest(unittest.TestCase):
         rng = random.Random(6)
         ds = days(28)
         self.assertEqual(weekday_shift(ds, [480 + rng.gauss(0, 10) for _ in ds])[1], {})
+
+    def test_windows_weekdays_and_weekend(self):
+        """Saturday and Sunday both start later, alike: one weekend window beside the weekdays'."""
+        rng = random.Random(5)
+        ds = days(42)
+        mins = [6 * 60 + 55 + (90 if d.weekday() >= 5 else 0) + rng.gauss(0, 8) for d in ds]
+        weekdays, weekend = weekday_windows(ds, mins)
+        self.assertEqual(weekdays["days"], ["mon", "tue", "wed", "thu", "fri"])
+        self.assertEqual(weekend["days"], ["sat", "sun"])
+        self.assertTrue(weekdays["earliest"] <= weekdays["usual"] <= weekdays["latest"] < weekend["earliest"])
+        self.assertLess(abs(int(weekend["usual"][:2]) * 60 + int(weekend["usual"][3:]) - (8 * 60 + 25)), 8)
+
+    def test_windows_one_day_stands_out(self):
+        """João: home about 19:30, on Tuesdays 21:00; a weekday rhythm keeps its own days."""
+        rng = random.Random(8)
+        ds = [d for d in days(42) if d.weekday() < 5 and d.weekday() != 2]  # at home on Wednesdays
+        mins = [(21 * 60 if d.weekday() == 1 else 19 * 60 + 30) + rng.gauss(0, 5) for d in ds]
+        usual, tue = weekday_windows(ds, mins, ["mon", "tue", "wed", "thu", "fri"])
+        self.assertEqual(usual["days"], ["mon", "wed", "thu", "fri"])
+        self.assertEqual(tue["days"], ["tue"])
+        self.assertEqual((usual["usual"][:4], tue["usual"][:4]), ("19:3", "21:0"))
+
+    def test_windows_no_difference(self):
+        rng = random.Random(6)
+        ds = days(28)
+        mins = [480 + rng.gauss(0, 10) for _ in ds]
+        [w] = weekday_windows(ds, mins)
+        self.assertEqual(w["days"], ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+        self.assertEqual(weekday_windows(ds, mins, ["sat", "sun"])[0]["days"], ["sat", "sun"])
+        self.assertEqual(weekday_windows([], []), [])
 
     def test_drift(self):
         rng = random.Random(7)

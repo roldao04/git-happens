@@ -17,7 +17,8 @@ from pathlib import Path
 
 from source.learn import Happening, storage
 from source.learn.kinds import classify
-from source.learn.occasions import export_occasions, learn_occasions, match_now
+from source.learn.forecast import forecast
+from source.learn.occasions import export_occasions, learn_occasions, match_now, shifts_now
 from source.pipeline import run
 from source.simulate import generate
 
@@ -29,7 +30,7 @@ PLUMBER = date(2026, 9, 16)  # a burst of door openings mid-morning, nothing els
 WORKMAN = date(2026, 9, 18)  # mid-morning too, with the light and a power tool: unusual, but no party
 OCCASION_KEYS = {"id", "name", "named_by", "episodes", "fingerprint", "usual_hours", "weekdays", "confidence"}
 FINGERPRINT_KEYS = {"door_openings", "light_hours_after_21", "quiet_start", "plug_uses"}
-MATCH_KEYS = {"occasion_id", "similarity", "confidence", "since", "explains"}
+MATCH_KEYS = {"occasion_id", "similarity", "confidence", "since", "explains", "shifts"}
 
 
 def minutes(hhmm: str) -> int:
@@ -78,6 +79,33 @@ def plant_visit(db, day: date, light: bool, tool: bool) -> None:
                   "end": (base + timedelta(minutes=m + 6)).isoformat(), "size": 800.0, "peak": 820.0,
                   "device_id": dev["plug.instantPower"], "capability": "instantPower"} for m in (15, 40, 60)]
     storage.add_happenings(db, rows)
+
+
+def plant_guests(db, evening: date, shift: int, arrive: tuple, leave: tuple) -> None:
+    """Guests' phones (C2: `phone:<client id>.connected`, new ids each time, unknown to the router)
+    connect at the first arrivals and leave at the last departures; `router.guestPhones` counts them."""
+    base = datetime.combine(evening, datetime.min.time()) + timedelta(hours=19, minutes=shift)
+    n = min(len(arrive), len(leave))
+    rows = []
+    for k, (a, b) in enumerate(zip(arrive[:n], leave[-n:])):
+        client = f"g-{evening.day}-{k}"
+        db.execute("INSERT OR IGNORE INTO devices (device_id, type, name, first_ts) VALUES (?, 'phone', '', 0)", (client,))
+        rows.append({"signal": f"phone:{client}.connected", "start": (base + timedelta(minutes=a + 1)).isoformat(),
+                     "end": (base + timedelta(minutes=b - 1)).isoformat(), "value": "on", "device_id": client,
+                     "capability": "connected"})
+    rows.append({"signal": "router.guestPhones", "start": (base + timedelta(minutes=arrive[0] + 1)).isoformat(),
+                 "end": (base + timedelta(minutes=leave[-1] - 1)).isoformat(), "size": n - 1, "peak": n,
+                 "device_id": "rt-1", "capability": "guestPhones"})
+    storage.add_happenings(db, rows)
+
+
+def late_morning(db, day: date, minutes: int = 90) -> None:
+    """Everything people did between 04:30 and 10:00 on `day` happens `minutes` later (the morning after)."""
+    lo = storage.to_ms(datetime.combine(day, datetime.min.time()) + timedelta(hours=4, minutes=30))
+    hi = storage.to_ms(datetime.combine(day, datetime.min.time()) + timedelta(hours=10))
+    db.execute("UPDATE happenings SET start_ms = start_ms + ?, end_ms = end_ms + ? WHERE start_ms >= ? AND start_ms < ?"
+               " AND capability NOT IN ('temperatureValue', 'humidityValue')", (minutes * 60_000, minutes * 60_000, lo, hi))
+    db.commit()
 
 
 def replay(db, live: dict[date, list[datetime]]) -> tuple[dict, dict, dict]:
@@ -222,6 +250,63 @@ class OccasionsTest(unittest.TestCase):
                    (storage.to_ms(datetime(2026, 9, 21, 18)), storage.to_ms(datetime(2026, 9, 21, 19))))
         [m] = [m for m in match_now(db, FOURTH) if m["occasion_id"] == "occasion-1"]
         self.assertGreaterEqual(m["confidence"], 0.75, m)
+
+    def test_no_shifts_when_the_mornings_are_as_usual(self):
+        for at in (FOURTH, FOURTH + timedelta(hours=1, minutes=20)):
+            [m] = [m for m in self.live[at] if m["occasion_id"] == "occasion-1"]
+            self.assertEqual(m["shifts"], [])
+
+    def test_the_morning_after_is_later(self):
+        """C5: past parties' next mornings were 90 min late, so the live match says tomorrow's will be."""
+        db = self.copy()
+        for p in PARTIES:
+            late_morning(db, p + timedelta(days=1))
+        [m] = [m for m in match_now(db, FOURTH) if m["occasion_id"] == "occasion-1"]
+        [shift] = m["shifts"]
+        self.assertEqual(set(shift), {"habit_id", "date", "minutes"})
+        self.assertEqual(shift["date"], "2026-09-22")
+        self.assertTrue(75 <= shift["minutes"] <= 105, shift)
+        waking = next(json.loads(d) for (d,) in db.execute("SELECT data FROM habits WHERE id = ?", (shift["habit_id"],)))
+        self.assertTrue(abs(minutes(waking["window"]["usual"]) - minutes("07:45")) <= 30, waking["window"])
+
+        # C6: the forecast made now moves tomorrow's waking up, and says from when
+        [f] = [f for f in forecast(db, FOURTH) if f["habit_id"] == shift["habit_id"]]
+        self.assertEqual(f["shifted"]["minutes"], shift["minutes"])
+        self.assertEqual(minutes(f["expected"]) - minutes(f["shifted"]["before"]["expected"]), shift["minutes"])
+
+    def test_the_morning_after_still_knows(self):
+        """At 07:00 the day after the third party, the stretch under way is ordinary, yet the party of
+        the night before (matched at its last minute) still moves this morning's waking up."""
+        db = self.copy()
+        for p in PARTIES[:2]:
+            late_morning(db, p + timedelta(days=1))
+        morning = datetime.combine(PARTIES[2] + timedelta(days=1), datetime.min.time()) + timedelta(hours=7)
+        moves = [s for s in shifts_now(db, morning) if s["occasion_id"] == "occasion-1"]
+        self.assertEqual([s["date"] for s in moves], [morning.date().isoformat()])
+        self.assertTrue(75 <= moves[0]["minutes"] <= 105, moves)
+        [f] = [f for f in forecast(db, morning, hours=6) if f["habit_id"] == moves[0]["habit_id"]]
+        self.assertIn("shifted", f)
+
+    def test_guests_phones(self):
+        """C5: guests' phones are a count like door openings, and the fingerprint keeps the most at once."""
+        db = self.copy()
+        plant_guests(db, PARTIES[0], 0, (5, 20, 40, 65, 80), (280, 305, 325, 340, 355))
+        plant_guests(db, PARTIES[1], 10, (5, 25, 45, 70), (275, 300, 330, 350, 360, 365))
+        plant_guests(db, PARTIES[2], -5, (8, 22, 35, 60, 75, 90), (290, 310, 335, 345))
+        plant_guests(db, FOURTH.date(), 5, (5, 20, 40, 65, 80), (280, 305, 325, 340, 355))
+        for day in DAYS[DAYS.index(PARTIES[0]) + 1:]:
+            learn_occasions(db, day)
+        out = export_occasions(db)
+        party = next(o for o in out["occasions"] if o["id"] == "occasion-1")
+        self.assertEqual(party["episodes"], 3)
+        self.assertEqual(party["fingerprint"]["guest_phones"], 4)  # 5, 4 and 4 at once: the median
+        prints = sorted(e["features"]["fingerprint"]["guest_phones"] for e in out["episodes"]
+                        if e["occasion_id"] == "occasion-1")
+        self.assertEqual(prints, [4, 4, 5])
+        self.assertTrue(all(e["features"]["fingerprint"]["guest_phones"] == 0 for e in out["episodes"]
+                            if e["occasion_id"] != "occasion-1"))
+        [m] = [m for m in match_now(db, FOURTH - timedelta(hours=1)) if m["occasion_id"] == "occasion-1"]
+        self.assertGreaterEqual(m["confidence"], 0.5, m)  # 21:30: guests, doors and the lamp
 
     def test_missing_tables_give_empty_results(self):
         db = sqlite3.connect(":memory:")

@@ -7,6 +7,7 @@ import importlib.util
 import json
 import sqlite3
 import unittest
+from unittest import mock
 from datetime import date, datetime, time, timedelta
 
 from source.learn.forecast import MAX_DRIFT_MIN, PRIOR_DAYS, _rhythm, forecast, upcoming
@@ -213,6 +214,51 @@ class ForecastTest(unittest.TestCase):
             mine = _rhythm(rec, anchor)
             for d in (FIRST + timedelta(days=i) for i in range(150)):
                 self.assertEqual(mine.kind_of(d) is not None, is_on(rec, d), f"{rec['text']} on {d}")
+
+    def test_weekday_windows(self):
+        """A habit with `windows` (C3) takes the day's own usual time and window: João home about 19:30,
+        on Tuesdays 21:00."""
+        h = habit(kind="weekly", weekdays=["mon", "tue", "wed", "thu", "fri"], text="every weekday",
+                  usual="19:30", earliest="19:15", latest="21:15", by_weekday={"tue": 90})
+        h["windows"] = [{"days": ["mon", "wed", "thu", "fri"], "usual": "19:30", "earliest": "19:15", "latest": "19:45"},
+                        {"days": ["tue"], "usual": "21:00", "earliest": "20:45", "latest": "21:15"}]
+        db = make_db(h)
+        (tue,) = forecast(db, datetime(2026, 9, 22, 12))
+        self.assertEqual((tue["expected"], tue["window"]), ("21:00", ["20:45", "21:15"]))
+        self.assertIn("about 90 min later than usual", tue["basis"])
+        (wed,) = forecast(db, datetime(2026, 9, 23, 12))
+        self.assertEqual((wed["expected"], wed["window"]), ("19:30", ["19:15", "19:45"]))
+        self.assertNotIn("shifted", wed)
+
+    def shifted_db(self, minutes=90, confidence=0.75):
+        """A daily habit, and an occasion that moves it tomorrow (occasions.shifts_now, faked)."""
+        db = make_db(habit(), three_weeks(weekend_shift=0))
+        db.execute("CREATE TABLE occasions (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+        db.execute("INSERT INTO occasions VALUES ('occasion-1', '{}')")
+        moves = [{"occasion_id": "occasion-1", "confidence": confidence, "habit_id": "habit-1",
+                  "date": "2026-09-22", "minutes": minutes}]
+        patch = mock.patch("source.learn.occasions.shifts_now", return_value=moves)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return db
+
+    def test_shifted_by_an_occasion(self):
+        """C6: the expected time and window move; `shifted` keeps what they were."""
+        db = self.shifted_db()
+        (tue,) = forecast(db, datetime(2026, 9, 21, 22))
+        self.assertEqual((tue["expected"], tue["window"]), ("09:29", ["09:03", "09:57"]))
+        self.assertEqual(tue["shifted"], {"occasion_id": "occasion-1", "minutes": 90,
+                                          "before": {"expected": "07:59", "window": ["07:33", "08:27"]}})
+        self.assertTrue(tue["basis"].endswith("about 90 min later after occasion-1"), tue["basis"])
+        (slot,) = upcoming(db, datetime(2026, 9, 22, 8, 30), hours=2)  # past its usual time, still ahead of the shifted one
+        self.assertEqual(slot.expected, datetime(2026, 9, 22, 9, 29))
+        (wed,) = forecast(db, datetime(2026, 9, 22, 22))
+        self.assertNotIn("shifted", wed)  # only the day after
+
+    def test_not_shifted_by_an_unsure_match(self):
+        (tue,) = forecast(self.shifted_db(confidence=0.4), datetime(2026, 9, 21, 22))
+        self.assertEqual(tue["expected"], "07:59")
+        self.assertNotIn("shifted", tue)
 
     def test_only_active_habits(self):
         db = make_db(habit(status="fading"), three_weeks())
