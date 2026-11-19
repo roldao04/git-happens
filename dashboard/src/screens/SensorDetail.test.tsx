@@ -55,12 +55,51 @@ test("at the end it shows the run's days seen", () => {
   expect(screen.getByText("seen on 16 of 19 days")).toBeInTheDocument();
 });
 
-test("a named sensor shows its name and what it looks like", () => {
-  const named = sensorNow({ sensor: sensor({ name: "Morning tea", explanation: "making tea" }), daysSoFar: 1 });
+const named = sensorNow({
+  sensor: sensor({
+    name: "Waking up",
+    explanation: "Around 8am, the night's quiet ends when someone turns on the light.",
+    means: "Someone in the household is waking up.",
+    if_missing: "Could indicate sleeping in or being away.",
+  }),
+  daysSoFar: 1,
+});
+const showNamed = () =>
   render(<SensorDetail rec={recording({ sensors: [named.sensor] })} state={state({ cards: [named] })} playback={playback()} id="pattern-2" />);
-  expect(screen.getByRole("heading", { level: 1, name: "Morning tea" })).not.toHaveClass("unnamed");
-  expect(screen.getByText("Looks like making tea")).toBeInTheDocument();
+
+test("a named sensor shows its name and the namer's sentence as written", () => {
+  showNamed();
+  expect(screen.getByRole("heading", { level: 1, name: "Waking up" })).not.toHaveClass("unnamed");
+  expect(screen.getByText("Around 8am, the night's quiet ends when someone turns on the light.")).toBeInTheDocument();
+  expect(screen.queryByText(/^Looks like/)).toBeNull();
   expect(screen.getByText("seen on 1 day so far")).toBeInTheDocument();
+});
+
+test("a named sensor drops the short clue under its title, which How Alfred found it already gives", () => {
+  showNamed();
+  expect(screen.queryByText("lamp on, about 43 min, then plug about 2,100 W, about 3 min")).toBeNull();
+  expect(screen.getByRole("heading", { name: "How Alfred found it" })).toBeInTheDocument();
+});
+
+test("a named sensor says what it means and what it could mean if it doesn't happen", () => {
+  showNamed();
+  const meaning = screen.getByRole("region", { name: "What it means" });
+  expect(meaning).toHaveTextContent("Someone in the household is waking up.");
+  expect(screen.getByRole("region", { name: "If it doesn't happen" })).toHaveTextContent("Could indicate sleeping in or being away.");
+});
+
+test("a named sensor says the name is Alfred's guess and asking the household comes later", () => {
+  showNamed();
+  expect(screen.queryByRole("heading", { name: "Naming comes later" })).toBeNull();
+  const later = screen.getByRole("heading", { name: "Asking the household comes later" }).closest(".later");
+  expect(later).toHaveTextContent("Alfred guessed this name; it will ask the household and use their word.");
+});
+
+test("a named sensor without notes leaves those sections out", () => {
+  const bare = sensorNow({ sensor: sensor({ name: "Waking up" }) });
+  render(<SensorDetail rec={recording({ sensors: [bare.sensor] })} state={state({ cards: [bare] })} playback={playback()} id="pattern-2" />);
+  expect(screen.queryByRole("region", { name: "What it means" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "If it doesn't happen" })).toBeNull();
 });
 
 test("a fading sensor says so on its page", () => {

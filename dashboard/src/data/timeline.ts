@@ -10,7 +10,14 @@ export interface Unwatched { start: number; end: number }
 export interface Lane { device: Device; spans: Span[] }
 export interface Signal { at: number; device: Device; capability: string; value: Value }
 export interface Entry { at: number; end: number | null; sensor: Sensor; weak: boolean; signals: Signal[] }
-export interface DayView { day: number; dayStart: number; dayEnd: number; upTo: number; lanes: Lane[]; entries: Entry[]; gaps: Unwatched[] }
+export interface Point { at: number; value: number }
+export interface Measure { label: string; unit: string; low: number; high: number; points: Point[] }
+export interface DayView { day: number; dayStart: number; dayEnd: number; upTo: number; lanes: Lane[]; measures: Measure[]; entries: Entry[]; gaps: Unwatched[] }
+
+const MEASURES = [
+  { capability: "temperatureValue", label: "Temperature", unit: "°C" },
+  { capability: "humidityValue", label: "Humidity", unit: "%" },
+] as const;
 
 function clampDay(day: number, last: number): number {
   if (!Number.isFinite(day)) return last;
@@ -114,6 +121,46 @@ function spansOf(rec: Recording, device: Device, switches: Switch[], dayStart: n
     .map((s) => ({ ...s, start: Math.max(s.start, dayStart) }));
 }
 
+export interface Scale { min: number; max: number; ticks: number[] }
+
+const SCALE_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100];
+const EPSILON = 1e-9;
+const tidy = (n: number) => Math.round(n * 1000) / 1000;
+
+export function scaleFor(low: number, high: number): Scale {
+  const [from, to] = low === high ? [low - 0.5, high + 0.5] : [low, high];
+  for (const step of SCALE_STEPS) {
+    const first = Math.floor(from / step + EPSILON);
+    const last = Math.ceil(to / step - EPSILON);
+    if (last - first > 4) continue;
+    const ticks = Array.from({ length: last - first + 1 }, (_, i) => tidy((first + i) * step));
+    return { min: tidy(first * step), max: tidy(last * step), ticks };
+  }
+  return { min: from, max: to, ticks: [from, to] };
+}
+
+function measuresOf(rec: Recording, dayStart: number, upTo: number): Measure[] {
+  const sensors = new Set(rec.devices.filter((d) => d.type === "temperatureSensor").map((d) => d.id));
+  return MEASURES.flatMap(({ capability, label, unit }) => {
+    let before: number | null = null;
+    for (const v of rec.initial) if (sensors.has(v.device_id) && v.capability === capability && typeof v.value === "number") before = v.value;
+    const points: Point[] = [];
+    for (const e of rec.events) {
+      if (!sensors.has(e.device_id) || e.capability !== capability || typeof e.value !== "number") continue;
+      const at = toMs(e.ts);
+      if (at > upTo) break;
+      if (at < dayStart) before = e.value;
+      else points.push({ at, value: e.value });
+    }
+    if (before !== null && points[0]?.at !== dayStart) points.unshift({ at: dayStart, value: before });
+    const last = points[points.length - 1];
+    if (last === undefined) return [];
+    if (last.at < upTo) points.push({ at: upTo, value: last.value });
+    const values = points.map((p) => p.value);
+    return [{ label, unit, low: Math.min(...values), high: Math.max(...values), points }];
+  });
+}
+
 export function dayView(rec: Recording, state: StateAt, dayWanted: number): DayView {
   const day = clampDay(dayWanted, state.day);
   const dayStart = state.startMs - (state.startMs % DAY_MS) + (day - 1) * DAY_MS;
@@ -145,7 +192,7 @@ export function dayView(rec: Recording, state: StateAt, dayWanted: number): DayV
     .map((g) => ({ start: toMs(g.start), end: toMs(g.end) }))
     .filter((g) => g.end > dayStart && g.start < upTo)
     .map((g) => ({ start: Math.max(g.start, dayStart), end: Math.min(g.end, upTo) }));
-  return { day, dayStart, dayEnd, upTo, lanes, entries, gaps };
+  return { day, dayStart, dayEnd, upTo, lanes, measures: measuresOf(rec, dayStart, upTo), entries, gaps };
 }
 
 export interface Zoom { start: number; end: number }

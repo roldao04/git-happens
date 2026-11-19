@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { recording, sensor } from "../test/fixtures";
 import type { DeviceEvent, Recording } from "./recording";
 import { DAY_MS, stateAt } from "./stateAt";
-import { dayView, ticksFor, timeAt, zoomBetween } from "./timeline";
+import { dayView, scaleFor, ticksFor, timeAt, zoomBetween } from "./timeline";
 
 const D1 = Date.UTC(2026, 8, 1);
 const at = (day: number, hhmm: string) => {
@@ -206,4 +206,49 @@ test("a point on the chart is a time in the window, to the minute", () => {
 test("a drag zooms to the stretch it covers, either way round, unless it is under five minutes", () => {
   expect(zoomBetween(at(1, "12:30"), at(1, "11:30"))).toEqual({ start: at(1, "11:30"), end: at(1, "12:30") });
   expect(zoomBetween(at(1, "12:00"), at(1, "12:04"))).toBeNull();
+});
+
+test("temperature and humidity are followed from the value at midnight to now, apart from the lanes", () => {
+  const r = rec({
+    initial: [{ device_id: "temp", capability: "temperatureValue", value: 19 }],
+    events: [
+      ev("temp", "temperatureValue", 18.5, at(2, "03:00")),
+      ev("temp", "humidityValue", 60, at(2, "05:00")),
+      ev("temp", "temperatureValue", 21, at(2, "08:08")),
+      ev("temp", "temperatureValue", 25, at(2, "21:00")),
+    ],
+  });
+  const view = dayView(r, stateAt(r, at(2, "20:00")), 2);
+  expect(view.lanes.map((l) => l.device.id)).toEqual(["lamp", "door", "plug"]);
+  expect(view.measures).toEqual([
+    {
+      label: "Temperature", unit: "°C", low: 18.5, high: 21,
+      points: [
+        { at: at(2, "00:00"), value: 19 },
+        { at: at(2, "03:00"), value: 18.5 },
+        { at: at(2, "08:08"), value: 21 },
+        { at: at(2, "20:00"), value: 21 },
+      ],
+    },
+    { label: "Humidity", unit: "%", low: 60, high: 60, points: [{ at: at(2, "05:00"), value: 60 }, { at: at(2, "20:00"), value: 60 }] },
+  ]);
+});
+
+test("a measure with no reading yet is left out, and a home without the sensor has none", () => {
+  const r = rec({ initial: [], events: [ev("temp", "temperatureValue", 21, at(2, "08:08"))] });
+  expect(dayView(r, stateAt(r, at(2, "20:00")), 2).measures.map((m) => m.label)).toEqual(["Temperature"]);
+  expect(dayView(r, stateAt(r, at(2, "07:00")), 2).measures).toEqual([]);
+  const none = rec({ devices: devices.filter((d) => d.id !== "temp") });
+  expect(dayView(none, stateAt(none, at(2, "20:00")), 2).measures).toEqual([]);
+});
+
+test("a scale runs between round numbers around the day's values, in at most four steps", () => {
+  expect(scaleFor(19.2, 21.9)).toEqual({ min: 19, max: 22, ticks: [19, 20, 21, 22] });
+  expect(scaleFor(51.7, 58.3)).toEqual({ min: 50, max: 60, ticks: [50, 55, 60] });
+  expect(scaleFor(18.4, 21.2)).toEqual({ min: 18, max: 22, ticks: [18, 19, 20, 21, 22] });
+  expect(scaleFor(20.1, 20.3)).toEqual({ min: 20.1, max: 20.3, ticks: [20.1, 20.2, 20.3] });
+});
+
+test("a value that stayed the same all day sits in the middle of its scale", () => {
+  expect(scaleFor(60, 60)).toEqual({ min: 59.5, max: 60.5, ticks: [59.5, 60, 60.5] });
 });

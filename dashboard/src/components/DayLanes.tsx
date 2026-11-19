@@ -77,13 +77,9 @@ export function DayLanes({ view, zoom, onZoom }: Props) {
           <span className="lane-l">{device.name}</span>
           <div className="lane-r">
             {grid}
-            {spans.filter((s) => inView(s.start, s.end)).map((s) =>
-              device.type === "contactSensor" ? (
-                <span key={s.start} className="tick" style={{ left: pct(s.start) }} />
-              ) : (
-                <span key={s.start} className="bar" style={{ left: pct(s.start), width: width(s.start, s.end ?? upTo), ...lit(s.color) }} />
-              ),
-            )}
+            {spans.filter((s) => inView(s.start, s.end)).map((s) => (
+              <span key={s.start} className={device.type === "contactSensor" ? "bar door" : "bar"} style={{ left: pct(s.start), width: width(s.start, s.end ?? upTo), ...lit(s.color) }} />
+            ))}
             {shade}
             {later}
             {now}
