@@ -126,6 +126,7 @@ a.lt-row:hover .nm{text-decoration:underline;text-underline-offset:3px}
 .sim-toggle{display:inline-flex;align-items:center;gap:var(--space-2);padding:0 var(--space-3);border:0;border-radius:999px;background:none;color:var(--text);font:500 16px/22px var(--font-sans);font-variant-numeric:tabular-nums;cursor:pointer}
 .sim .al-btn,.sim-toggle{min-height:44px;min-width:44px}
 .sim-pill .al-btn{border-radius:999px}
+.real-badge{position:fixed;right:var(--space-6);bottom:var(--space-6);z-index:4;margin:0;padding:var(--space-2) var(--space-4);background:var(--surface);border:1px solid var(--line-strong);border-radius:999px;color:var(--text);font:500 16px/22px var(--font-sans);font-variant-numeric:tabular-nums}
 .sim-panel{display:grid;gap:var(--space-3);width:min(420px,calc(100vw - 32px));box-sizing:border-box;padding:var(--space-4);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-lg);box-shadow:0 6px 20px color-mix(in srgb,var(--text) 14%,transparent)}
 .sim-panel>.al-row{justify-content:space-between}
 .scr:has(.sim) .pg{padding-bottom:128px}
@@ -156,6 +157,7 @@ a.lt-row:hover .nm{text-decoration:underline;text-underline-offset:3px}
   .home{grid-template-columns:minmax(0,1fr);gap:32px}
   .alfred-note{padding:var(--space-4)}
   .sim{right:var(--space-4);bottom:calc(var(--tabbar-h) + var(--space-3))}
+  .real-badge{right:var(--space-4);bottom:calc(var(--tabbar-h) + var(--space-3))}
   .scr:has(.sim) .pg{padding-bottom:96px}
 }
 

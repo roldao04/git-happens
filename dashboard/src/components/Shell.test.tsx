@@ -18,3 +18,8 @@ test("the page content goes in main", () => {
   render(<Shell state={state()} playback={playback()} tab="home" simulated><p>page</p></Shell>);
   expect(within(screen.getByRole("main")).getByText("page")).toBeInTheDocument();
 });
+
+test("a real home says when its last reading came in", () => {
+  render(<Shell state={state()} playback={playback()} tab="home" simulated={false}><p>page</p></Shell>);
+  expect(screen.getByText("Real home · last reading 08:12")).toBeInTheDocument();
+});

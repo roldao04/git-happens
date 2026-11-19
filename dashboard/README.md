@@ -1,6 +1,6 @@
 # Alfred dashboard
 
-The jury dashboard. It plays back one recorded run of a simulated home: the devices, what they do, and each habit Alfred learns, day by day. Nothing here talks to the kit or the MCP; it only reads `recording.json`.
+The jury dashboard. It plays back one recorded run of a simulated home: the devices, what they do, and each habit Alfred learns, day by day. Nothing here talks to the kit or the MCP; it only reads `recording.json`, or `live.json` when watching the real home.
 
 Spec: [`docs/superpowers/specs/2026-11-17-dashboard-design.md`](../docs/superpowers/specs/2026-11-17-dashboard-design.md).
 
@@ -41,6 +41,17 @@ uv run python -m source.pipeline --household rosa --days 21 --out data/sim/rosa/
 ```
 
 Camera motion is left out. `src/data/mock.test.ts` checks this file (21 days, ten sensors, five strong enough for a card), so update it when the run changes.
+
+## Watch the real home
+
+Open the page with `?live` (for example `http://localhost:5173/?live` with `npm run dev`; for a build, write to `dist/live.json` instead, since `public/` is copied only at build time). It reads `public/live.json` instead, refreshes it every 5 seconds, and always shows the latest reading, with no playback controls. If a refresh fails, the page keeps the last good reading and logs why in the console. From the repo root, in two terminals:
+
+```
+uv run python -m source --stub    # read-only: polls the kit, appending to data/recording.jsonl
+uv run python -m source.recording --snapshots data/recording.jsonl --real --every 5 --out dashboard/public/live.json
+```
+
+`live.json` is real kit data, so it is gitignored.
 
 ## Design system
 

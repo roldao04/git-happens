@@ -40,6 +40,7 @@ test.each([
   ".house-temp",
   ".alfred-note p",
   ".alfred-note .sign",
+  ".real-badge",
 ])("%s is readable from the back of a room", (selector) => {
   expect(fontSize(selector)).toBeGreaterThanOrEqual(16);
 });
@@ -96,6 +97,11 @@ test("on a phone the three tabs become a bar fixed to the bottom", () => {
 
 test("on a phone the pill sits just above the tab bar", () => {
   expect(phone).toMatch(/\.sim\{[^}]*bottom:calc\(var\(--tabbar-h\)/);
+});
+
+test("the real-home badge sits where the pill would, above the tab bar on a phone", () => {
+  expect(css).toMatch(/(^|\n)\.real-badge\{[^}]*position:fixed[^}]*right:[^}]*bottom:/);
+  expect(phone).toMatch(/\.real-badge\{[^}]*bottom:calc\(var\(--tabbar-h\)/);
 });
 
 test("on a phone the lanes chart is left out", () => {

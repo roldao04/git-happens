@@ -65,12 +65,13 @@ export function playback(over: Partial<Playback> = {}): Playback {
 
 export function recording(over: Partial<Recording> = {}): Recording {
   return {
-    meta: { household: "rosa", simulated: true, start: "2026-09-01T00:00:00", end: "2026-09-21T23:59:59", days: 21 },
+    meta: { household: "rosa", simulated: true, start: "2026-09-01T00:00:00", end: "2026-09-21T23:59:59", days: 21, updated: null },
     devices: [],
     initial: [],
     events: [],
     sensors: [],
     readings: [],
+    gaps: [],
     ...over,
   };
 }

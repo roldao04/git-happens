@@ -23,9 +23,25 @@ function TimelineRoute(props: { rec: Recording; state: StateAt; playback: Playba
   return <Timeline {...props} day={day === undefined ? props.state.day : Number(day)} />;
 }
 
+const still = () => undefined;
+
+function fixedAt(t: number): Playback {
+  return { t, playing: false, speed: 1, play: still, pause: still, toggle: still, setSpeed: still, jumpToDay: still, jumpToEnd: still };
+}
+
+function LivePlayer({ rec }: { rec: Recording }) {
+  const playback = useMemo(() => fixedAt(toMs(rec.meta.updated ?? rec.meta.end)), [rec]);
+  const state = useMemo(() => stateAt(rec, playback.t, holdFor(1, false)), [rec, playback]);
+  return <Pages rec={rec} state={state} playback={playback} />;
+}
+
 function Player({ rec }: { rec: Recording }) {
   const playback = usePlayback(toMs(rec.meta.start), toMs(rec.meta.end));
   const state = useMemo(() => stateAt(rec, playback.t, holdFor(playback.speed, playback.playing)), [rec, playback.t, playback.speed, playback.playing]);
+  return <Pages rec={rec} state={state} playback={playback} />;
+}
+
+function Pages({ rec, state, playback }: { rec: Recording; state: StateAt; playback: Playback }) {
   return (
     <HashRouter>
       <Routes>
@@ -40,23 +56,39 @@ function Player({ rec }: { rec: Recording }) {
   );
 }
 
-export default function App({ load = loadRecording }: { load?: () => Promise<Recording> }) {
+interface AppProps { load?: () => Promise<Recording>; live?: boolean; refreshMs?: number }
+
+export default function App({ load = loadRecording, live = false, refreshMs = 5000 }: AppProps) {
   const [loaded, setLoaded] = useState<Loaded>(null);
+  const file = live ? "live.json" : "recording.json";
   useEffect(() => {
-    let live = true;
-    load().then(
-      (rec) => live && setLoaded({ rec }),
-      (e: unknown) => {
-        console.error("loading recording.json failed", e);
-        if (live) setLoaded({ error: e instanceof Error ? e.message : String(e) });
-      },
-    );
+    let mounted = true;
+    let shown = false;
+    const fetchOnce = () =>
+      load().then(
+        (rec) => {
+          if (!mounted) return;
+          shown = true;
+          setLoaded({ rec });
+        },
+        (e: unknown) => {
+          if (shown) {
+            console.error(`refreshing ${file} failed`, e);
+            return;
+          }
+          console.error(`loading ${file} failed`, e);
+          if (mounted) setLoaded({ error: e instanceof Error ? e.message : String(e) });
+        },
+      );
+    void fetchOnce();
+    const timer = live ? window.setInterval(() => void fetchOnce(), refreshMs) : undefined;
     return () => {
-      live = false;
+      mounted = false;
+      window.clearInterval(timer);
     };
-  }, [load]);
+  }, [load, live, refreshMs, file]);
 
   if (loaded === null) return <main className="stage"><p role="status">Loading the recording…</p></main>;
   if ("error" in loaded) return <main className="stage"><p role="alert">{`Could not show the recording: ${loaded.error}`}</p></main>;
-  return <Player rec={loaded.rec} />;
+  return live ? <LivePlayer rec={loaded.rec} /> : <Player rec={loaded.rec} />;
 }
