@@ -1,8 +1,12 @@
-"""The event loop: poll → normalize → diff → store → anticipation → triggers → (maybe) agent.
+"""The event loop: poll → normalize → diff → store → anticipation → triggers + learned wakes →
+(maybe) agent → its proposals as decisions.
 
 See docs/event-loop.md. Anticipation (docs/anticipation.md) plans Alfred's own decisions ahead
-of the learned habits and runs the due ones, before the triggers. Later steps (action ledger +
-expectation checker, attribution) slot in between diff and triggers.
+of the learned habits and runs the due ones, before the triggers. Learned wakes
+(source/wake.py) wake the agent from what was learned (a habit soon, an arrival, a missing
+habit, an occasion); its proposals become decisions with a confidence set by code, and the due
+"do" ones run in the same tick. Later steps (action ledger + expectation checker, attribution)
+slot in between diff and triggers.
 """
 import asyncio
 import logging
@@ -21,10 +25,10 @@ from .triggers import Triggers, missing_fresh
 log = logging.getLogger("source.loop")
 
 try:  # anticipation must never stop the loop, not even by failing to import
-    from . import anticipate
+    from . import anticipate, wake
     from .learn import to_local
 except Exception:
-    anticipate = None
+    anticipate = wake = None
     log.exception("anticipation unavailable: the loop runs without it")
 
 PLAN_EVERY_MS = 5 * 60_000  # the plan is redone this often; due decisions are checked every tick
@@ -111,6 +115,8 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
                 log.exception("rule   %s actions failed", r.trigger_id, extra={"data": {"trigger_id": r.trigger_id}})
         reasons = [r for r in fired if triggers.triggers[r.trigger_id].wake_agent]
         rules = [r.trigger_id for r in fired if r not in reasons]
+        if wake is not None:
+            reasons += _learned(store, now, state)
         log.info("tick %d @ %s: %d readings, %d events, %s%s (%.1fs)",
                  ticks, _hhmmss(now), len(state), len(events),
                  "wake: " + ", ".join(r.trigger_id for r in reasons) if reasons else "no wake",
@@ -127,6 +133,9 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
             except Exception:  # a broken agent must never stop the loop
                 log.exception("agent run failed")
                 out = {"error": "agent run failed"}
+            if anticipate is not None and out.get("proposals"):
+                out["decisions"] = await _proposals(store, now, out["proposals"], actuator, types, fresh,
+                                                    state, readback_delay_s)
             store.log_agent_run(now, ctx["reasons"], ctx, out)
             triggers.apply_updates(out.get("trigger_updates", []))
             last_run_ms = now
@@ -158,6 +167,33 @@ async def _anticipate(store: Store, now: int, last_plan_ms: int | None, actuator
     except Exception:
         log.exception("anticipation failed this tick")
     return last_plan_ms
+
+
+def _learned(store: Store, now: int, state: State) -> list:
+    """The learned wakes due now (source/wake.py). Never raises."""
+    try:
+        return wake.learned_wakes(store.db, to_local(now), state)
+    except Exception:
+        log.exception("learned wakes failed this tick")
+        return []
+
+
+async def _proposals(store: Store, now: int, proposals: list, actuator: Actuator, types: dict[str, str],
+                     fresh: dict[str, list[str]], state: State, readback_delay_s: float) -> list[dict]:
+    """The agent's proposals as decisions (code sets the confidence), then the due "do" ones run
+    now, through the guard. Returns the decisions as they ended this tick. Never raises."""
+    try:
+        local = to_local(now)
+        decided = anticipate.decide(store.db, local, proposals)
+        ran = {r["decision"]["id"]: r for r in await anticipate.run_due(
+            store.db, local, actuator, types, fresh, state=state, readback_delay_s=readback_delay_s)}
+        for r in ran.values():
+            if r["actions"]:
+                store.log_rule_run(now, f"decision:{r['decision']['id']}", r["actions"])
+        return [ran[d["id"]]["decision"] if d["id"] in ran else d for d in decided]
+    except Exception:
+        log.exception("proposals failed this tick")
+        return []
 
 
 def _hhmmss(ms: int) -> str:

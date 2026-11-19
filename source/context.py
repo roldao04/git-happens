@@ -21,6 +21,7 @@ MAX_FORECAST = 30  # the context goes to the LLM on every wake: keep it short
 MAX_DECISIONS = 30
 MAX_OCCASIONS = 5
 NAMER_FIELDS = ("means", "if_missing", "importance")  # the namer's card, kept for the agent's reasoning
+HABIT_EXTRAS = ("person", "windows")  # whose habit it is, and its weekday windows (docs/demo-plan.md C3)
 
 
 def _iso(ms: int) -> str:
@@ -47,7 +48,7 @@ def build_context(now_ms: int, reasons: list[WakeReason], state: State, store: S
     def line(e):
         return f"{_iso(e.ts)} {e.describe()}"
 
-    return {
+    out = {
         "now": _iso(now_ms),
         "reasons": [r.to_dict() for r in reasons],
         "rules_just_ran": rules_ran or [],
@@ -56,6 +57,23 @@ def build_context(now_ms: int, reasons: list[WakeReason], state: State, store: S
         "timeline_today": [line(e) for e in today][-500:],
         "baselines": baselines(store.db, now_ms),
     }
+    home = _guarded(_home, state, default=None)
+    if home:
+        out["home"] = home
+    return out
+
+
+def _home(state: State) -> dict | None:
+    """Who is home (known phones, guests' phones) and the heating, when the home has a router
+    or a thermostat (source/wake.py reads them the same way); None otherwise."""
+    fn = _optional("source.wake", "home_now")
+    if fn is None:
+        return None
+    h = fn(state)
+    if not (h.get("thermostat") or h.get("phones_home") or h.get("guest_phones")
+            or any(r.capability in ("connectedClients", "connected") for r in state.values())):
+        return None
+    return h
 
 
 def baselines(db, now_ms: int) -> dict:
@@ -74,7 +92,19 @@ def baselines(db, now_ms: int) -> dict:
            "forecast": _guarded(_forecast, db, now, names, default=[]),
            "occasion_now": _guarded(_occasion_now, db, now, default=[]),
            "decisions": _guarded(_decisions, db, now, default=[])}
-    return out if any(out.values()) else {}
+    if not any(out.values()):
+        return {}
+    warm = _guarded(_warmup, db, now, default=None)
+    if warm:
+        out["warmup"] = warm
+    return out
+
+
+def _warmup(db, now: datetime) -> dict | None:
+    """How fast the heating warms the house (source/learn/warmup.py, C4), once measured."""
+    fn = _optional("source.learn.warmup", "warmup")
+    got = fn(db, now) if fn else None
+    return got if isinstance(got, dict) and got.get("samples") else None
 
 
 # ---------- the pieces ----------
@@ -99,7 +129,7 @@ def _habits(db, now: datetime) -> tuple[list[dict], dict[str, str]]:
                  "today": st.get("status") or st.get("today") or "unknown"}
         if st.get("at"):
             entry["at"] = st["at"]
-        entry.update({k: h[k] for k in NAMER_FIELDS if h.get(k)})
+        entry.update({k: h[k] for k in NAMER_FIELDS + HABIT_EXTRAS if h.get(k)})
         out.append(entry)
     return out, names
 

@@ -7,6 +7,7 @@ import copy
 import json
 import tempfile
 import unittest
+from datetime import timedelta
 from unittest import mock
 from pathlib import Path
 
@@ -319,6 +320,110 @@ class LoopTest(unittest.TestCase):
             ticks = [r for r in records if r.get("data", {}).get("tick")]
             self.assertEqual(len(ticks), 31)
             self.assertTrue((Path(tmp) / "logs" / "loop.log").read_text())
+
+
+class ProposingAgent:
+    """Answers each learned wake (a reason with a key) with one proposal: the thermostat to 19 °C now."""
+
+    def __init__(self, doubt=0.0):
+        self.runs, self.doubt = [], doubt
+
+    async def run(self, ctx):
+        self.runs.append(ctx)
+        proposals = [{"action": {"tool": "update_device_capabilities", "target": "thermostat",
+                                 "args": {"body": {"type": "targetTemperature", "value": 19}}},
+                      "at": ctx["now"], "reason": "Ana usually gets home soon; the house needs warming.",
+                      "doubt": self.doubt, "wake": r["key"]} for r in ctx["reasons"] if r.get("key")]
+        return {"notes": "", "trigger_updates": [], "actions": [], "proposals": proposals}
+
+
+class ThermostatActuator:
+    """The MCP tools over the thermostat; it reports after each write."""
+
+    def __init__(self):
+        self.target, self.ts, self.writes = 16.0, T0, []
+
+    async def call(self, tool, args):
+        if tool == "update_device_capabilities":
+            self.writes.append(args)
+            self.target, self.ts = args["body"]["value"], self.ts + 1000
+            return "{}"
+        return json.dumps({"lastCommunicationTime": self.ts,
+                           "capabilities": [{"type": "targetTemperature", "value": self.target}]})
+
+
+class LearnedWakeLoopTest(unittest.TestCase):
+    """C8–C9 end to end: a habit soon wakes the agent, its proposal becomes a decision, the guard runs it."""
+
+    def setUp(self):
+        from tests.test_anticipate import part
+        self.enterContext(part("source.learn.occasions"))
+        self.enterContext(part("source.learn.grouping"))
+        self.enterContext(part("source.learn.warmup", warmup=lambda db, now: {"samples": 9, "rate_c_per_h": 5.0},
+                               lead_minutes=lambda db, now, a, b: 25.0))
+
+    def replay(self, agent, ticks=3):
+        from source.learn import forecast as forecast_module
+        from source.learn import to_local
+        from tests.test_anticipate import HABIT_TABLES, habit
+
+        local = to_local(T0)
+        expected = local + timedelta(minutes=28)
+        fc = [{"habit_id": "habit-4", "date": expected.date().isoformat(), "probability": 0.9,
+               "expected": expected.strftime("%H:%M"), "window": ["00:00", "23:59"], "confidence": 0.8, "basis": "b"}]
+        home = copy.deepcopy(FIXTURE)
+        home["devices"] += [
+            {"id": "th-1", "name": "Thermostat", "type": "thermostat", "capabilities": [
+                {"type": "temperatureValue", "value": 17.5},
+                {"type": "targetTemperature", "value": 16.0, "min": 5, "max": 30, "step": 0.5},
+                {"type": "heatingState", "availableValues": ["on", "off"], "value": "off"},
+                {"type": "mode", "availableValues": ["heat", "eco", "off"], "value": "heat"}]},
+            {"id": "rt-1", "name": "Router", "type": "router", "capabilities": [{"type": "connectedClients", "value": []}]}]
+        frames = []
+        for i in range(ticks):
+            ts = T0 + i * STEP
+            _fresh(home, ts)
+            frames.append({"ts": ts, "home": copy.deepcopy(home)})
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        rec = Path(tmp.name) / "rec.jsonl"
+        rec.write_text("\n".join(json.dumps(f) for f in frames))
+        store = Store(Path(tmp.name) / "data", record=False)
+        self.addCleanup(store.close)
+        store.db.executescript(HABIT_TABLES)
+        h = habit("habit-4", "Ana gets home", [("pattern-9", 0, 1.0)], expected.strftime("%H:%M"),
+                  confidence=0.9, occurrences=40)
+        store.db.execute("INSERT INTO habits VALUES ('habit-4', 'active', ?)", (json.dumps(h),))
+        store.db.commit()
+        actuator = ThermostatActuator()
+        with mock.patch.object(forecast_module, "forecast", lambda db, now, hours=24: fc):
+            asyncio.run(run(ReplaySource(rec), store, Triggers(seed_triggers(15)), agent,
+                            poll_seconds=20, stale_minutes=60, actuator=actuator))
+        return store, actuator
+
+    def test_habit_soon_heats_ahead(self):
+        agent = ProposingAgent()
+        store, actuator = self.replay(agent)
+        (ctx,) = [c for c in agent.runs if any(r.get("key") for r in c["reasons"])]  # once per occurrence
+        r = next(r for r in ctx["reasons"] if r.get("key"))
+        self.assertEqual(r["kind"], "habit_soon")
+        self.assertEqual(r["data"]["lead_minutes"], 25.0)
+        self.assertEqual(ctx["home"]["target_c"], 16.0)
+        self.assertEqual(actuator.writes, [{"deviceId": "th-1", "body": {"type": "targetTemperature", "value": 19}}])
+        self.assertEqual([tid for _, tid, _ in store.rule_runs()], ["decision:decision-1"])
+        (out,) = [json.loads(o) for (o,) in store.db.execute("SELECT output FROM agent_runs")
+                  if json.loads(o).get("decisions")]
+        (d,) = out["decisions"]
+        self.assertEqual((d["kind"], d["mode"], d["status"], d["wake"]), ("llm", "do", "done", r["key"]))
+        self.assertAlmostEqual(d["confidence"], round(0.9 * 0.9 * 40 / 41, 2))
+
+    def test_doubt_makes_it_a_suggestion(self):
+        agent = ProposingAgent(doubt=0.5)
+        store, actuator = self.replay(agent)
+        self.assertEqual(actuator.writes, [])
+        (out,) = [json.loads(o) for (o,) in store.db.execute("SELECT output FROM agent_runs")
+                  if json.loads(o).get("decisions")]
+        self.assertEqual((out["decisions"][0]["mode"], out["decisions"][0]["status"]), ("suggest", "planned"))
 
 
 if __name__ == "__main__":

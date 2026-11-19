@@ -3,8 +3,11 @@
   uv run python -m unittest discover -s tests -t . -v
 """
 import json
+import os
+import tempfile
 import unittest
 from typing import Any
+from unittest import mock
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
@@ -12,6 +15,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import ToolException, tool
 
 from source.agent import REPORT_ASK, LangGraphAgent, parse_report
+from source.llm_cache import CacheMiss
 
 BULB, PLUG = "bulb-1", "plug-1"
 CTX = {
@@ -35,6 +39,8 @@ class ScriptedModel(BaseChatModel):
     script: list[Any]
     step: int = 0
     seen: list[Any] = []
+    calls: int = 0
+    report: str = 'Here: {"notes": "report-notes", "trigger_updates": []}'
 
     @property
     def _llm_type(self) -> str:
@@ -42,8 +48,9 @@ class ScriptedModel(BaseChatModel):
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
         self.seen = list(messages)
+        self.calls += 1
         if messages[-1].content == REPORT_ASK:  # the report step: answer it, don't consume the script
-            msg = AIMessage(content='Here: {"notes": "report-notes", "trigger_updates": []}')
+            msg = AIMessage(content=self.report)
             return ChatResult(generations=[ChatGeneration(message=msg)])
         msg = self.script[min(self.step, len(self.script) - 1)]
         self.step += 1
@@ -203,13 +210,77 @@ class AgentTest(unittest.IsolatedAsyncioTestCase):
         self.assertLess(len(house.calls), 10)
 
 
+PROPOSAL = {"action": {"tool": "update_device_capabilities", "target": "thermostat",
+                       "args": {"body": {"type": "targetTemperature", "value": 21}}},
+            "at": "2026-11-19T18:15:00", "reason": "Ana usually gets home at 18:40 on Thursdays.",
+            "doubt": 0.0, "wake": "habit_soon:habit-4:2026-11-19"}
+REPORT_WITH_PROPOSAL = json.dumps({"notes": "warming up for Ana", "trigger_updates": [], "proposals": [PROPOSAL]})
+
+
+class NamedModel(ScriptedModel):
+    model_name: str = "test/scripted"  # a model with a name goes through the reply cache
+
+
+class ProposalsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_proposals_come_back_for_code_to_judge(self):
+        model = ScriptedModel(script=[AIMessage(content="Ana is due soon")], report=REPORT_WITH_PROPOSAL)
+        out = await LangGraphAgent(model, tools_provider=None).run(CTX)
+        self.assertEqual(out["proposals"], [PROPOSAL])
+        self.assertEqual(out["actions"], [])
+
+    async def test_the_llm_cannot_write_the_thermostat_itself(self):
+        house = FakeHouse()
+        ctx = {**CTX, "state": {**CTX["state"], "th-1": {"name": "Thermostat", "type": "thermostat", "fresh": True}}}
+        model = ScriptedModel(script=[call("update_device_capabilities",
+                                           {"deviceId": "th-1", "body": {"type": "targetTemperature", "value": 21}},
+                                           "c1"), AIMessage(content="done")])
+        out = await agent(model, house).run(ctx)
+        self.assertNotIn("update", house.calls)
+        self.assertIn("proposal", out["actions"][0]["result"])
+
+    async def test_cached_replies_replay_without_the_model(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"ALFRED_LLM_CACHE_DIR": tmp}):
+            os.environ.pop("ALFRED_LLM_CACHE", None)
+            first = NamedModel(script=[AIMessage(content="Ana is due soon")], report=REPORT_WITH_PROPOSAL)
+            out1 = await LangGraphAgent(first, tools_provider=None).run(CTX)
+            self.assertEqual(first.calls, 2)  # the agent step and the report
+
+            os.environ["ALFRED_LLM_CACHE"] = "only"  # the demo: no network
+            again = NamedModel(script=[AIMessage(content="something else")], report="{}")
+            out2 = await LangGraphAgent(again, tools_provider=None).run(CTX)
+            self.assertEqual(again.calls, 0)
+            self.assertEqual((out2["notes"], out2["proposals"]), (out1["notes"], out1["proposals"]))
+
+            other = {**CTX, "now": "2026-11-17T10:05:00"}  # a question never asked: fails instead of calling
+            with self.assertRaises(CacheMiss):
+                await LangGraphAgent(again, tools_provider=None).run(other)
+
+    async def test_fake_models_without_a_name_are_never_cached(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"ALFRED_LLM_CACHE_DIR": tmp,
+                                                                               "ALFRED_LLM_CACHE": "only"}):
+            model = ScriptedModel(script=[AIMessage(content="ok")])
+            await LangGraphAgent(model, tools_provider=None).run(CTX)
+            self.assertEqual(model.calls, 2)
+            self.assertEqual(os.listdir(tmp), [])
+
+
 class ParseReportTest(unittest.TestCase):
     def test_json_inside_text(self):
         r = parse_report('Sure. {"notes": "all fine", "trigger_updates": []}')
         self.assertEqual(r.notes, "all fine")
+        self.assertEqual(r.proposals, [])
 
     def test_not_json_becomes_notes(self):
         self.assertEqual(parse_report("The plug is on.").notes, "The plug is on.")
+
+    def test_proposals(self):
+        r = parse_report(f"Report: {REPORT_WITH_PROPOSAL}")
+        self.assertEqual(r.proposals, [PROPOSAL])
+
+    def test_odd_proposals_left_out(self):
+        r = parse_report(json.dumps({"notes": "n", "proposals": [PROPOSAL, "heat it", 3]}))
+        self.assertEqual(r.proposals, [PROPOSAL])
+        self.assertEqual(parse_report(json.dumps({"notes": "n", "proposals": "heat it"})).proposals, [])
 
 
 if __name__ == "__main__":
