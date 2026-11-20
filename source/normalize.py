@@ -11,7 +11,7 @@ IGNORED = {
 }
 
 # The router's list of connected devices becomes one on/off reading per phone plus a count of guests'
-# phones (docs/demo-plan.md, C2). The raw list itself is not a reading.
+# phones (docs/contracts.md, C2). The raw list itself is not a reading.
 CLIENTS = "connectedClients"
 PHONE = "phone"  # device type of a phone; its device id is the router's client id
 CONNECTED = "connected"  # "on" while connected, "off" once a phone seen before has left

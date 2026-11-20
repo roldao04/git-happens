@@ -1,4 +1,4 @@
-"""Learned wakes (source/wake.py, docs/demo-plan.md C8): habit soon, arrival, departure, a missing
+"""Learned wakes (source/wake.py, docs/contracts.md C8): habit soon, arrival, departure, a missing
 habit, an occasion; each once per key.
 
 Hand-written habits (C3 shape: `person`, `windows`), forecast entries, occasion matches and a

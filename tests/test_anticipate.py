@@ -1,7 +1,7 @@
 """Anticipation (source/anticipate.py): decisions ahead of habits and because of occasions, the
 0.75 rule, running them through the guard, the loop and the agent's context.
 
-Hand-made rows in the shapes of docs/habits-plan.md; the habits and occasions learners are
+Hand-made rows in the shapes of docs/contracts.md; the habits and occasions learners are
 built separately, so their modules are stood in for (or made missing) here. No network.
 
   uv run python -m unittest tests.test_anticipate -v

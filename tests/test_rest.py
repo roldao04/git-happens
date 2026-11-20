@@ -1,4 +1,4 @@
-"""Rest finder: each signal's resting state or level, learned from time held (starting-plan part 3)."""
+"""Rest finder: each signal's resting state or level, learned from time held (docs/contracts.md part 3)."""
 import contextlib
 import io
 import tempfile

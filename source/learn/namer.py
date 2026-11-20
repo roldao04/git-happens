@@ -1,4 +1,4 @@
-"""Part 7, the namer: names what the learners found and says what it means (docs/starting-plan.md).
+"""Part 7, the namer: names what the learners found and says what it means (docs/contracts.md).
 
 The learners know *that* something recurs, never *what* it is. Three things get names, each in one call per
 run (so the LLM sees them side by side and can spot repeats):

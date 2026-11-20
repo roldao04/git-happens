@@ -1,4 +1,4 @@
-"""The warm-up (source/learn/warmup.py, C4 in docs/demo-plan.md), on a hand-made thermostat: the
+"""The warm-up (source/learn/warmup.py, C4 in docs/contracts.md), on a hand-made thermostat: the
 heating's stretches as happenings (`thermostat.heatingState` on) and the room temperature it reported
 as events, as the pipeline stores them.
 

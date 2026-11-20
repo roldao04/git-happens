@@ -1,4 +1,4 @@
-"""Cached LLM replies, for an instant and repeatable demo (docs/demo-plan.md C10).
+"""Cached LLM replies, for an instant and repeatable demo (docs/contracts.md C10).
 
   cached(kind, payload, call) -> str
 

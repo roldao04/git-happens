@@ -1,4 +1,4 @@
-"""Warm-up: how fast the heating warms the house, and how fast the house cools (C4 in docs/demo-plan.md).
+"""Warm-up: how fast the heating warms the house, and how fast the house cools (C4 in docs/contracts.md).
 
   uv run python -m source.learn.warmup --db data/sim/demo/home.sqlite3 --at 2026-11-19T18:00
 

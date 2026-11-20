@@ -24,7 +24,7 @@ class NormalizeTest(unittest.TestCase):
 
 
 def router(*clients, comm=5):
-    """A home with only the router (docs/demo-plan.md, C1), its clients as (id, name, known) or dicts."""
+    """A home with only the router (docs/contracts.md, C1), its clients as (id, name, known) or dicts."""
     value = [c if isinstance(c, dict) else {"id": c[0], "name": c[1], "kind": "phone", "known": c[2]}
              for c in clients]
     return {"devices": [{"id": "rt-1", "name": "Router", "type": "router", "lastCommunicationTime": comm,

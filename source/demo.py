@@ -1,4 +1,4 @@
-"""The demo, pre-computed (docs/demo-plan.md, part F): one command, then every moment opens at once.
+"""The demo, pre-computed (TECHNICAL.md, results on the demo house): one command, then every moment opens at once.
 
   uv run python -m source.demo --household demo                  # 60 days, then Alfred on the moment days
   ALFRED_LLM_CACHE=only uv run python -m source.simulate --serve   # the visualizer, with no network

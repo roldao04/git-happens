@@ -41,7 +41,7 @@ class ContextTest(unittest.TestCase):
         self.assertEqual(ctx["baselines"], {})
 
     def test_who_is_home_and_the_heating(self):
-        """docs/demo-plan.md C1/C8: known phones, guests' phones, room and target temperature."""
+        """docs/contracts.md C1/C8: known phones, guests' phones, room and target temperature."""
         self.assertNotIn("home", build_context(LIVE_TS, [], normalize(LIVE), self.store, None, STALE_MS))
         home = copy.deepcopy(LIVE)
         home["devices"] += [

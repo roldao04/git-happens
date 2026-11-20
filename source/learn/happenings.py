@@ -1,4 +1,4 @@
-"""Happenings: each time a signal leaves its rest and comes back (docs/starting-plan.md, part 4).
+"""Happenings: each time a signal leaves its rest and comes back (docs/contracts.md, part 4).
 
 A happening starts at the first observed stretch that isn't at rest and ends where the signal is back at
 rest. Consecutive stretches away from rest are one happening (a kettle wobbling 2,100 → 2,108 → 2,095 W).

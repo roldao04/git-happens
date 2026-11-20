@@ -533,7 +533,7 @@ def _hm(t: dict) -> str:
 
 
 class DemoHouseTest(unittest.TestCase):
-    """The demo house (docs/demo-plan.md, C1, C7 and C12): Ana and João and their phones, guests, a thermostat they
+    """The demo house (docs/contracts.md, C1, C7 and C12): Ana and João and their phones, guests, a thermostat they
     set and a room that answers it, three named plugs, and an answer key in the words of the planted column."""
 
     @classmethod

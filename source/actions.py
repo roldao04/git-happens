@@ -75,7 +75,7 @@ async def run_actions(actuator: Actuator, trigger_id: str, actions: list[dict],
 
 
 def slug(name: str) -> str:
-    """"Washing machine" → "washing-machine", as in the signal names (docs/demo-plan.md C2)."""
+    """"Washing machine" → "washing-machine", as in the signal names (docs/contracts.md C2)."""
     return re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")
 
 

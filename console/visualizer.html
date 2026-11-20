@@ -1776,7 +1776,7 @@ $('tabs').addEventListener('keydown', (e) => {  // arrows, Home and End move bet
 });
 
 // --- what Alfred knows (GET /knowledge): a page to read, plain sentences first and numbers second ---------
-const ACT = 0.75;  // from this confidence Alfred acts; below it, it only suggests (docs/habits-plan.md)
+const ACT = 0.75;  // from this confidence Alfred acts; below it, it only suggests (TECHNICAL.md)
 const WEEK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
 const PART_NAMES = { habits: 'The habit learner', occasions: 'The occasion learner', forecast: 'The forecast', decisions: 'Anticipation',
@@ -1898,7 +1898,7 @@ function stepsList(x, k) {
   })) : null;
 }
 
-// A habit's weekday windows (docs/demo-plan.md, C3), when the days differ: "weekdays 06:55–07:30 · weekends 08:20–09:10".
+// A habit's weekday windows (docs/contracts.md, C3), when the days differ: "weekdays 06:55–07:30 · weekends 08:20–09:10".
 function windowsText(x) {
   const ws = (Array.isArray(x.windows) ? x.windows : []).filter((w) => w && (w.usual || w.earliest));
   if (ws.length < 2) return '';
