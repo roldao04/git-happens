@@ -1,6 +1,6 @@
 # Alfred: business model
 
-> **In short.** Alfred is sold through Altice as an add-on to the Connected Home offer: no new hardware, no new app. Families get **one month free** while Alfred learns them, then about **€4 a month**. When the trial ends Alfred keeps learning but stops acting on its own, so people notice what was automatic. Because the LLM is called only on learned events, it costs **cents to a few dollars per home per month**.
+> **In short.** Alfred is sold through Altice as an add-on to the Connected Home offer: no new hardware, no new app. Families get **one month free** while Alfred learns them, then about **€4 a month**. Because the LLM is called only when something happens, it costs **under €1 per home per month** at launch.
 
 ## Go-to-market
 | Phase | Who | What |
@@ -24,43 +24,35 @@
 
 One month is enough to feel it: the house is already warm when you get home.
 
-**Conversion: you notice it when it stops.** After the trial, Alfred doesn't disappear. It drops from *doing* to *suggesting*: "I would have warmed the house at 17:55." What was automatic becomes manual again, and that is the reason to pay.
-
-| | Free, after the trial | Paid |
-|---|---|---|
-| Learns habits and occasions | ✓ | ✓ |
-| Shows the plan and suggests | ✓ | ✓ |
-| Acts ahead of habits (heating, light) | – | ✓ |
-| Chat and voice | limited | ✓ |
+**Conversion: the month sells it.** Before the trial ends, Alfred shows what it did for the household: how many times the house was warm when someone got home, the routines it handled, and how often people needed to step in. The choice to subscribe is made on a month of real comfort, not on a promise.
 
 **How we know it works:**
 - **Activation:** days to the first habit.
 - **Value:** actions per week, and how warm the room is at each arrival.
 - **Trust:** how often people undo or skip Alfred; it should fall week by week.
 - **Conversion:** trial → paid within a week of the trial ending.
-- **Cost:** LLM calls per home per day.
+- **Cost:** tokens and € per home per day, logged from the pilot.
 
 ## The LLM: cheap by design
-Each LLM call reads about 12k tokens and writes about 1k, as measured on our prototype. What matters is **how often** it is called.
+Alfred calls the LLM only when something happens in the home, about **15 times a day**; quiet moments need none. Each time it reads about 25k tokens and writes about 1k, as estimated on our prototype.
 
-| Calls per home per day | Frontier model | Small model | Open model, EU-hosted |
+| Option | Per home per month | The home's data goes to | Best for |
 |---|---|---|---|
-| ~110 (on every 15-min check) | ≈ $104 / month | ≈ $35 | ≈ $10 |
-| ~10 (on every learned event) | ≈ $9.5 | ≈ $3.2 | ≈ $0.9 |
-| **~3 (only when something is ambiguous)** | **≈ $2.8** | **≈ $0.95** | **≈ $0.3** |
+| Frontier model, mid-tier | €16 | the model provider | the pilot; naming habits |
+| **Small model** | **€0.80** | the model provider | routine decisions and chat at launch |
+| Open model, EU-hosted | €2.30 | a provider in the EU | a data-residency requirement |
+| Self-hosted at Altice Labs | €0.35–0.70 | nobody outside Altice Labs | thousands of homes; data sovereignty |
+| Self-hosted at home | €30 (the box) | nobody: it never leaves the house | a premium, fully private tier |
+| No LLM | €0 | nobody | outages, or homes that opt out of AI |
 
-| Option | Privacy | Quality | Fits when |
-|---|---|---|---|
-| Frontier hosted | Data goes to the provider | Best judgement and language | The pilot; chat |
-| Small hosted | Same | Good for structured proposals | Routine decisions |
-| Open model, EU-hosted | Stays in the EU | Enough with the guard's checks | Launch at scale |
-| Self-hosted at Altice | Never leaves Altice | As open models | Thousands of homes, or a data-sovereignty requirement |
-| No LLM | Best | Same actions, fixed sentences, no chat | The free tier; outages |
+**Why self-host.**
+- What Alfred sends the model is a diary of the home: who is in, when they sleep, when the house is empty.
+- One GPU server at Altice Labs (€1,350 a month) serves about 4,000 homes and costs less than the small model from about 2,000 homes, but it needs a team to run it.
+- A box at home also keeps Alfred working without internet.
+- Open models are weaker than hosted ones. The guard's checks keep them safe, and the pilot has to prove their quality.
 
 **Recommendation:**
-1. Call the LLM **only when something is ambiguous**: chat, a party, a missing routine. Routine actions that code is already sure of need no LLM.
-2. **Pilot on a frontier model** to learn what good looks like.
-3. **Launch on a small or EU-hosted open model**, keeping the LLM under 15% of the price.
-4. **Move to self-hosting** when volume or data sovereignty justifies the GPUs.
+1. **Pilot on a mid-tier frontier model** (€16 per home) to learn what good looks like.
+2. **Launch on a small model** (€0.80, a fifth of the €4 price). Keep the frontier model for the nightly habit naming if quality needs it (under €1 more).
+3. **Self-host at Altice Labs** from a few thousand homes: it costs less and the data stays in-house. Offer *at home* as a premium option.
 
-*Assumptions to validate: the €4 price, in a €3–5 range (SFR's full security service is €14.99); the trial length; token counts per call; list prices of $3/$15, $1/$5 and $0.2/$0.6 per million input/output tokens, with the fixed prompt cached.*
