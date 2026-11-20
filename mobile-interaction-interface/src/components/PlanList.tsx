@@ -5,7 +5,7 @@ import { hhmm } from "../words";
 /** Alfred's planned "do" decisions, each with Skip (or Undo once skipped). */
 export function PlanList({ items, now, onEvent }: { items: PlanItem[]; now: string; onEvent?: (text: string) => void }) {
   const { skip, unskip } = useHome();
-  if (!items.length) return <p className="why">Nothing else planned today.</p>;
+  if (!items.length) return <p className="why">Nothing else expected today.</p>;
   const today = now.slice(0, 10);
   return (
     <ul className="pl">

@@ -208,3 +208,11 @@ test("an alert already shown isn't shown again after a reload", async () => {
   await screen.findByText(/so I switched/);
   expect(screen.getAllByText(ALERT.text)).toHaveLength(1);
 });
+
+test("the Expected today chip shows what Alfred will do, each with Skip", async () => {
+  app();
+  await screen.findByText(/so I switched/);
+  await userEvent.click(screen.getByRole("button", { name: "Expected today" }));
+  expect(await screen.findByRole("button", { name: "Skip Evening" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Today’s plan" })).not.toBeInTheDocument();
+});
