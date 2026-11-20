@@ -267,3 +267,43 @@ class ParseCardsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExpectationsTest(unittest.TestCase):
+    """The namer sees what a habit expects (source/learn/expectations.py) and may quiet one."""
+
+    EXPECTS = [{"device_id": "contact-1", "device": "Living-room window", "device_type": "contactSensor",
+                "capability": "sensorState", "value": "normal", "agree": 6, "of": 6}]
+
+    def setUp(self):
+        from source.learn import grouping
+        self.db = sqlite3.connect(":memory:")
+        self.addCleanup(self.db.close)
+        storage.init(self.db)
+        self.db.executescript(grouping.SCHEMA)
+        habit = {"id": "habit-1", "name": None, "named_by": None, "status": "active", "patterns": [], "steps": [],
+                 "expects": self.EXPECTS}
+        self.db.execute("INSERT INTO habits (id, status, data) VALUES ('habit-1', 'active', ?)", (json.dumps(habit),))
+
+    def habit(self) -> dict:
+        return json.loads(self.db.execute("SELECT data FROM habits").fetchone()[0])
+
+    def reply(self, quiet) -> str:
+        return json.dumps({"cards": [{"id": "habit-1", "name": "Night", "importance": "high", "quiet": quiet}]})
+
+    def test_habit_facts_show_expectations_by_device_name(self):
+        from source.learn.namer import habit_facts
+        facts = habit_facts(self.habit(), {})
+        self.assertEqual(facts["expects"], [{"device": "Living-room window", "value": "normal", "agree": 6, "of": 6}])
+
+    def test_a_card_can_quiet_an_expectation(self):
+        name_habits(self.db, FakeModel(reply=self.reply(["Living-room window"])))
+        self.assertEqual(self.habit()["quiet_expects"], ["Living-room window"])
+
+    def test_quiet_names_not_in_the_habit_are_dropped(self):
+        name_habits(self.db, FakeModel(reply=self.reply(["Kitchen door", 3])))
+        self.assertEqual(self.habit()["quiet_expects"], [])
+
+    def test_a_card_without_quiet_quiets_nothing(self):
+        name_habits(self.db, FakeModel(reply=json.dumps({"cards": [{"id": "habit-1", "name": "Night"}]})))
+        self.assertEqual(self.habit().get("quiet_expects", []), [])
