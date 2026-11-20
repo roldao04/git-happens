@@ -24,7 +24,7 @@
 1. **Zero setup, whole home, each person.** Others learn one device at a time (Alexa, thermostats) or run the rules you give them. Alfred learns the whole household from all its devices together, with a routine for each person.
 2. **Anticipation you can trust.** Every action has a confidence computed from the home's own history. Alfred acts above 0.75, suggests below it, and always yields to a person.
 3. **It understands exceptions.** A Friday party moves tomorrow's wake-up instead of setting off a missed-routine alert.
-4. **Cheap and private by design.** Detection is statistics on the home's own data. The LLM is called only when something is ambiguous, so it costs cents per home and can run on a local or EU-hosted model.
+4. **Cheap and private by design.** Detection is statistics on the home's own data. The LLM is called only when something happens, not on every reading, so a small model costs under €1 per home a month, and it can also run EU-hosted or self-hosted.
 
 ## Where we are behind
 - **A prototype.** It is proven on simulated households; a real home needs a few weeks of history before Alfred acts.
