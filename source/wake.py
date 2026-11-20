@@ -113,21 +113,6 @@ def wake_record(db: sqlite3.Connection, key: str | None) -> dict | None:
     return {**data, "ts": row[0]} if isinstance(data, dict) else None
 
 
-def wakes_between(db: sqlite3.Connection, start: datetime, end: datetime) -> list[dict]:
-    """The wakes fired in [start, end), oldest first, each with its `key` (for the visualizer)."""
-    if not has_table(db, "wakes"):
-        return []
-    out = []
-    for key, ts, data in db.execute("SELECT key, ts, data FROM wakes WHERE ts >= ? AND ts < ? ORDER BY ts, key",
-                                    (to_ms(as_local(start)), to_ms(as_local(end)))):
-        try:
-            d = json.loads(data)
-        except (TypeError, ValueError):
-            continue
-        out.append({"key": key, "ts": ts, **d})
-    return out
-
-
 # ---------- the home now ----------
 
 def phones(state: State) -> list[dict]:
