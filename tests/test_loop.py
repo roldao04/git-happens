@@ -11,8 +11,9 @@ from datetime import timedelta
 from unittest import mock
 from pathlib import Path
 
+from source.learn.rest import observed_stretches
 from source.loop import run
-from source.sources import ReplaySource
+from source.sources import ReplaySource, SourceError
 from source.store import Store
 from source.triggers import Triggers, seed_triggers
 
@@ -21,6 +22,7 @@ SMOKE = "e4566929-1477-4023-8095-af904a0befe3"
 CONTACT = "d4d883d1-c83b-4411-b790-f63289402c1d"
 PLUG = "a291277c-8ba5-480a-b3a3-35b5f49bb459"
 LIGHT = "90654832-7bca-47dd-89f3-d6e0b5f0a9ee"
+TEMPERATURE = "eaffed37-e92f-45f5-867c-3852d229f8ad"
 CAMERA = "4f4f2408-ffc2-4543-a42b-3757133a6df4"
 DOOR = "13dc0bee-f750-4cb1-9cac-6897fe0a4bd4"  # a second contact sensor added by some tests
 LIVE = json.loads((Path(__file__).parent / "fixtures" / "get_home_live.json").read_text())
@@ -54,6 +56,26 @@ class RecordingAgent:
     async def run(self, ctx):
         self.runs.append(ctx)
         return {"notes": "", "trigger_updates": [], "actions": []}
+
+
+class FlakySource:
+    """Replays (ts, home) polls; a SourceError in the list is a poll that failed."""
+
+    realtime = False
+
+    def __init__(self, polls):
+        self._polls = iter(polls)
+
+    async def fetch(self):
+        poll = next(self._polls, None)
+        if poll is None:
+            raise StopAsyncIteration
+        if isinstance(poll, Exception):
+            raise poll
+        return poll
+
+    async def close(self):
+        pass
 
 
 class LoopTest(unittest.TestCase):
@@ -450,6 +472,49 @@ class LearnedWakeLoopTest(unittest.TestCase):
         (out,) = [json.loads(o) for (o,) in store.db.execute("SELECT output FROM agent_runs")
                   if json.loads(o).get("decisions")]
         self.assertEqual((out["decisions"][0]["mode"], out["decisions"][0]["status"]), ("suggest", "planned"))
+
+
+
+class PollGapTest(unittest.TestCase):
+    def _run(self, polls):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = Store(Path(tmp.name) / "data", record=False)
+        self.addCleanup(store.close)
+        asyncio.run(run(FlakySource(polls), store, Triggers(seed_triggers(15)), RecordingAgent(),
+                        poll_seconds=20, stale_minutes=60))
+        return store
+
+    def _home(self, ts):
+        home = copy.deepcopy(FIXTURE)
+        _fresh(home, ts)
+        return home
+
+    def test_failed_polls_are_one_gap_from_the_last_poll_to_the_recovery(self):
+        back = T0 + 3 * STEP
+        store = self._run([(T0, self._home(T0)), SourceError("MCP call failed"), SourceError("MCP call failed"),
+                           (back, self._home(back))])
+        gaps = [e for e in store.events_since(0) if e.kind == "gap"]
+        self.assertEqual([(g.ts, g.old, g.new) for g in gaps], [(back, T0, back)])
+
+    def test_the_learning_reads_the_gap_the_loop_wrote(self):
+        warmer, back = T0 + STEP, T0 + 4 * STEP
+        homes = {ts: self._home(ts) for ts in (T0, warmer, back)}
+        for ts in (warmer, back):
+            _set(homes[ts], TEMPERATURE, "temperatureValue", 24.5)
+        store = self._run([(T0, homes[T0]), (warmer, homes[warmer]), SourceError("MCP call failed"),
+                           (back, homes[back])])
+        stretches = observed_stretches(store.events_before(back + STEP), back + STEP)
+        temperature = stretches[(TEMPERATURE, "temperatureValue")]
+        self.assertEqual([(s.start, s.end) for s in temperature], [(back, back + STEP)])
+
+    def test_a_failure_before_any_poll_is_no_gap(self):
+        store = self._run([SourceError("not signed in"), (T0, self._home(T0))])
+        self.assertEqual([e for e in store.events_since(0) if e.kind == "gap"], [])
+
+    def test_a_gap_not_over_when_the_loop_stops_is_not_written(self):
+        store = self._run([(T0, self._home(T0)), SourceError("MCP call failed")])
+        self.assertEqual([e for e in store.events_since(0) if e.kind == "gap"], [])
 
 
 if __name__ == "__main__":
