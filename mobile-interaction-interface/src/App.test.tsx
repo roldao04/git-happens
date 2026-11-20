@@ -12,7 +12,7 @@ const NOW = new Date(2026, 8, 21, 9, 12).getTime();
 const app = (house: "demo" | "kit" = "demo", { voice = false } = {}) => {
   const api = new MockHomeApi(house, 0);
   if (voice) api.transcribe = async () => ({ text: "liga a luz", lang: null, ms: 400 });
-  return render(<App api={api} homeKey={`test-${house}`} clock={() => NOW} />);
+  return render(<App api={api} chatStore={`test-${house}`} clock={() => NOW} />);
 };
 
 const LOOK_ONLY = "blocked: look-only mode, nothing is sent (start npm run home:live to switch things)";
@@ -113,7 +113,7 @@ test("the demo house without the laptop's voice model has no microphone: no pret
 });
 
 test("look-only: a switch that isn't sent doesn't move, and the app says it didn't happen", async () => {
-  render(<App api={lookOnlyHome()} homeKey="test-look" clock={() => NOW} />);
+  render(<App api={lookOnlyHome()} chatStore="test-look" clock={() => NOW} />);
   expect(await screen.findByText(/^Look-only: Alfred sees your home/)).toBeInTheDocument();
   await userEvent.click(screen.getAllByRole("button", { name: "Devices" })[0]!); // the header's
   const tv = screen.getByRole("switch", { name: "TV" });
@@ -125,7 +125,7 @@ test("look-only: a switch that isn't sent doesn't move, and the app says it didn
 });
 
 test("look-only: the card shows what Alfred would have done, and a reply says what didn't happen", async () => {
-  render(<App api={lookOnlyHome()} homeKey="test-look-2" clock={() => NOW} />);
+  render(<App api={lookOnlyHome()} chatStore="test-look-2" clock={() => NOW} />);
   await userEvent.click(await screen.findByRole("button", { expanded: false, name: /Right now/ }));
   expect(screen.getByText("Not sent · look-only")).toBeInTheDocument();
   expect(screen.getByText("Would have: Lamp off")).toBeInTheDocument();
@@ -135,7 +135,7 @@ test("look-only: the card shows what Alfred would have done, and a reply says wh
 });
 
 test("a home that is still learning says so, and the greeting follows the home's clock", async () => {
-  render(<App api={lookOnlyHome({ learning: { daysWatched: 2 }, evening: true })} homeKey="test-learning" clock={() => NOW} />);
+  render(<App api={lookOnlyHome({ learning: { daysWatched: 2 }, evening: true })} chatStore="test-learning" clock={() => NOW} />);
   expect(await screen.findByText(/^Good evening\. I’m still learning your home \(2 days watched\)/)).toBeInTheDocument();
   expect(screen.getByText("Still learning your home · 2 days watched")).toBeInTheDocument();
 });
@@ -143,7 +143,7 @@ test("a home that is still learning says so, and the greeting follows the home's
 test("without a voice model there is no microphone, only typing", async () => {
   const api = new HttpHomeApi("/api", async () => new Response("{}", { status: 501 }));
   await api.checkVoice();
-  render(<App api={api} homeKey="test-http" clock={() => NOW} />);
+  render(<App api={api} chatStore="test-http" clock={() => NOW} />);
   await screen.findByRole("alert"); // this fake server has no home either: the page says so
   expect(screen.queryByRole("button", { name: "Speak to Alfred" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
@@ -175,4 +175,36 @@ test("the kit home opens without the demo house's suggestion about Ana", async (
   app("kit");
   expect(await screen.findByText(/so I switched to Out for the day/)).toBeInTheDocument();
   expect(screen.queryByText(/Ana/)).not.toBeInTheDocument();
+});
+
+const ALERT = { id: "habit-1:contact-1:2026-09-21", at: "2026-09-21T23:10:00",
+  text: "The living-room window is still open. Night is starting, and it has been open since 23:10." };
+/** The demo house, with Alfred's alert on every status. */
+function alertingHome(): HomeApi {
+  const m = new MockHomeApi("demo", 0);
+  return Object.assign(Object.create(m) as MockHomeApi, { getStatus: async () => ({ ...(await m.getStatus()), alerts: [ALERT] }) });
+}
+
+test("an alert is Alfred's message in the conversation, at its time", async () => {
+  render(<App api={alertingHome()} chatStore={`test-alert-1`} clock={() => NOW} />);
+  const msg = (await screen.findByText(ALERT.text)).closest(".msg")!;
+  expect(within(msg as HTMLElement).getByText("23:10")).toBeInTheDocument();
+});
+
+test("an alert is shown once, however often the status comes back", async () => {
+  render(<App api={alertingHome()} chatStore={`test-alert-2`} clock={() => NOW} />);
+  await screen.findByText(ALERT.text);
+  await userEvent.type(screen.getByRole("textbox", { name: "Ask Alfred" }), "Turn the TV on");
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("TV on.");
+  expect(screen.getAllByText(ALERT.text)).toHaveLength(1);
+});
+
+test("an alert already shown isn't shown again after a reload", async () => {
+  const first = render(<App api={alertingHome()} chatStore={`test-alert-3`} clock={() => NOW} />);
+  await screen.findByText(ALERT.text);
+  first.unmount();
+  render(<App api={alertingHome()} chatStore={`test-alert-3`} clock={() => NOW} />);
+  await screen.findByText(/so I switched/);
+  expect(screen.getAllByText(ALERT.text)).toHaveLength(1);
 });

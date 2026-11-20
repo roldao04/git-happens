@@ -43,3 +43,12 @@ test("transcribe exists only once the server says it has the voice model", async
   expect(await api.checkVoice()).toBe(true);
   expect(await api.transcribe!(new Blob(["RIFF"]))).toEqual({ text: "liga a luz", lang: null, ms: 640 });
 });
+
+test("the status's alerts are checked, and an older API without them gives none", async () => {
+  const s = await new MockHomeApi("demo", 0).getStatus();
+  const alert = { id: "habit-1:contact-1:2026-09-21", at: "2026-09-21T23:10:00", text: "The window is still open." };
+  expect((await new HttpHomeApi("/api", respond({ ...s, alerts: [alert] })).getStatus()).alerts).toEqual([alert]);
+  const { alerts: _gone, ...older } = { ...s, alerts: [] };
+  expect((await new HttpHomeApi("/api", respond(older)).getStatus()).alerts).toEqual([]);
+  await expect(new HttpHomeApi("/api", respond({ ...s, alerts: [{ id: 1 }] })).getStatus()).rejects.toThrow(/status\.alerts\[0\]\.id/);
+});

@@ -88,7 +88,8 @@ def learn_day(db: sqlite3.Connection, day: date, link_null: str = "rhythm") -> l
     storage.save_kinds(db, result.kinds)
     storage.save_happening_kinds(db, hs)
     new = storage.save_habits(db, result.habits, day)
-    for module, step in ((".grouping", "learn_habits"), (".occasions", "learn_occasions")):
+    for module, step in ((".grouping", "learn_habits"), (".occasions", "learn_occasions"),
+                         (".expectations", "learn_expectations")):
         try:  # imported here, not at the top: they import this module
             getattr(importlib.import_module(module, __package__), step)(db, day)
         except Exception:

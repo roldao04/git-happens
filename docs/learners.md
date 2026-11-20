@@ -57,6 +57,8 @@ Contracts C1 and C2 ([`contracts.md`](contracts.md#contracts)). Read the device 
 ## Above the patterns
 `learn_day` also learns habits ([`habits.md`](habits.md)) and occasions ([`occasions.md`](occasions.md)) each night; `reset_learned` clears them too. The agent's `baselines` carry the habits, forecast, occasions and decisions ([`anticipation.md`](anticipation.md)). Links use the `rhythm` chance model by default; `other_day` is the stricter option (both agree on the fixtures).
 
+**Expectations** (`source/learn/expectations.py`, last each night): for every active habit, how each on/off device (`sensorState`, `power`) was at each of its starts, rebuilt from `events`. A value held at 80% or more of at least 5 starts is stored on the habit as `expects`; the habit's own devices are left out, and it is recomputed every night. The namer may `quiet` one. When the habit starts and a device differs, the status says so (`source/alerts.py`).
+
 ## Not built yet
 - **What is on the plug:** appliance cards from plug kinds.
 - **Drift learner** ("kettle getting slower").

@@ -34,6 +34,7 @@ For each habit in `to_name`, return:
 - `if_missing`: what it may mean when it doesn't happen when expected, how worried to be, and what else to check.
 - `importance`: `high` (its absence is worth checking: waking up, going to bed, a daily routine), `normal` (a real habit, its absence alone means little), `low` (weak, rare or minor), `hidden` (repeats another habit, or room facts with no meaning for the people).
 - `same_as`: the id of the habit this one repeats, else `null`. Only when both are the same thing.
+- `quiet`: the devices from its `expects` (how a device almost always is when the habit starts) that aren't worth telling the family about when they differ, else `[]`. A window or door left open at bedtime is worth telling.
 
 ## Reply
 

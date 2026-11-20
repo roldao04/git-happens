@@ -7,6 +7,20 @@ import type { Device, People, PlanItem, Value } from "../types";
 // both: 09:12, the house quiet since 08:41, and Alfred switched it to "Out for the day" at 08:45.
 
 export type HouseName = "demo" | "kit";
+/** A staged moment for the stage (?moment=bedtime): Night has just started and the window is open. */
+export type Moment = "bedtime";
+
+/** What a habit learned to expect of a device when it starts (source/learn/expectations.py). */
+export interface Expectation {
+  decisionId: string;
+  habitId: string;
+  habit: string;
+  /** Short name in the alert's id. */
+  tag: string;
+  deviceId: string;
+  capability: string;
+  value: Value;
+}
 
 export interface MockHouse {
   household: string;
@@ -27,6 +41,9 @@ export interface MockHouse {
   plan: PlanItem[];
   /** Times this week a person overruled "Out for the day". */
   overrides: number;
+  expects: Expectation[];
+  /** When a device last changed to its current value, for "open since". */
+  changedAt: Record<string, string>;
 }
 
 const ID = {
@@ -36,6 +53,7 @@ const ID = {
   washer: "8b7d2a90-15c3-4f6e-b2d8-6a4e9c1f0d37",
   thermostat: "5d2e8f1a-9c47-4b3d-8e65-0f7a1c2b9d48",
   contact: "276b9ad8-89ce-491a-a177-fe42358bee1c",
+  window: "7c1e4b2a-3d5f-4a6b-9e8c-1f2a3b4c5d6e",
   smoke: "e4566929-1477-4023-8095-af904a0befe3",
   climate: "bb553b28-fdb1-4f77-b7e9-b0972d50ab15",
   hub: "c5c8e959-2a0b-4c1b-87f4-c285afa50e00",
@@ -82,7 +100,7 @@ function plan(withHeat: boolean): PlanItem[] {
   ];
 }
 
-export function makeHouse(name: HouseName): MockHouse {
+export function makeHouse(name: HouseName, moment?: Moment): MockHouse {
   if (name === "kit") {
     return {
       household: "Hack 1 (the Altice kit)",
@@ -100,9 +118,11 @@ export function makeHouse(name: HouseName): MockHouse {
       previousTitle: "Morning",
       plan: plan(false),
       overrides: 1,
+      expects: [],
+      changedAt: {},
     };
   }
-  return {
+  const house: MockHouse = {
     household: "Demo house (simulated)",
     now: NOW,
     devices: [
@@ -112,6 +132,7 @@ export function makeHouse(name: HouseName): MockHouse {
       device(ID.washer, "plug", "Washing machine", { power: "on", instantPower: 2 }),
       device(ID.thermostat, "thermostat", "Thermostat", { temperatureValue: 19.7, targetTemperature: 17, mode: "heat", heatingState: "off" }),
       ...shared().slice(1),
+      device(ID.window, "contactSensor", "Living-room window", { sensorState: "normal", batteryStatus: "high", signalStrength: "high", tamperState: "normal" }),
     ],
     people: { home: [], guests: 0 },
     status: {
@@ -121,6 +142,34 @@ export function makeHouse(name: HouseName): MockHouse {
     previousTitle: "Morning",
     plan: plan(true),
     overrides: 1,
+    expects: [{ decisionId: "decision-22", habitId: "habit-night", habit: "Night", tag: "window", deviceId: ID.window, capability: "sensorState", value: "normal" }],
+    changedAt: { [ID.window]: "2026-09-20T22:31:00" },
+  };
+  return moment === "bedtime" ? bedtime(house) : house;
+}
+
+/** 23:10: Alfred has just started Night, and the living-room window has been open since 21:10. */
+function bedtime(house: MockHouse): MockHouse {
+  const now = "2026-09-21T23:10:00";
+  const set = (id: string, values: Record<string, Value>) => {
+    const d = house.devices.find((x) => x.id === id);
+    if (d) d.values = { ...d.values, ...values };
+  };
+  set(ID.window, { sensorState: "alarm" });
+  set(ID.light, { power: "off" });
+  set(ID.thermostat, { targetTemperature: 18 });
+  for (const p of house.plan) if (p.at < now && p.mode === "do") p.status = "done";
+  for (const p of house.plan) if (p.at < now && p.mode === "suggest") p.status = "skipped";
+  return {
+    ...house,
+    now,
+    people: { home: DEMO_PHONES.map((p) => ({ ...p })), guests: 0 },
+    status: {
+      title: "Night", since: now, why: "Asleep from around 23:07 (17 of 19 nights).", decisionId: "decision-22", byAlfred: true,
+      before: { [ID.light]: { power: "on", brightness: 60 }, [ID.thermostat]: { targetTemperature: 21 } },
+    },
+    previousTitle: "Evening",
+    changedAt: { ...house.changedAt, [ID.window]: "2026-09-21T21:10:00" },
   };
 }
 

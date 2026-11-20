@@ -2,7 +2,8 @@ import type { HomeApi } from "../client";
 import type { ActionResult, Change, ChatReply, ControlBody, Device, HomeSnapshot, PlanItem, Status, Value } from "../types";
 import { respond } from "./brain";
 import { checkWrite } from "./guard";
-import { DEMO_PHONES, makeHouse, type HouseName, type MockHouse } from "./houses";
+import { alertsOf } from "./alerts";
+import { DEMO_PHONES, makeHouse, type HouseName, type MockHouse, type Moment } from "./houses";
 
 /** A home in memory: the app's whole API, with the guard's rules and no network. */
 export class MockHomeApi implements HomeApi {
@@ -12,8 +13,8 @@ export class MockHomeApi implements HomeApi {
   transcribe?: HomeApi["transcribe"];
   private overridden = false;
 
-  constructor(readonly name: HouseName = "demo", private readonly delayMs = 250) {
-    this.house = makeHouse(name);
+  constructor(readonly name: HouseName = "demo", private readonly delayMs = 250, moment?: Moment) {
+    this.house = makeHouse(name, moment);
   }
 
   async getHome(): Promise<HomeSnapshot> {
@@ -48,6 +49,7 @@ export class MockHomeApi implements HomeApi {
       suggestions: this.house.plan.filter((p) => p.mode === "suggest" && p.status === "planned" && p.answer === null),
       notSent: [],
       learning: null, // the demo house has been watched for weeks
+      alerts: alertsOf(this.house),
     });
   }
 

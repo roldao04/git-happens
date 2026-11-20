@@ -1,5 +1,5 @@
 import { ApiError } from "./client";
-import type { ActionResult, Block, Change, ChatReply, Control, ControlBody, Device, HomeSnapshot, People, PlanItem, Status, Transcript, Value } from "./types";
+import type { ActionResult, Alert, Block, Change, ChatReply, Control, ControlBody, Device, HomeSnapshot, People, PlanItem, Status, Transcript, Value } from "./types";
 
 // Checks what the Python API sends before the app trusts it, naming the field that is wrong
 // ("devices[2].controls[0].kind ..."), the way dashboard/src/data/recording.ts checks its recording.
@@ -114,6 +114,11 @@ function change(v: unknown, path: string): Change {
   return { deviceId: str(o, "deviceId", path), device: str(o, "device", path), capability: str(o, "capability", path), from: value(o.from, `${path}.from`), to: value(o.to, `${path}.to`) };
 }
 
+function alert(v: unknown, path: string): Alert {
+  const o = obj(v, path);
+  return { id: str(o, "id", path), at: str(o, "at", path), text: str(o, "text", path) };
+}
+
 export function parseStatus(raw: unknown): Status {
   const o = obj(raw, "status");
   return {
@@ -125,6 +130,7 @@ export function parseStatus(raw: unknown): Status {
     suggestions: list(o, "suggestions", "status", parsePlanItem),
     notSent: o.notSent === undefined ? [] : list(o, "notSent", "status", parsePlanItem),
     learning: o.learning && typeof o.learning === "object" ? { daysWatched: num(o.learning as Obj, "daysWatched", "status.learning") } : null,
+    alerts: o.alerts === undefined ? [] : list(o, "alerts", "status", alert),
   };
 }
 

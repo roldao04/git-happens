@@ -92,6 +92,8 @@ def parse_cards(text: str, ids: set[str], taken: set[str]) -> dict[str, dict]:
             "importance": c.get("importance") if c.get("importance") in IMPORTANCE else "normal",
             "same_as": same_as if isinstance(same_as, str) and same_as != c["id"] else None,
         }
+        if isinstance(c.get("quiet"), list):
+            out[c["id"]]["quiet_expects"] = [q for q in c["quiet"] if isinstance(q, str)]
     return out
 
 
@@ -131,7 +133,9 @@ def habit_facts(habit: dict, patterns: dict[str, dict]) -> dict:
             "steps": [{**patterns.get(st.get("pattern"), {}), "offset_min": st.get("offset_min"),
                        "share": st.get("share")} for st in habit.get("steps", [])],
             "occurrences": habit.get("occurrences"), "opportunities": habit.get("opportunities"),
-            "confidence": habit.get("confidence")}
+            "confidence": habit.get("confidence"),
+            "expects": [{k: e.get(k) for k in ("device", "value", "agree", "of")}
+                        for e in habit.get("expects") or [] if isinstance(e, dict)]}
 
 
 def occasion_facts(occasion: dict, names: dict[str, str]) -> dict:
@@ -215,6 +219,9 @@ def _name(db: sqlite3.Connection, model, thing: _Thing, again: bool) -> list[dic
         data = json.loads(row[0]) if row else None
         if data is None or data.get("named_by") == "person":
             continue
+        if "quiet_expects" in card:
+            mine = {e.get("device") for e in data.get("expects") or [] if isinstance(e, dict)}
+            card = card | {"quiet_expects": [q for q in card["quiet_expects"] if q in mine]}
         data.update(card, named_by="llm")
         db.execute(f"UPDATE {thing.table} SET data = ? WHERE id = ?", (json.dumps(data), s["id"]))
         stored.append({"id": s["id"], **card})
