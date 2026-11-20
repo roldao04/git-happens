@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { MicIcon, SendIcon } from "./icons";
 
-const QUICK = ["Today’s plan", "Devices", "Everything off"];
+const QUICK = ["Expected today", "Devices", "Everything off"];
 
 /** Three quick asks, the text box, and the mic (send once there is text). Without `onMic` (no voice model
  *  on this home's computer) there is no microphone, only typing. */

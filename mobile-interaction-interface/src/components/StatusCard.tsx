@@ -32,7 +32,7 @@ export function StatusCard({ onEvent }: { onEvent?: (text: string) => void }) {
             {status.why && <p className="why">{status.why}</p>}
             {status.learning && <p className="why">I’m still learning this home: my plans appear after a few days of watching.</p>}
             <div className="mode-sec">
-              <span className="al-label">Planned</span>
+              <span className="al-label">Expected</span>
               <PlanList items={status.planned} now={home.now} onEvent={onEvent} />
             </div>
             {status.notSent.length > 0 && (

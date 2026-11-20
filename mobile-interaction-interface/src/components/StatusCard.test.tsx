@@ -41,3 +41,16 @@ test("a device silent since an earlier day says which day, not just the time", a
   expect(whenSeen("2026-11-19T08:13:03", "2026-11-19")).toBe("08:13");
   expect(whenSeen(null, "2026-11-19")).toBe("never");
 });
+
+test("opened, what Alfred will do is under Expected, not Planned", async () => {
+  renderWithHome(<StatusCard />);
+  await userEvent.click(await screen.findByRole("button", { name: /Right now/ }));
+  expect(screen.getByText("Expected")).toBeInTheDocument();
+  expect(screen.queryByText("Planned")).not.toBeInTheDocument();
+});
+
+test("with nothing left to do today, it says nothing else is expected", async () => {
+  const { PlanList } = await import("./PlanList");
+  renderWithHome(<PlanList items={[]} now="2026-09-21T09:12:00" />);
+  expect(await screen.findByText("Nothing else expected today.")).toBeInTheDocument();
+});
