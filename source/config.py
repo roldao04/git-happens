@@ -1,6 +1,6 @@
 """Settings from environment variables (and a local .env, if present)."""
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -28,6 +28,7 @@ class Settings:
     openrouter_api_key: str | None
     agent_model: str
     agent_max_steps: int
+    camera_rtsp_url: str | None = field(default=None, repr=False)
 
 
 def load_settings() -> Settings:
@@ -43,4 +44,5 @@ def load_settings() -> Settings:
         openrouter_api_key=os.environ.get("OPENROUTER_API_KEY") or None,
         agent_model=os.environ.get("AGENT_MODEL", "anthropic/claude-sonnet-4.5"),
         agent_max_steps=int(os.environ.get("AGENT_MAX_STEPS", 12)),
+        camera_rtsp_url=os.environ.get("CAMERA_RTSP_URL") or None,
     )

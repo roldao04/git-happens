@@ -65,6 +65,12 @@ async def _main(args) -> None:
     except (NotImplementedError, RuntimeError, AttributeError):
         pass
     s = load_settings()
+    if args.hear_camera:
+        from . import ear, voice
+
+        why = ear.problem(api=args.api, url=s.camera_rtsp_url, voice_available=voice.available())
+        if why:
+            sys.exit(why)
     data_dir = s.data_dir / "replay" if args.replay else s.data_dir
     setup_logging(data_dir / "logs", "DEBUG" if args.verbose else s.log_level, console=not args.quiet)
     log.info("data in %s", data_dir)
@@ -92,6 +98,10 @@ async def _main(args) -> None:
                        household="replay" if args.replay else "your home", dry_run=dry_run,
                        stale_ms=int(s.stale_minutes * 60_000), readback_delay_s=readback_delay_s, look_only=look_only)
         api.serve(args.api_port)
+    hearing = None
+    if args.hear_camera:
+        hearing = asyncio.create_task(ear.for_api(api, s.camera_rtsp_url, transcribe=voice.transcribe).run())
+        log.info("listening to the camera for \"Alfred\"")
     try:
         await run(source, store, Triggers(seed_triggers(s.heartbeat_minutes)),
                   _make_agent(s, args, source),
@@ -99,6 +109,8 @@ async def _main(args) -> None:
                   max_ticks=args.ticks, actuator=actuator, readback_delay_s=readback_delay_s, api=api,
                   learn_nightly=not args.replay)
     finally:
+        if hearing is not None:
+            hearing.cancel()
         if api is not None:
             api.close()
         await source.close()
@@ -119,6 +131,8 @@ def main() -> None:
     p.add_argument("--api", action="store_true", help="serve the phone app's API on localhost (source/phone_api.py)")
     p.add_argument("--api-port", type=int, default=int(os.environ.get("ALFRED_API_PORT", "4790")),
                    help="the API's port (default 4790, or ALFRED_API_PORT)")
+    p.add_argument("--hear-camera", action="store_true",
+                   help="listen to the camera's microphone; words with \"Alfred\" go to the agent (needs --api)")
     args = p.parse_args()
     try:
         asyncio.run(_main(args))
