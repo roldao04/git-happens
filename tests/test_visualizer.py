@@ -697,6 +697,18 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual((status, kind), (200, "application/json"))
         self.assertEqual(json.loads(body), json.loads(json.dumps(day_view("couple", 2))))
 
+    def test_serves_a_day_without_alfred(self):
+        with mock.patch.object(web, "day_view", wraps=day_view) as view:
+            status, _, body = self._get("/day?household=couple&day=2&alfred=off")
+        self.assertEqual(status, 200)
+        self.assertEqual(view.call_args.kwargs["writes"], [])  # none of Alfred's thermostat writes
+        self.assertEqual(json.loads(body)["alfred_writes"], 0)
+
+    def test_serves_the_film(self):
+        status, kind, body = self._get("/film")
+        self.assertEqual((status, kind), (200, "text/html; charset=utf-8"))
+        self.assertIn(b"alfred=off", body)
+
     def test_bad_day_is_a_plain_error(self):
         status, _, body = self._get("/day?household=nobody")
         self.assertEqual(status, 400)

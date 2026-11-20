@@ -43,6 +43,7 @@ log = logging.getLogger("source.simulate_web")
 CONSOLE = Path(__file__).resolve().parent.parent / "console"
 PAGE = CONSOLE / "simulator.html"
 VIEW_PAGE = CONSOLE / "visualizer.html"
+FILM_PAGE = CONSOLE / "film.html"  # the pitch's film: the same day with and without Alfred, side by side
 MAX_DAYS, MAX_HOUSES, MAX_HOUSE_DAYS = 365, 20, 1000  # 1,000 house-days is about a minute and 1.7 GB unzipped
 MAX_BODY = 10_000
 REAL_MAX_DAYS = home_a_max_days()  # from the default first day
@@ -1033,11 +1034,14 @@ class Handler(BaseHTTPRequestHandler):
             page = PAGE.read_text(encoding="utf-8").replace("__REAL_MAX_DAYS__", str(REAL_MAX_DAYS))
             return self._send(200, page.encode(), "text/html; charset=utf-8")
         url = urlsplit(self.path)
-        if url.path == "/visualizer":
-            return self._send(200, VIEW_PAGE.read_bytes(), "text/html; charset=utf-8")
+        if url.path in ("/visualizer", "/film"):
+            page = VIEW_PAGE if url.path == "/visualizer" else FILM_PAGE
+            return self._send(200, page.read_bytes(), "text/html; charset=utf-8")
         if url.path == "/day":
             try:
-                view = day_view(*_day_request({k: v[-1] for k, v in parse_qs(url.query).items()}))
+                query = {k: v[-1] for k, v in parse_qs(url.query).items()}
+                # alfred=off: the same day, same people, with none of Alfred's writes (what the house does alone).
+                view = day_view(*_day_request(query), writes=[] if query.get("alfred") == "off" else None)
             except ValueError as exc:
                 return self._error(400, str(exc))
             return self._send(200, json.dumps(view, separators=(",", ":")).encode(), "application/json")
