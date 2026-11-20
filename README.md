@@ -51,8 +51,11 @@ npm run home:live   # the same, and changes really happen
 uv run python -m source --look-only --api   # reads the kit, asks the LLM, sends nothing
 uv run python -m source --api               # live: writes go through the guard
 uv run python -m source --replay tests/fixtures/morning.jsonl   # a recorded morning, no kit
+uv run --extra voice python -m source --api --hear-camera       # also listens to the camera's microphone
 ```
 The live loop learns every night, so habits, the plan and suggestions appear after a few days of watching.
+
+With `--hear-camera` (needs `CAMERA_RTSP_URL` in `.env` and `ffmpeg`), what is said with "Alfred" in it goes to Alfred like a question from the app. Anything said without "Alfred" is never logged or kept.
 
 **4. The jury dashboard** plays back a recorded run: `cd dashboard && npm install && npm run dev` ([`dashboard/README.md`](dashboard/README.md)).
 
