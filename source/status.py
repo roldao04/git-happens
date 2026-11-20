@@ -10,7 +10,7 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 
-from . import anticipate
+from . import alerts, anticipate
 from .learn import to_ms
 from .learn.forecast import as_local
 from .model import State
@@ -186,7 +186,7 @@ def overridden(db: sqlite3.Connection, decision_id: str) -> bool:
         return False
 
 
-def status_now(db: sqlite3.Connection, state: State, now: datetime) -> dict:
+def status_now(db: sqlite3.Connection, state: State, now: datetime, stale_ms: int | None = None) -> dict:
     """The "Right now" card (Status in mobile-interaction-interface/src/api/types.ts). Never raises for
     missing parts: a home with no router, no occasions or no decisions still gets a status."""
     now = as_local(now)
@@ -225,4 +225,5 @@ def status_now(db: sqlite3.Connection, state: State, now: datetime) -> dict:
         "suggestions": suggestions,
         "notSent": not_sent(db, now),
         "learning": learning(db),
+        "alerts": alerts.alerts_now(db, state, now, stale_ms),
     }

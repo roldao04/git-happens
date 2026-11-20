@@ -200,6 +200,9 @@ class PhoneApiTest(unittest.TestCase):
         self.assertEqual([p["id"] for p in s["suggestions"]], ["decision-3"])
         self.assertEqual(s["suggestions"][0]["does"], "Heating to 20 °C")
 
+    def test_status_has_alerts(self):
+        self.assertEqual(self.run_(self.api.status())["alerts"], [])
+
     def test_a_home_with_nothing_learned_still_has_a_status(self):
         self.store.db.execute("DELETE FROM decisions")
         state = {k: r for k, r in home_state(ana_home=False).items() if r.device_type != "router"}

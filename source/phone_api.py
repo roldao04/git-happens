@@ -162,7 +162,7 @@ class PhoneApi:
 
     async def status(self) -> dict:
         now = self._now()
-        return status.status_now(self.store.db, self.state, now)
+        return status.status_now(self.store.db, self.state, now, self.stale_ms)
 
     async def set_control(self, device_id: str, body, *, count_override: bool = True) -> dict:
         now_ms = self._ready()
@@ -190,7 +190,7 @@ class PhoneApi:
 
     def _manual_override(self, device_id: str, body: dict, now_ms: int) -> str | None:
         """A person changing back by hand what Alfred's last decision set: logged once per decision."""
-        st = status.status_now(self.store.db, self.state, self._now())
+        st = status.status_now(self.store.db, self.state, self._now(), self.stale_ms)
         if not st["byAlfred"] or not st["decisionId"]:
             return None
         change = next((c for c in st["changes"] if c["deviceId"] == device_id and c["capability"] == body["type"]), None)
