@@ -29,6 +29,9 @@
     --lamp: #ffcf4d; --door: #5b9dff; --plug: #ff8a4c; --temp: #4cc9a0; --shadow: 0 6px 24px rgba(0, 0, 0, .45);
   }
   * { box-sizing: border-box; }
+  body.film .float, body.film #knowledge { display: none !important; }
+  body.film #scene { cursor: default; }
+  button#alfred[aria-pressed="false"] { background: var(--bad-soft); color: var(--bad); }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; overflow: hidden; }
   #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
@@ -298,6 +301,7 @@
 </aside>
 
 <div id="tools" class="float">
+  <button id="alfred" class="quiet" type="button" aria-pressed="true" title="Off: the same day, with none of Alfred's writes">Alfred on</button>
   <button id="labels" class="quiet" type="button" aria-pressed="true">Labels</button>
   <button id="reset" class="quiet" type="button">Reset view</button>
   <button id="theme" class="quiet" type="button">Dark</button>
@@ -832,6 +836,201 @@ function houseScene(THREE, canvas) {
     parts.thermostat = { group: g, face, ring, hot, warmth, level: 0, on: false };
   }
 
+  // People: one figure per phone on the WiFi (the router's connected clients). A phone that joins walks in from
+  // the garden path through the front door to a free spot; one that leaves walks back out. A jump in time
+  // (a seek, another day) puts everyone where they are at once. Someone who has just come in and switches the
+  // light on or turns the heating up (the page finds these in the day: chores) walks to the switch or the
+  // thermostat first and reaches for it. Inside, faces follow the room: cold below 19.5 °C, happy from 20.5 °C.
+  const OUTSIDE = [[-1.25, 5.2], [-1.15, 3.3], [-1.15, D / 2 + 0.45], 'door', [-1.15, D / 2 - 0.55]];  // path, doorstep, the door opening, just inside
+  // Where you stand to reach the light switch (on the left wall, clear of the door as it swings in) and the thermostat (on the back wall).
+  const SWITCH = { x: -W / 2 + 0.5, z: 0.5, face: -Math.PI / 2 }, DIAL = { x: -0.75, z: -D / 2 + 0.52, face: 2.9, via: [-0.55, 0.55] };  // via: round the table
+  box(0.02, 0.12, 0.08, left.trim, -W / 2 + T / 2 + 0.011, 1.15, 0.5, left.group).castShadow = false;  // the light switch
+  const SPOTS = [  // where someone stands, and which way they face
+    { x: 1.5, z: -1.15, face: 0.4 },              // by the kitchen counter, turned to the room (and the camera)
+    { x: -1.6, z: 0.15, face: 0.5 },              // by the table
+    { x: 1.6, z: 1.5, face: 0.2 },                // by the sofa
+    { x: 0.35, z: 0.95, face: 0.6 },              // on the rug
+    { x: -0.4, z: -0.6, face: 0.5 },
+    { x: -2.25, z: 0.75, face: 0.8 },
+  ];
+  const LOOKS = [[0x1f2a4a, 0x8a7438], [0x2f6f73, 0xc9a24a], [0x6b4f7a, 0xd8cfc0], [0x8a5a44, 0x1f2a4a]];  // body, scarf
+  const people = new Map(), tmp = new THREE.Vector3(), lerp = (a, b, k) => a + (b - a) * Math.min(1, k);
+  let lastHour = null, simNow = 0, roomTemp = null, chores = [];
+  const pill = (text) => {
+    const c = document.createElement('canvas'), ctx = c.getContext('2d'), font = '600 30px system-ui, sans-serif';
+    ctx.font = font;
+    c.width = Math.ceil(ctx.measureText(text).width + 36);
+    c.height = 48;
+    ctx.fillStyle = 'rgba(20, 26, 40, .82)';
+    ctx.beginPath();
+    ctx.moveTo(24, 0); ctx.arcTo(c.width, 0, c.width, 48, 24); ctx.arcTo(c.width, 48, 0, 48, 24); ctx.arcTo(0, 48, 0, 0, 24); ctx.arcTo(0, 0, c.width, 0, 24);
+    ctx.fill();
+    ctx.font = font;
+    ctx.fillStyle = '#fff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 18, 26);
+    return c;
+  };
+  const sprite = (canvas, h) => {
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true, sizeAttenuation: false }));
+    s.center.set(0.5, 0);
+    s.scale.set(h * canvas.width / canvas.height, h, 1);
+    s.renderOrder = 21;
+    return s;
+  };
+  const starCanvas = (() => {  // a four-pointed sparkle, as on the deck
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#c9a24a';
+    ctx.beginPath();
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4 - Math.PI / 2, r = k % 2 ? 7 : 30;
+      ctx.lineTo(32 + r * Math.cos(a), 32 + r * Math.sin(a));
+    }
+    ctx.fill();
+    return c;
+  })();
+  function person(name, look) {
+    const [bodyColor, scarfColor] = LOOKS[look % LOOKS.length], g = new THREE.Group();
+    const body = mat(bodyColor), skin = mat(0x6b7390), dark = mat(0x161d33), ink = new THREE.MeshBasicMaterial({ color: 0x11151c });
+    const limb = (w, h, d, material, x, y) => {  // hangs from a pivot at (x, y)
+      const pivot = new THREE.Group();
+      pivot.position.set(x, y, 0);
+      add(new THREE.BoxGeometry(w, h, d), material, 0, -h / 2, 0, pivot);
+      g.add(pivot);
+      return pivot;
+    };
+    const legs = [limb(0.13, 0.82, 0.15, dark, -0.09, 0.84), limb(0.13, 0.82, 0.15, dark, 0.09, 0.84)];
+    add(new THREE.CylinderGeometry(0.17, 0.2, 0.66, 12), body, 0, 1.15, 0, g);
+    add(new THREE.SphereGeometry(0.17, 12, 8), body, 0, 1.47, 0, g);  // the shoulders, rounded
+    add(new THREE.TorusGeometry(0.11, 0.045, 6, 14), mat(scarfColor), 0, 1.56, 0, g).rotation.x = Math.PI / 2;
+    add(new THREE.SphereGeometry(0.14, 14, 10), skin, 0, 1.74, 0, g);
+    for (const x of [-0.05, 0.05]) add(new THREE.SphereGeometry(0.026, 6, 4), ink, x, 1.775, 0.122, g).castShadow = false;  // eyes
+    const mouth = (up) => {  // half a ring: a smile, or upside down a frown
+      const m = add(new THREE.TorusGeometry(0.052, 0.016, 4, 10, Math.PI), ink, 0, up ? 1.71 : 1.67, 0.128, g);
+      m.rotation.z = up ? Math.PI : 0;
+      m.castShadow = false;
+      return m;
+    };
+    const smile = mouth(true), frown = mouth(false);
+    smile.visible = frown.visible = false;
+    const flat = add(new THREE.BoxGeometry(0.06, 0.012, 0.01), ink, 0, 1.69, 0.135, g);
+    flat.castShadow = false;
+    const arms = [limb(0.09, 0.62, 0.11, body, -0.25, 1.48), limb(0.09, 0.62, 0.11, body, 0.25, 1.48)];
+    const tag = sprite(pill(name), 0.024);
+    tag.position.y = 1.95;
+    g.add(tag);
+    const stars = [[-0.32, 2.05, 0.022], [0.3, 2.2, 0.03], [0.05, 2.38, 0.018]].map(([x, y, h]) => {
+      const st = sprite(starCanvas, h);
+      st.center.set(0.5, 0.5);
+      st.position.set(x, y, 0);
+      st.visible = false;
+      g.add(st);
+      return st;
+    });
+    g.visible = false;
+    scene.add(g);
+    return { g, legs, arms, tag, stars, faces: { happy: smile, cold: frown, calm: flat }, mood: 'calm', sparkle: 0,
+             path: [], phase: 0, spot: null, here: false, face: 0, waited: 0 };
+  }
+  const freeSpot = () => SPOTS.find((s) => ![...people.values()].some((p) => p.spot === s && p.here)) || SPOTS[SPOTS.length - 1];
+  function placePeople(clients, hour) {
+    const jump = lastHour == null || hour < lastHour || hour - lastHour > 0.5;  // back in time, or half an hour at once: no walking
+    lastHour = hour;
+    const phones = (clients || []).filter((c) => c && c.id && c.kind === 'phone');
+    const now = new Set(phones.map((c) => c.id));
+    phones.forEach((c) => {
+      let p = people.get(c.id);
+      if (!p) {
+        const guests = [...people.keys()].filter((id) => !people.get(id).known).length;
+        const name = c.known ? String(c.name || 'Someone').replace(/[’']s (phone|iphone|android)$/i, '') : `Guest ${guests + 1}`;
+        people.set(c.id, p = person(name, people.size));
+        p.known = !!c.known;
+      }
+      if (p.here) return;
+      p.spot = null;  // the spot they had last time is free for them again
+      p.here = true;
+      p.spot = freeSpot();
+      p.g.visible = true;
+      if (jump) { p.path = []; p.g.position.set(p.spot.x, 0, p.spot.z); p.face = p.spot.face; p.mood = null; }
+      else {
+        if (!p.path.length) p.g.position.set(OUTSIDE[0][0], 0, OUTSIDE[0][1]);
+        const todo = chores.filter((c2) => c2.client === c.id && c2.t >= simNow - 60000 && c2.t <= simNow + 6 * 60000)
+          .sort((a, b) => a.t - b.t)
+          .map((c2) => ({ ...(c2.at === 'switch' ? SWITCH : DIAL), chore: c2.t }));
+        p.path = [...OUTSIDE.slice(1), ...todo.flatMap((w) => [...(w.via ? [w.via] : []), [w.x, w.z], w]), [p.spot.x, p.spot.z]];
+        p.waited = 0;
+      }
+    });
+    for (const [id, p] of people) {
+      if (!p.here || now.has(id)) continue;
+      p.here = false;
+      if (jump) { p.path = []; p.g.visible = false; } else { p.path = [...OUTSIDE].reverse(); p.waited = 0; }
+    }
+  }
+  function movePeople(dt) {
+    for (const p of people.values()) {
+      if (!p.g.visible) continue;
+      const pos = p.g.position, next = p.path[0];
+      let speed = 0, reach = false;
+      if (next === 'door') {  // at the doorstep: in (or out) when the door opens, or after a few seconds anyway
+        p.waited += dt;
+        if (parts.contactSensor.angle > 0.5 || p.waited > 4) { p.path.shift(); p.waited = 0; }
+      } else if (next && next.chore != null) {  // at the switch or the thermostat: reach for it until it changes
+        p.face = next.face;
+        reach = true;
+        p.waited += dt;
+        if (simNow >= next.chore + 1500 || p.waited > 8) { p.path.shift(); p.waited = 0; }
+      } else if (next) {
+        const [tx, tz] = next, dx = tx - pos.x, dz = tz - pos.z, far = Math.hypot(dx, dz), stride = 1.15 * pace * dt;
+        if (far <= stride) { pos.x = tx; pos.z = tz; p.path.shift(); } else { pos.x += dx / far * stride; pos.z += dz / far * stride; }
+        if (far > 0.01) p.face = Math.atan2(dx, dz);
+        speed = 1;
+        if (!p.path.length) {
+          if (p.here) { p.face = p.spot.face; if (p.mood === 'happy') p.sparkle = 3; }  // home, and warm: a little cheer
+          else p.g.visible = false;  // out of the garden: gone
+        }
+      }
+      let turn = p.face - p.g.rotation.y;
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      p.g.rotation.y += turn * Math.min(1, dt * 9);
+
+      // The mood: only inside, from the room's temperature. Turning happy throws a few sparkles.
+      const inside = pos.z < D / 2 - 0.3 && p.here;
+      const mood = !inside || roomTemp == null ? 'calm' : roomTemp >= 20.5 ? (glad ? 'happy' : 'calm') : roomTemp < 19.5 ? 'cold' : 'calm';
+      if (mood !== p.mood) {
+        if (mood === 'happy' && p.mood) p.sparkle = 3;
+        p.mood = mood;
+        for (const k in p.faces) p.faces[k].visible = k === mood;
+      }
+      p.sparkle = Math.max(0, p.sparkle - dt);
+      p.stars.forEach((st, k) => {
+        st.visible = p.sparkle > 0;
+        const a = Math.min(1, p.sparkle, 3 - p.sparkle) * (0.75 + 0.25 * Math.sin(beat * 6 + k * 2));
+        st.material.opacity = Math.max(0, a);
+      });
+
+      p.phase += dt * 7.5 * pace * speed;
+      const swing = speed ? Math.sin(p.phase) * 0.55 : 0, still = !speed && !reach;
+      p.legs[0].rotation.x = swing; p.legs[1].rotation.x = -swing;
+      const cold = still && p.mood === 'cold', happy = still && p.mood === 'happy', cheer = happy && p.sparkle > 0;
+      // Arms: swinging while walking; the right one up to the switch; hugging herself when cold; up when cheering.
+      const wave = cheer ? 0.25 * Math.sin(beat * 9) : 0;
+      p.arms[0].rotation.x = cold ? -1.25 : cheer ? 0 : -swing * 0.8;
+      p.arms[1].rotation.x = reach ? -1.5 : cold ? -1.25 : cheer ? 0 : swing * 0.8;
+      p.arms[0].rotation.z = cold ? 0.75 : cheer ? -2.5 - wave : 0;
+      p.arms[1].rotation.z = cold ? -0.75 : cheer ? 2.5 + wave : 0;
+      if (!speed) p.phase = 0;
+      p.g.position.y = speed ? Math.abs(Math.sin(p.phase)) * 0.03 : happy && p.sparkle > 0 ? Math.abs(Math.sin(beat * 7)) * 0.06 : 0;
+      p.g.rotation.z = cold ? Math.sin(beat * 47) * 0.012 : 0;  // a shiver
+      p.tag.visible = showNames;
+    }
+  }
+  let showNames = true, pace = 1, glad = true;  // glad false: never happy (the film's house without Alfred)
+
   function glowTexture() {
     const c = document.createElement('canvas');
     c.width = c.height = 128;
@@ -952,17 +1151,22 @@ function houseScene(THREE, canvas) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     // The panels cover the sides and the time bar the bottom: look a little past the house when only the left one is there.
-    camera.setViewOffset(w, h, w > 1100 ? 0 : w > 900 ? -150 : 0, w > 900 ? 60 : 110, w, h);
+    if (film) camera.setViewOffset(w, h, 0, film.oy * h, w, h);  // oy: the house a little higher, above the film's captions
+    else camera.setViewOffset(w, h, w > 1100 ? 0 : w > 900 ? -150 : 0, w > 900 ? 60 : 110, w, h);
     camera.updateProjectionMatrix();
   }
 
-  const tmp = new THREE.Vector3(), lerp = (a, b, k) => a + (b - a) * Math.min(1, k);
-  let last = performance.now(), frame = 0, beat = 0;
+  let last = performance.now(), frame = 0, beat = 0, film = false;
   function tick(now) {
     frame = requestAnimationFrame(tick);
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
+    update(dt);
+  }
+  // One frame: everything moves by dt seconds, then the house is drawn. The film calls it with a fixed dt.
+  function update(dt) {
     beat += dt;
+    movePeople(dt);
     place();
     for (const w of walls) {  // fade the walls the camera looks through
       const hidden = w.normal.dot(tmp.copy(camera.position).sub(w.at)) > 0;
@@ -1008,6 +1212,17 @@ function houseScene(THREE, canvas) {
     start() { resize(); place(); cancelAnimationFrame(frame); last = performance.now(); frame = requestAnimationFrame(tick); },
     stop() { cancelAnimationFrame(frame); },
     resetView() { Object.assign(view, HOME); },
+    // The film (console/film.html): no panels to look past, a set camera, and frames drawn one at a time.
+    filmMode({ oy = 0, walk = 1, happy = true, ...camera }) {
+      film = { oy };
+      glad = happy;
+      pace = walk;  // a short film walks people faster
+      renderer.setPixelRatio(1);  // the film's canvas is drawn at its own size: one pixel per pixel is enough
+      Object.assign(view, camera);
+      cancelAnimationFrame(frame);
+      resize();
+    },
+    step(dt) { place(); update(dt); },
     turn(az, tilt) { view.az += az; view.tilt = Math.max(0.12, Math.min(1.5, view.tilt + tilt)); },
     onPick(fn) { onPick = fn; },
     select(type) { selected = type; for (const t in labels) drawLabel(t); },
@@ -1021,9 +1236,15 @@ function houseScene(THREE, canvas) {
     // The door also swings for a moment when an opening fell between two frames of a fast playback.
     flashDoor() { parts.contactSensor.hold = 0.45; },
     // devices: [{type, name}], state: one object per device then the security one, hour: local time of day.
-    setState(devices, state, hour, words) {
+    // extra: { now: the day's time in ms, chores: [{client, t, at: 'switch' | 'thermostat'}] } for the people.
+    setState(devices, state, hour, words, extra = {}) {
       const security = state[devices.length] || {}, seen = {};
+      if (extra.now != null) simNow = extra.now;
+      if (extra.chores) chores = extra.chores;
+      const sensor = devices.findIndex((d) => d.type === 'temperatureSensor');
+      roomTemp = sensor >= 0 && state[sensor] ? state[sensor].temperatureValue ?? null : null;
       devices.forEach((d, i) => {
+        if (d.type === 'router' && !seen.router) { seen.router = true; placePeople((state[i] || {}).connectedClients, hour); }
         if (seen[d.type] || !anchors[d.type]) return;  // one of each type is drawn
         seen[d.type] = true;
         const s = state[i] || {}, l = labels[d.type], said = words(d.type, s, security);
@@ -1208,7 +1429,8 @@ function drawLanes(canvas, day, t, css, learned, habit, wakes) {
 const view = { day: null, t: 0, index: -1, playing: false, selected: null, fileDays: null, plot: { x0: 51, x1: 100 },
                learned: null, habit: null, frame: -2,
                tab: 'house', loaded: null, knowledge: null, knowScroll: 0,  // loaded: the house tab's "household|day"
-               thoughts: null, moments: null, moment: null, focus: [], want: null, planted: null };  // the demo screen
+               thoughts: null, moments: null, moment: null, focus: [], want: null, planted: null,  // the demo screen
+               alfred: new URLSearchParams(location.search).get('alfred') !== 'off' };  // off: the day without Alfred's writes
 const status = $('status');
 const say = (text, bad) => { status.textContent = text; status.className = bad ? 'bad' : 'muted'; };
 const house = window.THREE ? houseScene(window.THREE, $('scene')) : null;
@@ -1224,6 +1446,32 @@ function readColors() {
 const real = (color) => (color && color.startsWith('var(') ? css[color.slice(6, -1)] : color);
 const words = (type, s, security) => { const said = reading(type, s, security); said.css = real(said.color); return said; };
 
+// What people do as they come in: someone whose phone joined and who then opened the door, and within a few
+// minutes switched the light on or turned the heating up, walks to the switch or the thermostat first. A light
+// already on as the door opens (or a few seconds after) was not them.
+function choresOf(day) {
+  const at = (type) => day.devices.findIndex((d) => d.type === type);
+  const router = at('router'), door = at('contactSensor'), bulb = at('bulb'), thermo = at('thermostat'), out = [];
+  if (router < 0 || door < 0) return out;
+  const phones = (i) => new Set(((day.states[i][router] || {}).connectedClients || []).filter((c) => c.kind === 'phone').map((c) => c.id));
+  for (let i = 1; i < day.times.length; i++) {
+    const before = phones(i - 1);
+    for (const id of phones(i)) {
+      if (before.has(id)) continue;
+      let open = -1;
+      for (let j = i; j < day.times.length && day.times[j] - day.times[i] < 5 * 60000; j++) if (day.states[j][door].sensorState === 'alarm') { open = j; break; }
+      if (open < 0) continue;
+      const t0 = day.times[open];
+      for (let j = open + 1; j < day.times.length && day.times[j] - t0 < 4 * 60000; j++) {
+        const was = day.states[j - 1], now = day.states[j];
+        if (bulb >= 0 && now[bulb].power === 'on' && was[bulb].power !== 'on' && day.times[j] - t0 >= 8000) out.push({ client: id, t: day.times[j], at: 'switch' });
+        if (thermo >= 0 && now[thermo].targetTemperature > was[thermo].targetTemperature) out.push({ client: id, t: day.times[j], at: 'thermostat' });
+      }
+    }
+  }
+  return out;
+}
+
 // Everything on screen follows view.t: the house, the panel, the lanes and the slider.
 function render(force) {
   const day = view.day;
@@ -1234,7 +1482,7 @@ function render(force) {
   view.plot = drawLanes($('lanes'), day, view.t, css, view.learned, view.habit, view.thoughts && view.thoughts.times);
   updateLearned(force);
   updateThoughts(force);
-  if (house) house.setState(day.devices, state, (view.t - day.start) / 3600000, words);
+  if (house) house.setState(day.devices, state, (view.t - day.start) / 3600000, words, { now: view.t, chores: day.chores || (day.chores = choresOf(day)) });
   if (i === view.index && !force) return;
   view.index = i;
   const late = view.t - day.times[i] > GAP_MS || view.t < day.times[0];
@@ -1683,7 +1931,7 @@ async function load(household, n, keepTime) {
   say('Loading…');
   loadMoments(household);  // first: a house the simulator can't show yet may still have its moments
   try {
-    const res = await fetch(`/day?household=${encodeURIComponent(household)}&day=${n}`);
+    const res = await fetch(`/day?household=${encodeURIComponent(household)}&day=${n}${view.alfred ? '' : '&alfred=off'}`);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `Failed (${res.status})`);
     view.fileDays = null;
@@ -1692,8 +1940,10 @@ async function load(household, n, keepTime) {
     show(fromServer(body), keepTime);
     view.loaded = `${household}|${n}`;
     loadLearned(household, n);
-    loadThoughts(household, n);
+    if (view.alfred) loadThoughts(household, n);
+    else { thinkToken++; view.thoughts = null; $('thinks-box').hidden = true; }
     setUrl();
+    if (filmReady) filmReady(view.day);
   } catch (err) {
     say(err instanceof TypeError ? 'Could not reach the simulator. Start it (uv run python -m source.simulate --serve), or open a .jsonl file.' : err.message, true);
   }
@@ -1724,6 +1974,7 @@ function setUrl() {
   const q = new URLSearchParams(location.search);
   if (!view.fileDays) { q.set('household', $('household').value); q.set('day', $('day').value); }
   if (view.tab === 'knowledge') q.set('tab', 'knowledge'); else q.delete('tab');
+  if (view.alfred) q.delete('alfred'); else q.set('alfred', 'off');
   history.replaceState(null, '', `?${q}`);
 }
 
@@ -2244,6 +2495,17 @@ $('labels').addEventListener('click', () => {
   if (house) house.setLabels(on);
 });
 $('reset').addEventListener('click', () => house && house.resetView());
+function showAlfred() {
+  $('alfred').setAttribute('aria-pressed', String(view.alfred));
+  $('alfred').textContent = view.alfred ? 'Alfred on' : 'Alfred off';
+}
+$('alfred').addEventListener('click', () => {
+  view.alfred = !view.alfred;
+  showAlfred();
+  view.loaded = null;
+  if (!view.fileDays && $('household').value !== 'file') load($('household').value, Number($('day').value), true);
+});
+showAlfred();
 function toggleTheme() {
   const next = getComputedStyle(document.documentElement).colorScheme.includes('dark') ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
@@ -2304,10 +2566,53 @@ narrow.addEventListener('change', placeHabits);
 placeHabits();
 for (let n = 1; n <= 20; n++) $('made-up').append(new Option(`house-${n}`, `house-${n}`));
 readColors();
-if (house) { house.onPick((type) => type && select(type)); house.start(); }
+if (house) { house.onPick((type) => type && select(type)); if (!new URLSearchParams(location.search).get('film')) house.start(); }
 else say('The 3D library did not load (it comes from cdnjs.cloudflare.com): the panel and the timeline still work.', true);
 requestAnimationFrame(advance);
 const asked = new URLSearchParams(location.search);
+// ?film=1: console/film.html drives this page frame by frame (no panels, the camera it asks for).
+let filmReady = null;
+if (asked.get('film') && house) {
+  document.body.classList.add('film');
+  document.documentElement.dataset.theme = 'light';  // the film's sides paint their own background
+  readColors();
+  house.filmMode({ az: Number(asked.get('az') || 0.62), tilt: Number(asked.get('tilt') || 1.0), dist: Number(asked.get('dist') || 12.5), oy: Number(asked.get('oy') || 0), walk: Number(asked.get('walk') || 1), happy: asked.get('happy') !== '0' });
+  house.setLabels(false);
+  const ready = new Promise((resolve) => { filmReady = resolve; });
+  const reading = (type, key) => { const i = view.day.devices.findIndex((d) => d.type === type); return i < 0 ? null : view.day.states[indexAt(view.day, view.t)][i][key]; };
+  window.film = {
+    ready,
+    canvas: $('scene'),
+    day: () => view.day,
+    at(t, dt) { view.t = t; render(); house.step(dt); },
+    reading,
+    // Moves one change of the day (the device's `key` becoming `value`, the nearest such change to `at`, within
+    // ten minutes) to `at`, earlier or later. For the film's staging (console/film.html), never for data.
+    retime(type, key, value, at) {
+      const day = view.day, d = day.devices.findIndex((x) => x.type === type);
+      if (d < 0) return false;
+      let j = -1;
+      for (let k = 1; k < day.times.length; k++) {
+        if (day.states[k][d][key] === value && day.states[k - 1][d][key] !== value && Math.abs(day.times[k] - at) < 600000 &&
+            (j < 0 || Math.abs(day.times[k] - at) < Math.abs(day.times[j] - at))) j = k;
+      }
+      if (j < 0) return false;
+      const old = day.states[j - 1][d][key];
+      let i = indexAt(day, at);
+      if (day.times[i] !== at) {  // a snapshot of its own at that time
+        day.times.splice(i + 1, 0, at);
+        day.states.splice(i + 1, 0, day.states[i].map((o) => ({ ...o })));
+        i++;
+        if (j >= i) j++;
+      }
+      if (i < j) for (let k = i; k < j; k++) day.states[k][d] = { ...day.states[k][d], [key]: value };  // earlier
+      else for (let k = j; k < i; k++) day.states[k][d] = { ...day.states[k][d], [key]: old };  // later
+      day.chores = null;
+      view.index = -1;
+      return true;
+    },
+  };
+}
 if ([...$('household').options].some((o) => o.value === asked.get('household'))) $('household').value = asked.get('household');
 setTab(asked.get('tab'), false);
 go(Number(asked.get('day')) || 1);

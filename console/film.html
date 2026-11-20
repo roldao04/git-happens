@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred film</title>
+<!--
+  The pitch's film: one day of the demo house played twice, from the same simulator with the same people,
+  once with none of Alfred's writes (/day?alfred=off) and once with them. Each side is the visualizer
+  (?film=1), driven here one frame at a time and drawn onto one 1920x1080 canvas, which can be recorded.
+
+  uv run python -m source.demo --household demo      # once: Alfred's run, with his thermostat writes
+  uv run python -m source.simulate --serve           # then http://localhost:4781/film
+  ?layout=split|off|on   both sides, or one of them full width
+  ?day=54                the day (default: Friday 13 Nov, where Alfred's run warms the house before Ana gets home)
+-->
+<style>
+  :root { --bg: #16181d; --text: #e7eaf0; --muted: #98a2b3; --line: #2a303b; --accent: #5b9dff; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg: #eef0f3; --text: #1b1f27; --muted: #667085; --line: #dfe2e8; --accent: #0a6cff; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; min-height: 100vh;
+         display: grid; place-items: center; gap: 12px; padding: 16px; }
+  #out { width: min(100%, calc((100vh - 90px) * 16 / 9)); aspect-ratio: 16 / 9; height: auto; display: block; border-radius: 8px; background: #000; }
+  #bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  button, select { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 8px; min-height: 34px; padding: 0 12px; cursor: pointer; }
+  button.main { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+  #say { color: var(--muted); }
+  #say.bad { color: #ff8a65; }
+  #stage { position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; pointer-events: none; opacity: 0; z-index: -1; overflow: hidden; }
+  #stage iframe { position: absolute; top: 0; border: 0; height: 1080px; }
+</style>
+</head>
+<body>
+<canvas id="out" width="1920" height="1080" aria-label="The same evening with and without Alfred"></canvas>
+<div id="bar">
+  <select id="layout" aria-label="Layout">
+    <option value="split">Lado a lado</option>
+    <option value="off">Só sem Alfred</option>
+    <option value="on">Só com Alfred</option>
+  </select>
+  <button id="play" class="main" type="button" disabled>Play</button>
+  <button id="record" type="button" disabled>Gravar</button>
+  <a id="get" hidden>Descarregar vídeo</a>
+  <span id="say" role="status">A carregar…</span>
+</div>
+<div id="stage" aria-hidden="true"></div>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const asked = new URLSearchParams(location.search);
+const DAY = Number(asked.get('day') || 54), FPS = 30, W = 1920, H = 1080;
+const layout = ['split', 'off', 'on'].includes(asked.get('layout')) ? asked.get('layout') : 'split';
+$('layout').value = layout;
+$('layout').addEventListener('change', () => { asked.set('layout', $('layout').value); location.search = asked; });
+const say = (text, bad) => { $('say').textContent = text; $('say').className = bad ? 'bad' : ''; };
+
+// The look of the deck: a cold grey side and a warm one, navy ink.
+const LOOK = {
+  off: { bg: ['#9fa3ab', '#b4b7be'], ink: '#1f2a4a', soft: '#3b4560', title: 'Sem Alfred' },
+  on: { bg: ['#e4dccb', '#efe9dc'], ink: '#1f2a4a', soft: '#5a5340', title: 'Com Alfred' },
+};
+const sides = layout === 'split' ? ['off', 'on'] : [layout];
+const sideW = W / sides.length;
+
+// --- the two houses: the visualizer in film mode, one per side -----------------------------------------
+const frames = {};
+for (const [k, side] of sides.entries()) {
+  const f = document.createElement('iframe');
+  const camera = sides.length === 2 ? 'az=0.3&tilt=0.95&dist=13.5&oy=0.12' : 'az=0.35&tilt=0.98&dist=11&oy=0.1';
+  f.src = `/visualizer?household=demo&day=${DAY}&film=1&walk=2.6&${camera}${side === 'off' ? '&alfred=off&happy=0' : ''}`;
+  f.style.left = `${k * sideW}px`;
+  f.style.width = `${sideW}px`;
+  $('stage').append(f);
+  frames[side] = f;
+}
+const film = (side) => frames[side].contentWindow.film;
+const loaded = Promise.all(sides.map((side) => new Promise((resolve, reject) => {
+  const started = Date.now();
+  const wait = () => {
+    const f = frames[side].contentWindow && frames[side].contentWindow.film;
+    if (f) return f.ready.then(resolve);
+    if (Date.now() - started > 30000) return reject(new Error('The visualizer did not load (is the simulator running?)'));
+    setTimeout(wait, 100);
+  };
+  frames[side].addEventListener('load', wait);
+})));
+
+// --- what happened, read from each side's day ------------------------------------------------------------
+const hhmm = (t) => new Date(t).toISOString().slice(11, 16);  // the day's times are local wall clock, kept as UTC
+function facts(side) {
+  const day = film(side).day(), dev = (type) => day.devices.findIndex((d) => d.type === type);
+  const thermo = dev('thermostat'), temp = dev('temperatureSensor'), door = dev('contactSensor'), router = dev('router');
+  const at = (i, test) => { for (let j = 0; j < day.times.length; j++) if (day.times[j] >= i && test(day.states[j])) return day.times[j]; return null; };
+  const evening = day.start + 15 * 3600000;
+  const phone = at(evening, (s) => (s[router].connectedClients || []).some((c) => c.kind === 'phone'));
+  const door_ = phone && at(phone, (s) => s[door].sensorState === 'alarm');
+  const heat = at(evening, (s) => s[thermo].heatingState === 'on');
+  const warm = at(evening, (s) => s[temp].temperatureValue >= 20.9);
+  const tempAt = (t) => { let j = 0; while (j + 1 < day.times.length && day.times[j + 1] <= t) j++; return day.states[j][temp].temperatureValue; };
+  const bulb = dev('bulb'), light = door_ && at(door_, (s) => s[bulb].power === 'on');
+  const dial = door_ && at(door_, (s) => s[thermo].targetTemperature > tempAt(door_) + 1);
+  return { phone, door: door_, heat, warm, light, dial, arriveTemp: door_ && tempAt(door_) };
+}
+
+// The film's clock, 7.8 s in all: a moment on the evening before, quick to just before Ana gets home, slower
+// while she walks in and does what she does at the door (or does not have to), then quick to the house warm.
+// [from, to, seconds of film] pieces (to == from: a hold), played at 30 frames a second.
+const LENGTH_MAX = 8;
+function timeline(f) {
+  const min = 60000, door = (f.on || f.off).door;
+  const warm = Math.max(door + 20 * min, ...Object.values(f).map((x) => x.warm || 0)) + 2 * min, start = door - 38 * min;
+  const pieces = [[start, start, 0.3], [start, door - 2 * min, 1.3], [door - 2 * min, door, 1.0], [door, door + 75000, 2.6],
+                  [door + 75000, warm, 2.2], [warm, warm, 0.4]];
+  const out = [];  // one sim time per frame
+  for (const [from, to, seconds] of pieces) {
+    const n = Math.round(seconds * FPS);
+    for (let k = 0; k < n; k++) out.push(from + (to - from) * k / n);
+  }
+  return out.slice(0, LENGTH_MAX * FPS);
+}
+
+// --- drawing one frame -----------------------------------------------------------------------------------
+const ctx = $('out').getContext('2d');
+function tempColor(t) {  // the visualizer's: 15 °C blue, 20.5 °C grey, 26 °C orange
+  if (t == null) return '#9aa3b2';
+  const k = Math.max(-1, Math.min(1, (t - 20.5) / 5.5)), a = [154, 163, 178], b = k < 0 ? [47, 128, 237] : [240, 124, 32];
+  return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * Math.abs(k))).join(',')})`;
+}
+function pill(x, y, text, font, fill, ink, padX = 22, h = 52) {
+  ctx.font = font;
+  const w = ctx.measureText(text).width + padX * 2;
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.roundRect(x - w / 2, y, w, h, h / 2);
+  ctx.fill();
+  ctx.fillStyle = ink;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y + h / 2 + 1);
+  ctx.textAlign = 'left';
+  return w;
+}
+function draw(t, f) {
+  sides.forEach((side, k) => {
+    const x0 = k * sideW, look = LOOK[side], fw = film(side);
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, look.bg[0]);
+    g.addColorStop(1, look.bg[1]);
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, 0, sideW, H);
+    if (side === 'on') {  // a warm glow that grows with the room's temperature
+      const temp = fw.reading('temperatureSensor', 'temperatureValue') || 18, k2 = Math.max(0, Math.min(1, (temp - 18) / 3));
+      const glow = ctx.createRadialGradient(x0 + sideW * 0.5, H * 0.45, 40, x0 + sideW * 0.5, H * 0.45, sideW * 0.75);
+      glow.addColorStop(0, `rgba(255, 196, 120, ${0.38 * k2})`);
+      glow.addColorStop(1, 'rgba(255, 196, 120, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(x0, 0, sideW, H);
+    }
+    ctx.drawImage(fw.canvas, x0, 0, sideW, H);
+
+    // The room's temperature and the heating, in the side's outer top corner (the clock sits in the middle).
+    const bx = k === sides.length - 1 && sides.length === 2 ? x0 + sideW - 404 : x0 + 44;
+    const temp = fw.reading('temperatureSensor', 'temperatureValue'), heating = fw.reading('thermostat', 'heatingState') === 'on';
+    const goal = fw.reading('thermostat', 'targetTemperature');
+    ctx.fillStyle = 'rgba(255, 255, 255, .86)';
+    ctx.beginPath();
+    ctx.roundRect(bx, 44, 360, 128, 18);
+    ctx.fill();
+    ctx.fillStyle = tempColor(temp);
+    ctx.beginPath();
+    ctx.arc(bx + 40, 92, 14, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = look.ink;
+    ctx.font = '700 54px Georgia, "Times New Roman", serif';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(temp == null ? '–' : `${temp.toFixed(1).replace('.', ',')} °C`, bx + 68, 112);
+    ctx.font = '500 22px system-ui, sans-serif';
+    ctx.fillStyle = heating ? '#c2410c' : look.soft;
+    ctx.fillText(heating ? `A aquecer · alvo ${goal} °C` : `Aquecimento desligado · ${goal} °C`, bx + 24, 152);
+
+    // The title, bottom left.
+    ctx.font = '700 48px Georgia, "Times New Roman", serif';
+    const tw = ctx.measureText(look.title).width;
+    ctx.fillStyle = 'rgba(255, 255, 255, .9)';
+    ctx.beginPath();
+    ctx.roundRect(x0 + 44, H - 136, tw + 64, 92, 18);
+    ctx.fill();
+    ctx.fillStyle = look.ink;
+    ctx.fillText(look.title, x0 + 76, H - 72);
+  });
+  if (sides.length === 2) { ctx.fillStyle = 'rgba(31, 42, 74, .55)'; ctx.fillRect(W / 2 - 2, 0, 4, H); }
+  const date = new Date(t), weekday = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][date.getUTCDay()];
+  pill(W / 2, 40, `${weekday} · ${hhmm(t)}`, '600 30px system-ui, sans-serif', 'rgba(255, 255, 255, .95)', '#1f2a4a', 30, 60);
+}
+
+// --- playing and recording -------------------------------------------------------------------------------
+// Playing follows the wall clock. Recording does not: each frame is encoded with its own timestamp (WebCodecs,
+// muxed to MP4 by mp4-muxer), so a slow frame never shows as a jump in the video.
+const MUXER = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js';
+const loadMuxer = () => window.Mp4Muxer ? Promise.resolve() : new Promise((resolve, reject) => {
+  const tag = document.createElement('script');
+  tag.src = MUXER;
+  tag.onload = resolve;
+  tag.onerror = () => reject(new Error('Could not load mp4-muxer (cdn.jsdelivr.net)'));
+  document.head.append(tag);
+});
+let plan = null, info = null, running = false;
+async function run(record) {
+  if (running) return;
+  running = true;
+  $('play').disabled = $('record').disabled = true;
+  let blob = null;
+  try {
+    let muxer = null, encoder = null, failed = null;
+    if (record) {
+      if (!window.VideoEncoder) throw new Error('This browser cannot encode video (no WebCodecs).');
+      await loadMuxer();
+      muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: W, height: H, frameRate: FPS }, fastStart: 'in-memory' });
+      encoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { failed = e; } });
+      encoder.configure({ codec: 'avc1.640028', width: W, height: H, bitrate: 14e6, framerate: FPS });
+    }
+    const begin = performance.now();
+    for (let i = 0; i < plan.length; i++) {
+      for (const side of sides) film(side).at(plan[i], 1 / FPS);
+      draw(plan[i], info);
+      if (encoder) {
+        if (failed) throw failed;
+        const frame = new VideoFrame($('out'), { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+        encoder.encode(frame, { keyFrame: i % (2 * FPS) === 0 });
+        frame.close();
+        while (encoder.encodeQueueSize > 4) await new Promise((r) => setTimeout(r, 5));
+        if (i % 15 === 0) await new Promise((r) => setTimeout(r, 0));  // let the page breathe
+      } else {
+        const wait = begin + (i + 1) * 1000 / FPS - performance.now();
+        await new Promise((r) => setTimeout(r, Math.max(0, wait)));
+      }
+      if (i % FPS === 0) say(`${record ? 'A gravar' : 'A tocar'} · ${Math.round(i / FPS)} / ${Math.round(plan.length / FPS)} s`);
+    }
+    if (encoder) {
+      await encoder.flush();
+      if (failed) throw failed;
+      muxer.finalize();
+      blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+      $('get').href = URL.createObjectURL(blob);
+      $('get').download = `alfred-${layout}.mp4`;
+      $('get').hidden = false;
+      say(`Gravado: ${(blob.size / 1e6).toFixed(1)} MB, ${Math.round(plan.length / FPS)} s.`);
+    } else say('Pronto.');
+  } catch (err) {
+    say(err.message || String(err), true);
+  }
+  running = false;
+  $('play').disabled = $('record').disabled = false;
+  window.lastFilm = blob;
+  return blob;
+}
+$('play').addEventListener('click', () => run(false));
+$('record').addEventListener('click', () => run(true));
+window.recordFilm = () => run(true);
+
+// The staging (?stage=0 to play the simulation as it is): without Alfred, Ana switches the light on first, then
+// goes to the thermostat; with Alfred, the light comes on as she opens the door. The lamp moves, and without
+// Alfred the thermostat's new target comes 19 s later (still before it starts heating); the temperatures and
+// the heating are the simulation's.
+function stage() {
+  if (asked.get('stage') === '0') return;
+  for (const side of sides) {
+    const f = facts(side);
+    if (!f.door) continue;
+    film(side).retime('bulb', 'power', 'on', f.door + (side === 'on' ? 1000 : 25000));
+    // Without Alfred she turns the heating up once she reaches the thermostat (still before it starts heating).
+    if (side === 'off' && f.dial && f.dial < f.door + 62000) film(side).retime('thermostat', 'targetTemperature', 21, f.door + 62000);
+  }
+}
+
+loaded.then(() => {
+  stage();
+  info = Object.fromEntries(sides.map((side) => [side, facts(side)]));
+  plan = timeline(info);
+  for (const side of sides) film(side).at(plan[0], 1 / FPS);
+  draw(plan[0], info);
+  $('play').disabled = $('record').disabled = false;
+  say(`Dia ${DAY}: ${Math.round(plan.length / FPS)} s de filme.`);
+  window.filmInfo = { info, frames: plan.length };
+}).catch((err) => say(err.message, true));
+</script>
+</body>
+</html>
