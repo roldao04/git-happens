@@ -1,5 +1,5 @@
 """The habit forecast (source/learn/forecast.py), on hand-made `habits` and `habit_readings` rows
-in the shapes of docs/habits-plan.md (the grouper that writes them is built separately).
+in the shapes of docs/contracts.md (the grouper that writes them is built separately).
 
   uv run python -m unittest tests.test_forecast -v
 """

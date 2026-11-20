@@ -1,4 +1,4 @@
-"""Rest: the state or level each signal sits at most of the time (docs/starting-plan.md, part 3).
+"""Rest: the state or level each signal sits at most of the time (docs/contracts.md, part 3).
 
 Everything is measured in observed time, never in event counts. Time between snapshots that were far
 apart (gap), while a device was silent (stale) or after a signal left the snapshot (gone) is unknown.

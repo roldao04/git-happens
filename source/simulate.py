@@ -15,7 +15,7 @@ Two kinds of household:
   variation and skipped days. Change the config and the same code gives a different home. Off by default, it
   can also have rarer rhythms (a visit every n days, a monthly outing, the appliance every few hours) and
   parties; "rosa-plus" has them all. With `people` it is a household of people with phones, a thermostat they set
-  and three named plugs: "demo", the demo house (docs/demo-plan.md).
+  and three named plugs: "demo", the demo house (docs/contracts.md).
 - "home-a": a real kitchen, replayed. Door, light, temperature and humidity are the recordings of one house
   (UMass Smart* Home A, May-July 2012, see tools/extract_smart_home_a.py). Its coffee maker was only metered
   on 17 days; on the other days a recorded use is replayed at a recorded start time.
@@ -82,7 +82,7 @@ class Household:
     outing_chance: float = 0.9
     extra_door_openings: float = 1.0  # per day, at random times
     lamp_evening_on: str = "18:30"
-    # Rarer rhythms and parties (docs/habits-plan.md, part D), all off by default. Each one varies and is sometimes
+    # Rarer rhythms and parties (docs/simulator.md), all off by default. Each one varies and is sometimes
     # skipped, and none happens while nobody is home or asleep. `household_from_dict` reads a setting as its
     # default's type, so these float defaults are written as floats (0.0, not 0).
     visit_every_days: int = 0  # 14: a visit every other week, on the weekday of `visit_anchor`; 0 for none
@@ -114,7 +114,7 @@ class Household:
     holidays: list = field(default_factory=list)  # "2026-09-20..2026-09-26" or "2026-09-20": nobody home
     outages: list = field(default_factory=list)  # "2026-09-10T22:00..2026-09-11T08:00": no snapshots at all
     changes: list = field(default_factory=list)  # {"from": "2026-10-01", "wake": "09:00"}: settings from that day
-    # A household of people (docs/demo-plan.md, C12), off by default. With `people`, the home has the demo kit
+    # A household of people (docs/contracts.md, C12), off by default. With `people`, the home has the demo kit
     # (phones on the router, a thermostat, plugs named Kettle, TV and Washing machine) and the room's temperature
     # follows the heating. `wake`, `bed`, the kettle (`appliance_*`, `morning_use_*`), `outing_*` (out together),
     # `extra_door_openings`, `lamp_evening_on` and `party_at`/`party_minutes`/`party_lie_in_min` keep their meaning.
@@ -173,7 +173,7 @@ PRESETS: dict[str, Household] = {
     "rosa-plus": Household(
         name="rosa-plus", visit_every_days=14, visit_anchor="2026-09-05", monthly_on="first sun",
         hourly_every_h=3, hourly_from="11:00", hourly_until="20:00", parties_per_30_days=3.5),
-    # The demo house (docs/demo-plan.md, C12): Ana and João, their phones, a thermostat they set, a kettle, a TV and
+    # The demo house (docs/contracts.md, C12): Ana and João, their phones, a thermostat they set, a kettle, a TV and
     # a washing machine, and four Friday evenings with friends. 60 days from Monday 21 Sep: day 60 is Thu 19 Nov.
     "demo": Household(
         name="demo", start="2026-09-21", wake="07:12", wake_spread_min=12, weekend_shift_min=93,
@@ -191,7 +191,7 @@ PRESETS: dict[str, Household] = {
                   "2026-11-18": {"wake": "07:08"}, "2026-11-19": {"Ana home": "18:41"}}),
 }
 
-# The demo's moments (docs/demo-plan.md, C11 and C12): day 1 is the household's start. `planted`: the answer key's
+# The demo's moments (docs/contracts.md, C11 and C12): day 1 is the household's start. `planted`: the answer key's
 # rows each one is about; the integration fills `focus` with the habits Alfred found for them.
 DEMO_MOMENTS = [
     {"id": "weekday-morning", "title": "Waking up, a weekday", "day": 59, "time": "06:30", "planted": ["waking-up"],
@@ -438,7 +438,7 @@ def _ordinal(n: int) -> str:
 
 
 def _recurrence(kind: str, text: str, **values) -> dict:
-    """The rhythm in the shape of a learned habit's `recurrence` (docs/habits-plan.md, source/learn/recurrence.py),
+    """The rhythm in the shape of a learned habit's `recurrence` (docs/contracts.md, source/learn/recurrence.py),
     with the same sentences, so a test can compare what was found with what was planted."""
     return {"kind": kind, "weekdays": None, "every_n_days": None, "anchor": None, "day_of_month": None,
             "every_n_hours": None, **values, "text": text}
@@ -780,7 +780,7 @@ def _config_plan(h: Household, start: date, days: int, rng: random.Random,
     return plan
 
 
-# --- a household of people: phones, a thermostat and named plugs (docs/demo-plan.md, C12) ------------------------
+# --- a household of people: phones, a thermostat and named plugs (docs/contracts.md, C12) ------------------------
 
 KETTLE, TV, WASHER = "plug:kettle", "plug:tv", "plug:washing-machine"  # the home has three plugs: named by name
 THERMOSTAT, ROUTER = "thermostat", "router"
@@ -798,7 +798,7 @@ def _slug(name: str) -> str:
 
 def _device_keys(devices: list[dict]) -> list[str]:
     """How changes name each device: its type, or "<type>:<slug of its name>" when the home has more than one of
-    that type (docs/demo-plan.md, C2), so today's kit keeps its names."""
+    that type (docs/contracts.md, C2), so today's kit keeps its names."""
     count = Counter(d["type"] for d in devices)
     return [d["type"] if count[d["type"]] == 1 else f"{d['type']}:{_slug(d['name'])}" for d in devices]
 
@@ -917,7 +917,7 @@ def _days_text(days: list[str]) -> str:
 
 
 def _window(days: list[str], usual_min: float, spread_min: float) -> dict:
-    """A habit's window in the shape of docs/demo-plan.md C3: usual time, ± 1.5 spreads, to 5 minutes."""
+    """A habit's window in the shape of docs/contracts.md C3: usual time, ± 1.5 spreads, to 5 minutes."""
     def five(m: float) -> str:
         return _hhmm(5 * round(m / 5))
     return {"days": [d for d in WEEKDAYS if d in days], "usual": _hhmm(round(usual_min)),
@@ -932,7 +932,7 @@ def _row(key: str, kind: str, text: str, *, person: dict | None = None, windows:
 
 def planted(household: "Household | str", start: date | None = None, days: int | None = None) -> list[dict]:
     """The rhythms planted in a household of people, one row each, in the words of the demo's "planted" column
-    (docs/demo-plan.md, C11): what the learners should find. Each answer key entry of `generate` says which row it
+    (docs/contracts.md, C11): what the learners should find. Each answer key entry of `generate` says which row it
     belongs to (its "planted"). `start` and `days` only count the gatherings in a run. Empty for other households."""
     h = PRESETS[household] if isinstance(household, str) else household
     if not h.people:
@@ -1379,7 +1379,7 @@ def _template_text() -> str:
 
 def _template(kit: str = "") -> dict:
     """A real get_home snapshot of the kit, set to a quiet home. kit "demo": its plug becomes three plugs named
-    Kettle, TV and Washing machine, and it has a thermostat and the WiFi router (docs/demo-plan.md, C1)."""
+    Kettle, TV and Washing machine, and it has a thermostat and the WiFi router (docs/contracts.md, C1)."""
     home = json.loads(_template_text())
     demo = home.pop("demo_devices")
     if kit == "demo":

@@ -12,7 +12,7 @@ GET  /moments    household[, seed, start] -> the demo's scripted moments: one cl
 GET  /thoughts   household, day[, seed, start] -> why Alfred woke its LLM that day, what it said and did
 GET  /planted    household, day[, seed, start] -> each planted rhythm (the answer key) and what Alfred found for it
 
-The last three are the demo screen's (docs/demo-plan.md, C11). Each reads the real data when it is there (the
+The last three are the demo screen's (docs/contracts.md, C11). Each reads the real data when it is there (the
 simulator's moments and answer key, the run's `wakes` and `decisions`) and falls back to console/fixtures/.
 
 "simulated" gives made-up homes (`simulate.houses`), each different. "real" replays the one recorded house
@@ -281,7 +281,7 @@ def knowledge_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_STA
 
     `kinds`: the event types, each with `description` in words ("~2,100 W for ~3 min") and its device's name.
     `patterns`: every sensor, as learned_view's cards (plus last_seen, lag, until…).
-    `habits`, `occasions`: parts A and C of docs/habits-plan.md, in their shapes; each occasion also gets
+    `habits`, `occasions`: habits and occasions, in their shapes (docs/contracts.md); each occasion also gets
     `episode_list`, its episodes' times. `matches`: occasions the day's end looks like (match_now).
     `forecast`, `decisions`: part B for `tomorrow`, the 24 h after the day.
     `modules`: per part, "ok", "missing" (not written yet) or "failed" (it raised: see the log). A part that
@@ -416,7 +416,7 @@ def assemble(db: sqlite3.Connection, name: str, day: int, seed: int, start: date
             "thoughts": thoughts}  # None: no wakes table in this run (the pipeline doesn't run the loop)
 
 
-# --- the knowledge tab: the other parts of docs/habits-plan.md, read defensively ---------------------
+# --- the knowledge tab: habits, occasions, forecast and decisions, read defensively ---------------------
 
 class _Parts:
     """The other parts' functions, for one run. A part not written yet is "missing"; one that doesn't import or
@@ -476,7 +476,7 @@ def _knowledge(db: sqlite3.Connection, as_of: date, sensors: list[dict], keys: d
     signals = signal_devices(rows)
     for dev_id, kind, name in rows:
         devices.setdefault(kind, name)
-        if name:  # also by the per-device signal name (docs/demo-plan.md, C2): "plug:kettle" -> "Kettle",
+        if name:  # also by the per-device signal name (docs/contracts.md, C2): "plug:kettle" -> "Kettle",
             devices.setdefault(signals[dev_id], name)  # "phone:c-8f3a" -> "Ana's phone"
     try:
         kinds = [_kind_card(k, devices) for k in storage.load_kinds(db)]
@@ -573,7 +573,7 @@ def _items(value, key: str) -> list[dict]:
 
 def _with_episodes(db: sqlite3.Connection, occasions: list[dict], exported) -> list[dict]:
     """Each occasion with `episode_list`, its episodes' times: from the occasion, its export, or the
-    occasion_episodes table (docs/habits-plan.md). `episodes` stays the count."""
+    occasion_episodes table (docs/contracts.md). `episodes` stays the count."""
     if not occasions:
         return []
     rows = exported.get("episodes") if isinstance(exported, dict) else None
@@ -648,7 +648,7 @@ def with_names(view: dict, path: Path, items: str = "sensors") -> dict:
     return {**view, items: named, "named": view["named"] or any(s.get("name") for s in named)}
 
 
-# --- the demo screen (docs/demo-plan.md, C11): moments, thoughts, planted vs found ---------------------
+# --- the demo screen (docs/contracts.md, C11): moments, thoughts, planted vs found ---------------------
 # Each answer is the real one when the parts it needs are there, else the fixture's (console/fixtures/<household>.json),
 # else empty. `source` says which: "simulator" or "run", "fixture", or "none".
 

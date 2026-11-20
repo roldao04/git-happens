@@ -27,7 +27,7 @@ from source.simulate_web import (MAX_DAYS, MAX_LEARN_DAYS, REAL_MAX_DAYS, VIEW_P
                                  _day_request, _device_types, compact, day_view, knowledge_view, learned_view)
 
 START = date(2026, 9, 1)
-# The other parts of docs/habits-plan.md, which the knowledge tab reads when they are there.
+# Habits, occasions, forecast and decisions, which the knowledge tab reads when they are there.
 PART_MODULES = ("source.learn.grouping", "source.learn.occasions", "source.learn.forecast", "source.anticipate",
                 "source.learn.warmup")
 PARTS = ("habits", "occasions", "forecast", "decisions", "warmup")
@@ -291,7 +291,7 @@ WARMUP = {"rate_c_per_h": 4.8, "loss_c_per_h": 0.6, "samples": 23, "confidence":
 
 
 class OtherPartsTest(unittest.TestCase):
-    """Parts A, B and C (docs/habits-plan.md) are read defensively and called when they should be. Fake modules
+    """Habits, the forecast and occasions are read defensively and called when they should be. Fake modules
     stand in for them, so these tests hold whether or not the real ones are written yet. Not cached: _learn_once."""
 
     def test_missing_parts_leave_their_sections_empty(self):
@@ -375,7 +375,7 @@ class OtherPartsTest(unittest.TestCase):
                          [{"start": "2026-09-02T19:40:00", "end": "2026-09-03T01:10:00", "features": {"door_openings": 9}}])
 
 
-DEMO_START = date(2026, 9, 21)  # the demo house's first day (docs/demo-plan.md, C12)
+DEMO_START = date(2026, 9, 21)  # the demo house's first day (docs/contracts.md, C12)
 
 
 def _demo_db(wakes: list[tuple], decisions: list[dict]) -> sqlite3.Connection:

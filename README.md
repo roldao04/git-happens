@@ -1,127 +1,92 @@
 # Alfred · team GitHappens
 
-<img src="assets/githappens-logo.jpeg" alt="GitHappens logo" width="120">
+<img src="assets/alfred-lockup-on-light.svg" alt="Alfred" width="220">
 
-**A home that builds its own sensors:** Alfred learns what the devices' signals mean from the home's own history, and shows that as new sensors you can see, ask about and talk to.
+**A home that learns its own rhythms and runs the house ahead of them.**
+Alfred watches the devices of an Altice Connected Home through its MCP. From the home's own history it learns when people wake up, come home and have friends over. Then it gets the house ready before they need it, with no rules to write.
 Aveiro Tech City Hackathon 2026, Altice Labs Desafio #3 ("Connected Home, Reimagined").
 
-## Docs
-| Doc | What it's for | Read when |
-|---|---|---|
-| [`docs/starting-plan.md`](docs/starting-plan.md) | **The starting plan:** how Alfred learns its own sensors, the parts to build, the shapes to agree, who builds what | First |
-| [`docs/learned-sensors-plan.md`](docs/learned-sensors-plan.md) | Earlier build plan (sensors as SQL queries), superseded by the starting plan | For background only |
-| [`docs/synapse.md`](docs/synapse.md) | Earlier concept under the old name (rules, verification, memories); not yet rewritten around Alfred | For background only |
-| [`docs/simulator.md`](docs/simulator.md) | **The simulator:** how to generate a household's history, the presets, the real house | Before generating data |
-| [`docs/learners.md`](docs/learners.md) | **The learners:** how the grouper and habit learner find sensors, and how to run them | Before touching `source/learn/` |
-| [`docs/habits-plan.md`](docs/habits-plan.md) | **Habits, anticipation, occasions:** the words, the 0.75 do/suggest rule, the shared shapes | Before touching habits, forecasts or decisions |
-| [`docs/habits.md`](docs/habits.md) · [`docs/occasions.md`](docs/occasions.md) · [`docs/anticipation.md`](docs/anticipation.md) | How habits and their rhythms are found; occasions recognised by resemblance; forecasts and decisions | With the plan above |
-| [`docs/demo-plan.md`](docs/demo-plan.md) | **The demo:** the demo house, the three examples, the moments, what "done" looks like; run it with `source.demo` (below) | Before the pitch |
-| [`docs/event-loop.md`](docs/event-loop.md) | **The event loop:** polling, triggers, heartbeat, when the LLM wakes, how the learners plug in | Before writing the poller or agent |
-| [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; device IDs | Before writing code |
-| [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules | Before the pitch or report |
-| [`deliverables/README.md`](deliverables/README.md) | What we hand in, limits and deadlines | Before each deadline |
-| [`deliverables/templates/`](deliverables/templates/) | Organiser templates: slide deck (`.pptx`), executive summary links | When starting a deliverable |
-| [`docs/reference/hardware-list.md`](docs/reference/hardware-list.md) | Kit hardware: models, radios, how each device reaches the MCP, **safety rules** | Before touching the physical kit |
-| [`docs/reference/`](docs/reference/) | Organiser PDFs and strategy research | When you need the source |
-**Build from these**
-| Doc | What it's for |
-|---|---|
-| [`docs/starting-plan.md`](docs/starting-plan.md) | **Read first.** How Alfred learns its own sensors, the parts to build, the shapes to agree, who builds what |
-| [`docs/event-loop.md`](docs/event-loop.md) | The built loop: polling, triggers, the agent, ingest and the learners, how to run and test it |
-| [`docs/simulator.md`](docs/simulator.md) | The simulator: how to generate a household's history, the presets, the real house |
-| [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md) | What the Altice MCP can see, change and can't do; how to connect |
-| [`docs/phone-api.md`](docs/phone-api.md) | The phone app's API (`--api` on the loop): devices, status, skip / undo, chat, voice |
-| [`docs/reference/hardware-list.md`](docs/reference/hardware-list.md) | The physical kit and its **safety rules** |
+## What it does for people
+- **Warm when you get home.** It learns each person's arrival (from their phone on the Wi-Fi) and how fast the house heats, then starts the heating ahead. In the demo house the room is 21.2 °C when Ana walks in; it was 18.3 °C before Alfred.
+- **Mornings that match the day.** Separate weekday and weekend windows, learned, not set.
+- **Knows a party isn't a routine.** It recognises a gathering from past ones, lowers the heating and moves tomorrow's warm-up later.
+- **Stays in your hands.**
+  - It acts only when the evidence is strong (confidence ≥ 0.75, computed from counts) and only suggests otherwise.
+  - The phone app shows what it did and why. You can skip, undo or answer, or talk to it in Portuguese or English.
+  - A person's change always wins.
 
-**Hackathon**
-| Doc | What it's for |
-|---|---|
-| [`docs/altice-hackathon-brief.md`](docs/altice-hackathon-brief.md) | Challenge, schedule, judging criteria, rules |
-| [`deliverables/README.md`](deliverables/README.md) | What we hand in, limits and deadlines; organiser templates in [`deliverables/templates/`](deliverables/templates/) |
+How it works: [`ARCHITECTURE.md`](ARCHITECTURE.md). The maths: [`TECHNICAL.md`](TECHNICAL.md).
 
-**Background (don't build from these)**
-| Doc | What it is |
-|---|---|
-| [`docs/synapse.md`](docs/synapse.md) | The earlier concept (old name SYNAPSE): the Rosa story, rules, verification, memories, business case |
-| [`docs/learned-sensors-plan.md`](docs/learned-sensors-plan.md) | The earlier build plan (sensors as SQL queries), superseded by the starting plan |
-| [`docs/reference/`](docs/reference/) | Organiser PDFs and strategy research |
-
-## Project drive
-[Shared team folder](https://drive.google.com/drive/folders/1SPYUYUx7WPJ9xSI5GlHnbtpvS0-Cky2o?usp=sharing) on Google Drive, with templates and working files for the deliverables.
-
-## Key dates
-- **Wed 18 Nov, afternoon:** mentor checkpoint (online, mandatory)
-- **Wed 18 Nov, 19:00:** approach report due (max 2 pages)
-- **Fri 20 Nov, 17:30:** executive summary (PDF, max 2 pages) + slides + repo link
-- **Fri 20 Nov, 18:00:** pitches (3 min + 1 min Q&A; finalists 5 min + 3 min Q&A)
-
-## Setup: connect to the Altice MCP
-1. `cp .mcp.example.json .mcp.json`, then put in the team API key and the absolute path to `tools/connected_home_auth.py`.
-2. `python3 tools/connected_home_auth.py login` (one-time browser sign-in with the team account).
-3. Start Claude Code in this folder and check `/mcp` shows `connected-home` connected.
+## Set up
+Needs [uv](https://docs.astral.sh/uv/) (Python 3.12) and Node 20+.
+```
+cp .env.example .env    # OPENROUTER_API_KEY for the LLM (optional: without it, replies are scripted);
+                        # CGH_API_KEY for the real kit
+```
+For the real kit only:
+```
+cp .mcp.example.json .mcp.json            # add the team API key and the absolute path to tools/connected_home_auth.py
+python3 tools/connected_home_auth.py login   # once: browser sign-in to the Altice MCP
+```
+Optional: `uv sync --extra voice` for speech to text on this computer (about 650 MB).
 
 ## Run
+**1. The demo house (no kit).** 60 simulated days are learned, then four moments are lived with Alfred awake.
 ```
-cp .env.example .env     # add the team API key as CGH_API_KEY, and OPENROUTER_API_KEY for the LLM agent
-uv run python -m source --replay tests/fixtures/morning.jsonl   # demo morning, no kit needed
-uv run python -m source                                         # live loop
-uv run python -m source.ask "make the lamp blue"               # ask the agent once, on the live house
-node console/server.mjs                                         # console: live devices at http://localhost:4780
-uv run python -m source.simulate --days 14 --household rosa --out data/sim/rosa.jsonl   # simulated history
-uv run python -m source.simulate --serve                        # the same, from a form in the browser
-uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/ --replace   # simulate + ingest + learn, per day
-uv run python -m source.learn.happenings data/sim/rosa/        # what it found
-uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recording.json --household rosa   # that run, for the dashboard
-cd dashboard && npm install && npm run dev                      # jury dashboard: plays back dashboard/public/recording.json
-cd mobile-interaction-interface && npm install && npm run demo    # the phone app on the demo house (no kit); npm run home: your home, look-only
+uv run python -m source.demo --household demo                    # once, about 15 min; writes data/demo/
+ALFRED_LLM_CACHE=only uv run python -m source.simulate --serve   # http://localhost:4781/visualizer?household=demo
 ```
-## The demo: learned rhythms that run the house
-The plan is [`docs/demo-plan.md`](docs/demo-plan.md): the demo house (two people with phones, a thermostat, three plugs, Friday gatherings) learns its own rhythms over 60 days, and on the moment days Alfred wakes its LLM from what it learned and heats ahead of them.
-```
-uv run python -m source.demo --household demo                    # once, ~15 min: learn 60 days, live the 4 moment days
-ALFRED_LLM_CACHE=only uv run python -m source.simulate --serve   # then http://localhost:4781/visualizer?household=demo
-```
-- `source.demo` runs the 60 days through the pipeline (learning each night), keeps the views of the moment days, then lives each moment's day through the event loop with Alfred awake: learned wakes, the LLM's proposals, decisions with a confidence set by code, the guard. Alfred's thermostat writes go back into the simulator, so the room warms because he heated it. Everything lands in `data/demo/` (gitignored), which the visualizer reads first: each moment opens at once.
-- **The moments bar** (top of the 3D view): *Ana arrives* (day 60, 18:00), *the gathering* (day 54, 20:30), *the morning after* (day 55, 07:45), *a weekday morning* (day 59, 06:30). One click jumps there; "Alfred thinks" lists each wake, the LLM's sentence, the confidence and what ran. The knowledge tab has the habits, the warm-up and **planted vs found** (the simulator's answer key next to what Alfred found).
-- **The LLM**: with `OPENROUTER_API_KEY` (and `AGENT_MODEL`) in `.env`, each wake asks the model through the reply cache (`data/llm-cache/`), so `ALFRED_LLM_CACHE=only` replays it with no network. Without a key the replies are **scripted** (plain code answering each wake as the prompt asks; `--scripted` forces it) and the habits are named by rules from their own facts: the run, the report and the visualizer say so. The confidence and what ran are the same either way.
+The moments bar jumps to *Ana arrives* (day 60, 18:00), *the gathering* (day 54, 20:30), *the morning after* (day 55, 07:45) and *a weekday morning* (day 59, 06:30). "Alfred thinks" shows each wake, the LLM's sentence, the confidence and what ran. The knowledge tab shows the habits, the warm-up, and planted vs found.
 
-All options, logs and tests: [`docs/event-loop.md`](docs/event-loop.md#running-and-testing-it). The console needs `.mcp.json` in the stdio form, not the HTTP form from step 1: see [`docs/mcp-capabilities.md`](docs/mcp-capabilities.md#connecting).
-
-## Repo structure
+**2. The phone app.** Details in [`mobile-interaction-interface/README.md`](mobile-interaction-interface/README.md).
 ```
-README.md               you are here
-.mcp.example.json       MCP config template (the real .mcp.json is gitignored)
-docs/
-  starting-plan.md      how Alfred learns, what we build first
-  event-loop.md         polling loop + agent triggers, ingest, rest and happenings
-  simulator.md          generating a household's history
-  mcp-capabilities.md   MCP reference
-  altice-hackathon-brief.md
-  synapse.md, learned-sensors-plan.md   earlier concept and plan (background)
-  reference/            hardware list, organiser material, research
-deliverables/           report, executive summary, slides (+ organiser templates)
-assets/                 logo and images
-console/                live device page (debugging)
-dashboard/              jury dashboard (React + Vite): plays back a recorded simulated run (dashboard/README.md)
-mobile-interaction-interface/   the phone app (React + Vite): chat, voice, status, device controls (its README.md)
-tools/                  connected_home_auth.py (OAuth helper used by .mcp.json), extract_smart_home_a.py (builds the real-house data)
-source/                 event loop: poll the MCP, diff, store, triggers, agent (LangGraph + stub), logs, show
-  learn/                learners: kinds, links, habits, sensor storage (docs/learners.md)
-tests/                  replay tests; fixtures = a real get_home snapshot + a demo morning
-```
-Built: `source/simulate.py` (the simulator, [`docs/simulator.md`](docs/simulator.md)) · `source/learn/` rest, happenings, kinds, habits, sensor storage ([`docs/learners.md`](docs/learners.md)) · `source/pipeline.py` (simulate 14 days, parts 1–6). `dashboard/` (the jury dashboard, playing a simulated run written by `source/recording.py`). `source/learn/namer.py` (the namer: names patterns, habits and occasions and says what they mean, `--name` on the pipeline). `source/learn/grouping.py` + `recurrence.py` (habits and their rhythms), `source/learn/occasions.py` (occasions), `source/learn/forecast.py` + `source/anticipate.py` (forecast and decisions, run by the loop). The visualizer's "What Alfred knows" tab shows all of it (`uv run python -m source.simulate --serve`, then `/visualizer?tab=knowledge`).
-  ingest.py, clock.py   JSONL snapshots → history at full speed; Lisbon days
-  simulate.py           the simulator (+ simulate_web.py, sim_data/)
-  learn/                rest.py, happenings.py (starting plan parts 3 and 4)
-  pipeline.py           simulate + ingest + learn, one day at a time
-  demo.py               the demo, pre-computed: 60 days learned, the moment days lived with Alfred (docs/demo-plan.md)
-  recording.py          a run's history as the dashboard's recording (one JSON file)
-tests/                  replay and simulated-data tests; fixtures = a real get_home snapshot + a demo morning
+cd mobile-interaction-interface && npm install
+npm run demo        # the demo house, no kit
+npm run home        # the real kit with the real Alfred, look-only: nothing is sent
+npm run home:live   # the same, and changes really happen
 ```
 
-## Conventions
-- **Never commit secrets:** `.mcp.json`, `.env` and tokens stay local (see `.gitignore`).
-- Docs in English, file names in kebab-case.
-- Scenarios we create on the Altice platform are named `SY · <name> · v<n>`. They can't be deleted, so create them only after the format is confirmed.
-- `docs/reference/` holds source material (organiser docs, kit notes): summarise it in `docs/` rather than copying it.
-- Physical kit: only a small lamp on the smart plug, warn people before testing the smoke alarm, never arm the alarm (see the hardware list).
+**3. Alfred on the real home, without the app.**
+```
+uv run python -m source --look-only --api   # reads the kit, asks the LLM, sends nothing
+uv run python -m source --api               # live: writes go through the guard
+uv run python -m source --replay tests/fixtures/morning.jsonl   # a recorded morning, no kit
+```
+The live loop learns every night, so habits, the plan and suggestions appear after a few days of watching.
+
+**4. The jury dashboard** plays back a recorded run: `cd dashboard && npm install && npm run dev` ([`dashboard/README.md`](dashboard/README.md)).
+
+## Test
+```
+uv run python -m unittest discover -s tests -t .           # Python, about 3 min
+cd dashboard && npm test && npm run typecheck
+cd mobile-interaction-interface && npm test && npm run typecheck
+```
+
+## Documents
+**For evaluators** (one page each, self-contained). The PDFs in [`deliverables/`](deliverables/) are what we hand in; the markdown files are their editable source.
+
+| Document | PDF | What it covers |
+|---|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | [PDF](deliverables/Alfred-Architecture.pdf) | What people get, how Alfred fits together, the devices |
+| [`TECHNICAL.md`](TECHNICAL.md) | [PDF](deliverables/Alfred-Technical.pdf) | How habits are learned, how departures are detected, where the LLM comes in, safety, results |
+| [`MARKET.md`](MARKET.md) | [PDF](deliverables/Alfred-Market.pdf) | How Alfred compares with the market, where it wins and where it is behind |
+| [`BUSINESS.md`](BUSINESS.md) | [PDF](deliverables/Alfred-Business.pdf) | Go-to-market, the free trial and subscription, what the LLM costs |
+| Executive summary | [PDF](<deliverables/Sumário Executivo GitHappens.pdf>) | The 2-page summary for the jury (Portuguese) |
+
+**For developers:**
+
+| Document | What it covers |
+|---|---|
+| [`AGENT.md`](AGENT.md) | Instructions for AI coding agents in this repo |
+| [`docs/contracts.md`](docs/contracts.md) | Code map (parts 1–8), contracts C1–C12, data shapes, the store |
+| [`docs/`](docs/) | Detailed references: [event loop](docs/event-loop.md), [learners](docs/learners.md), [habits](docs/habits.md), [occasions](docs/occasions.md), [anticipation](docs/anticipation.md), [simulator](docs/simulator.md), [phone API](docs/phone-api.md), [MCP capabilities](docs/mcp-capabilities.md), [kit hardware and safety rules](docs/reference/hardware-list.md) |
+| [`deliverables/`](deliverables/) | Hackathon hand-ins and organiser templates |
+
+**Kit safety:**
+- Only a small lamp on the plug.
+- Never arm the alarm.
+- Never re-pair or reset devices.
+- Warn people before testing the smoke alarm.
+
+The full rules are in [`docs/reference/hardware-list.md`](docs/reference/hardware-list.md).

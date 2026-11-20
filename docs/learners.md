@@ -40,7 +40,7 @@ uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recordin
 - **Happenings:** the table in `source/learn/happenings.py` (epoch ms; `signal` = `<device type>.<capability>`, or `<type>:<slug>.<capability>`, see below). The learners read it in Lisbon time (`source/clock.py`) and leave `cut` ones out of kinds and links.
 
 ## Signal names: several plugs, phones, the thermostat
-[`demo-plan.md`](demo-plan.md) C1 and C2. Read the device type with `source.learn.device_type(signal)`, never `signal.split(".")[0]`.
+Contracts C1 and C2 ([`contracts.md`](contracts.md#contracts)). Read the device type with `source.learn.device_type(signal)`, never `signal.split(".")[0]`.
 - **Names:** `signal_devices(rows)` (in `source/learn/__init__.py`) names each device from the `devices` table. A type whose devices have more than one name gets `plug:kettle`, `plug:tv`, `plug:washing-machine`; otherwise the old `plug`. Devices with the same name are one device (a re-paired plug). Phones are always `phone:<client id>`.
 - **The router** (`source/normalize.py`): `connectedClients` becomes one reading per phone (`kind: "phone"` only; a laptop is left out), device id = the client id, type `phone`, name = the client's name (`Guest phone` when empty), value `"on"`; plus `router.guestPhones`, the count of connected phones with `known: false`. The raw list is no reading.
 - **A phone that leaves** disappears from the list. `normalize(home, prev)` keeps it as `"off"` (ingest passes `prev`). A history stored without `prev` has a `gone` event instead, which `rest.py` also reads as `"off"`. A phone's rest is always `"off"`, never measured (Ana is home most of the day).
@@ -49,28 +49,23 @@ uv run python -m source.recording data/sim/rosa/ --out dashboard/public/recordin
 - **Edges:** a phone connected all evening is one long happening. `activity_edges(activity)` turns those (phones, guest count, setpoint, mode) into their start and end moments, so they break a quiet only when someone arrives, leaves or touches the thermostat. Without it there is no night quiet while a phone is home. Wired in `run.learn`, `grouping` (the counted days), `today` (live quiets) and `occasions` (nights, counted days).
 - **Kind ids** use the type (`plug-A`, `plug-B`), whichever plug; the kind's `signal` says which.
 - **Limits:** the names come from the whole `devices` table. A second plug added later renames the first from then on (`plug.instantPower` before, `plug:kettle.instantPower` after): two signals for one plug. A phone is heard through the router: when the router goes silent, every phone goes stale with it.
-- **Sensor:** the shape in [`starting-plan.md`](starting-plan.md), plus:
+- **Sensor:** the pattern shape in [`contracts.md`](contracts.md#data-shapes), plus:
   - `status` (`active`, `fading`, `merged` with `merged_into`)
   - `pattern.weekdays`, `lag_min`, `first_seen`, `last_seen`, `earliest`, `latest`, `late_after`, `moved_from`
   - for stretches: `until`, `duration_min`, `shortest_min`; for the end of a quiet: `after_quiet_min`
 
-## To do
-- **Readable cards:** plain parts ("door opened → smart plug about 2,100 W") and "12 days, where chance gives about 1".
-- **Agent hook:** done. The agent's `baselines` carry the habits, forecast, occasions and decisions ([`anticipation.md`](anticipation.md)).
-- **Above the patterns:** `learn_day` also learns habits ([`habits.md`](habits.md)) and occasions ([`occasions.md`](occasions.md)) each night; `reset_learned` clears them too.
-- **What is on the plug** (Connectivity): appliance cards from plug kinds. The team must agree a learner value.
-- **Drift learner** ("kettle getting slower") and the **usual day** profile for the event learner.
+## Above the patterns
+`learn_day` also learns habits ([`habits.md`](habits.md)) and occasions ([`occasions.md`](occasions.md)) each night; `reset_learned` clears them too. The agent's `baselines` carry the habits, forecast, occasions and decisions ([`anticipation.md`](anticipation.md)). Links use the `rhythm` chance model by default; `other_day` is the stricter option (both agree on the fixtures).
+
+## Not built yet
+- **What is on the plug:** appliance cards from plug kinds.
+- **Drift learner** ("kettle getting slower").
 - **3-part chains:** rosa's lamp → door → kettle is two cards today.
-- **Alfred's own actions:** a rule like "door open → lamp blue" would be learned as a habit. Skip them once attribution (`event.source`) exists.
-- **Score against the simulator's answer key** (`--truth`): how many planted habits are found, and how many found ones are real.
-- **Home states (possible work, needs more checking, probably not good):**
-  - the idea: a hidden Markov model over 20-min slots of every device (`hmmlearn`), with BIC picking the number of states
-  - the prototype on the simulator: 7 states per house; the room's daily swing splits the night ("quiet + cooling" vs "quiet + steady"); a quiet afternoon at home looks like the night
-  - it needs `rest.py` to learn the room's usual rate per time of day first
-- **Known limits:**
-  - **Clutter:** short and middle quiets (minutes to ~2 h) become cards too ("the end of a 1.7 h quiet at 19:30" is the evening light coming on). The namer ranks them (`importance`, `same_as`).
-  - **Slow fading:** a habit polluted by random noise in its window fades slowly (a rate-change test would fix it).
-  - **Per-device watching** isn't done: a stale plug hides plug habits.
-- **Link chance model:** `rhythm` is the default, `other_day` the strict option; both agree on the fixtures. The team picks one.
+- **Readable cards:** plain parts ("door opened → smart plug about 2,100 W") and "12 days, where chance gives about 1".
+
+## Known limits
+- **Clutter:** short and middle quiets (minutes to ~2 h) become cards too ("the end of a 1.7 h quiet at 19:30" is the evening light coming on). The namer ranks them (`importance`, `same_as`).
+- **Slow fading:** a habit polluted by random noise in its window fades slowly (a rate-change test would fix it).
+- **Per-device watching** isn't done: a stale plug hides plug habits.
 
 Background: [NILM review](https://arxiv.org/pdf/1610.01191) · [event coincidence](https://arxiv.org/pdf/1508.03534) · [rule of succession](https://en.wikipedia.org/wiki/Rule_of_succession) · [conformal bounds](https://www.stat.berkeley.edu/~ryantibs/statlearn-s24/lectures/conformal.pdf) · [Rashidi & Cook 2011](https://pmc.ncbi.nlm.nih.gov/articles/PMC3100559)

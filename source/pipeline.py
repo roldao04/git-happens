@@ -1,4 +1,4 @@
-"""Simulate days and learn from them, in one go (docs/starting-plan.md, "simulate 14 days"): parts 1 to 6.
+"""Simulate days and learn from them, in one go (docs/contracts.md): parts 1 to 6.
 
 The simulator's snapshots go straight into ingest, with no JSONL file in between. At the end of each simulated
 day the happening extractor (part 4, which finds rest, part 3) runs, then the learners (parts 5 and 6) if

@@ -54,7 +54,7 @@ CREATE INDEX IF NOT EXISTS habit_readings_habit ON habit_readings (habit_id, sta
 """
 # How far apart the steps of one habit may start: the links' lag windows, then up to three links' length.
 TOGETHER_MIN = tuple(LAG_WINDOWS) + (2 * MAX_LAG_MIN, 3 * MAX_LAG_MIN)
-# The agreed habit shape (docs/habits-plan.md), in its order.
+# The agreed habit shape (docs/contracts.md), in its order.
 KEYS = ("id", "name", "named_by", "status", "person", "patterns", "steps", "recurrence", "window", "windows",
         "variation", "occurrences", "opportunities", "first_seen", "last_seen", "learned_at", "confidence", "trend")
 PERSON_SHARE = 0.6  # a phone's arrival or departure on this share of a habit's days makes it that person's (C3)
@@ -136,7 +136,7 @@ def learn_habits(db: sqlite3.Connection, day: date) -> list[dict]:
 
 
 def export_habits(db: sqlite3.Connection) -> dict:
-    """Every habit (agreed shape, docs/habits-plan.md) and every habit reading."""
+    """Every habit (agreed shape, docs/contracts.md) and every habit reading."""
     if not (_has(db, "habits") and _has(db, "habit_readings")):
         return {"habits": [], "readings": []}
     habits = sorted((json.loads(d) for (d,) in db.execute("SELECT data FROM habits")),
@@ -493,7 +493,7 @@ def confidence(occurrences: int, opportunities: int, spread_min: float, chance_s
     """confidence = hit rate × evidence × timing, in [0, 1] (docs/habits.md):
 
       hit rate  occurrences / opportunities: how often it happens when its rhythm says it should
-      evidence  n / (n + 1), n = occurrences: one example gives at most 0.5 (docs/habits-plan.md)
+      evidence  n / (n + 1), n = occurrences: one example gives at most 0.5 (TECHNICAL.md)
       timing    1 - spread / chance spread: 1 when it always starts at the same minute, 0 when its
                 start (weekday shifts taken out) is as scattered as the home's activity over the day
     """

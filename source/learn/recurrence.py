@@ -1,6 +1,6 @@
 """When a habit happens: the simplest rhythm that explains its days, and how its time of day varies.
 
-Part A of docs/habits-plan.md (see docs/habits.md). Plain code and statistics, no LLM.
+See docs/habits.md. Plain code and statistics, no LLM.
 
 A rhythm says on which of the home's counted days (watched, someone in: run.counted_days) a habit
 should happen. Daily is the simplest. A finer rhythm is kept only when it beats its simpler parent
@@ -48,7 +48,7 @@ Candidate = tuple[list[date], Callable[[date], dict]]
 def rhythm(kind: str, weekdays: list[str] | None = None, every_n_days: int | None = None,
            anchor: date | None = None, day_of_month: int | None = None, every_n_hours: float | None = None,
            hours: tuple[float, float] | None = None) -> dict:
-    """The agreed `recurrence` shape (docs/habits-plan.md), with its plain sentence.
+    """The agreed `recurrence` shape (docs/contracts.md), with its plain sentence.
 
     `anchor` is a day it happened on, which fixes the phase of "every other weekend" and the n of
     "the first Sunday of the month". `hours` (first, last clock minute) only feeds the sentence of

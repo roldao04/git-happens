@@ -1,4 +1,4 @@
-"""Waking the LLM from what was learned (docs/demo-plan.md C8, docs/anticipation.md).
+"""Waking the LLM from what was learned (docs/contracts.md C8, docs/anticipation.md).
 
   learned_wakes(db, now, state) -> list[WakeReason]
 

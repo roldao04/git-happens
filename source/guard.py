@@ -1,10 +1,10 @@
 """The write guard: which device writes may run, checked in code, not in the prompt.
 
 Only the lamp, the plugs and the thermostat can be written, only with the capabilities the MCP
-accepts, and switching a plug on needs a person (docs/synapse.md §10, tier 2). Every write that
+accepts, and switching a plug on needs a person (TECHNICAL.md, Safety). Every write that
 runs is then read back by code (§6, level 2): the LLM's own summary never decides "confirmed".
 
-The thermostat (docs/demo-plan.md C7) has its own limits, checked against `Heat`, what code
+The thermostat (docs/contracts.md C7) has its own limits, checked against `Heat`, what code
 knows about it right now: target 16–23 °C, at most 3 °C per write, never above 18 °C while no
 known phone is home (unless an arrival is forecast soon: warming ahead of it is the point), at
 most one of Alfred's writes per 10 min, and none for 2 h after a person changed it. Without a

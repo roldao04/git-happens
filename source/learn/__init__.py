@@ -15,7 +15,7 @@ from ..clock import TZ
 from ..normalize import CONNECTED, GUEST_PHONES, PHONE
 from .rest import SLOW as _REST_SLOW
 
-MIN_OCCURRENCES = 5  # smallest kind, link or habit (agreed in docs/starting-plan.md)
+MIN_OCCURRENCES = 5  # smallest kind, link or habit (TECHNICAL.md)
 ALPHA = 0.01  # significance level for "beats chance", after correcting for the number of tries
 MAX_LAG_MIN = 30  # longest gap between the two parts of a link
 
@@ -38,7 +38,7 @@ def slug(name: str) -> str:
 
 
 def signal_devices(devices: Iterable[tuple[str, str, str]]) -> dict[str, str]:
-    """(device_id, type, name) rows → device_id → the device part of its signals (docs/demo-plan.md, C2).
+    """(device_id, type, name) rows → device_id → the device part of its signals (docs/contracts.md, C2).
 
     A type with one device keeps its type ("bulb"); one with devices of several names gets the slugged name
     ("plug:kettle"). Devices of one name are one device (a re-paired plug gets a new id, not a new name).
@@ -78,7 +78,7 @@ def _clock_time(d: dict, key: str) -> datetime:
 
 @dataclass
 class Happening:
-    """A signal leaving rest and coming back (docs/starting-plan.md, "A happening")."""
+    """A signal leaving rest and coming back (docs/contracts.md, data shapes)."""
     signal: str  # "plug.instantPower", or "plug:kettle.instantPower" when a home has several plugs
     start: datetime  # the home's clock time
     end: datetime

@@ -1,4 +1,4 @@
-"""Happening extractor: departures from rest, one row each, appended day by day (starting-plan part 4)."""
+"""Happening extractor: departures from rest, one row each, appended day by day (docs/contracts.md part 4)."""
 import json
 import sys
 import tempfile
@@ -180,7 +180,7 @@ DEMO = Path(__file__).parent / "fixtures" / "demo-snapshots.jsonl"
 
 
 class SignalNamesTest(unittest.TestCase):
-    """docs/demo-plan.md, C2: one signal per device when a type has several, one per phone, a count of guests."""
+    """docs/contracts.md, C2: one signal per device when a type has several, one per phone, a count of guests."""
 
     def test_device_type(self):
         self.assertEqual(device_type("plug:washing-machine.instantPower"), "plug")

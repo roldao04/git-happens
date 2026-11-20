@@ -404,7 +404,7 @@ def two_people(days: int = 35, ana_name: str = "Ana's phone") -> sqlite3.Connect
 
 
 class PeopleTest(unittest.TestCase):
-    """Whose a habit is (`person`) and its windows by weekday (`windows`): C3 in docs/demo-plan.md."""
+    """Whose a habit is (`person`) and its windows by weekday (`windows`): C3 in docs/contracts.md."""
 
     @classmethod
     def setUpClass(cls):
@@ -496,7 +496,7 @@ class CoupleTest(unittest.TestCase):
         cls.sensors = Sensors(cls.db)
 
     def test_a_weekday_habit(self):
-        """Up at 06:50 on weekdays: the weekday window of the habit (docs/demo-plan.md, C3)."""
+        """Up at 06:50 on weekdays: the weekday window of the habit (docs/contracts.md, C3)."""
         waking = holding(self.db, self.sensors.find("1,300 W", at="06:50", steps=2)["id"])
         weekday = next(w for w in waking["windows"] if "mon" in w["days"])
         self.assertEqual(weekday["days"], WORK_DAYS)

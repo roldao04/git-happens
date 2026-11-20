@@ -79,7 +79,7 @@ def thermo(value, typ="targetTemperature", **kw):
 
 
 class ThermostatTest(unittest.TestCase):
-    """docs/demo-plan.md C7: the limits are code's, not the prompt's."""
+    """docs/contracts.md C7: the limits are code's, not the prompt's."""
 
     def test_within_limits(self):
         self.assertIsNone(thermo(21))

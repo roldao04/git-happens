@@ -4,7 +4,7 @@ The loop (source/loop.py) calls them before the triggers: the plan every few min
 on every tick.
 
 - plan_decisions(db, now): the plan for the next 24 h as Decisions (shape in
-  docs/habits-plan.md), stored in `decisions`, one per habit or occasion per occurrence:
+  docs/contracts.md), stored in `decisions`, one per habit or occasion per occurrence:
   - prepare: ahead of a forecast habit (source/learn/forecast.py) whose steps include the light:
     a soft lamp before the light usually comes on, a dim lamp before it usually goes off for
     the night (RECIPES). Nothing else: no habit without the light gets a lamp action, and no
@@ -15,7 +15,7 @@ on every tick.
   light step's share × (1 − the confidence of an occasion going on now that explains the habit);
   for adapt, the match's confidence. Both are capped by the evidence factor n / (n + 1). At DO_AT
   (0.75) or more the mode is "do", below it "suggest" (shown and logged, never sent).
-- decide(db, now, proposals): the agent's proposals (docs/demo-plan.md C9) as decisions of kind
+- decide(db, now, proposals): the agent's proposals (docs/contracts.md C9) as decisions of kind
   "llm". Code sets their confidence: the wake's `base` (source/wake.py) × (1 − the LLM's
   `doubt`), so the LLM can only lower it. 0.75 or more is "do", below is "suggest"; a future
   `at` is planned and run when due.
@@ -47,7 +47,7 @@ from .model import State
 log = logging.getLogger("source.anticipate")
 
 HORIZON_H = 24  # how far ahead decisions are planned
-DO_AT = 0.75  # confidence from which Alfred acts instead of suggesting (docs/habits-plan.md)
+DO_AT = 0.75  # confidence from which Alfred acts instead of suggesting (TECHNICAL.md)
 MIN_CONFIDENCE = 0.4  # below this a new decision isn't even suggested (it would be noise)
 MAX_LATE_MIN = 15  # a "do" decision found this late (the loop was down) is skipped, never run late
 PERSON_LATE_MIN = 120  # ...unless a person said yes to it (the phone app): then it may still run this late
@@ -84,7 +84,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS decisions (
     id TEXT PRIMARY KEY,
     ts INTEGER NOT NULL,  -- when it is due (`at`), epoch ms
-    data TEXT NOT NULL,   -- the Decision, in the shape of docs/habits-plan.md
+    data TEXT NOT NULL,   -- the Decision, in the shape of docs/contracts.md
     key TEXT,             -- what it is for: one decision per habit or occasion per occurrence
     meta TEXT             -- for run_due: the recipe, the lamp's state it needs, and what happened
 );

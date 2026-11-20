@@ -22,7 +22,7 @@ MAX_FORECAST = 30  # the context goes to the LLM on every wake: keep it short
 MAX_DECISIONS = 30
 MAX_OCCASIONS = 5
 NAMER_FIELDS = ("means", "if_missing", "importance")  # the namer's card, kept for the agent's reasoning
-HABIT_EXTRAS = ("person", "windows")  # whose habit it is, and its weekday windows (docs/demo-plan.md C3)
+HABIT_EXTRAS = ("person", "windows")  # whose habit it is, and its weekday windows (docs/contracts.md C3)
 
 
 def _iso(ms: int) -> str:

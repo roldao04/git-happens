@@ -2,7 +2,7 @@
 
 The jury dashboard. It plays back one recorded run of a simulated home: the devices, what they do, and each habit Alfred learns, day by day. Nothing here talks to the kit or the MCP; it only reads `recording.json`, or `live.json` when watching the real home.
 
-Spec: [`docs/superpowers/specs/2026-11-17-dashboard-design.md`](../docs/superpowers/specs/2026-11-17-dashboard-design.md).
+How it fits with the rest: [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Run
 
@@ -32,7 +32,7 @@ npm run build && npm run preview  # http://localhost:4173
 
 ## Show a different run
 
-Replace `public/recording.json`, or `dist/recording.json` in a build, with another file in the same shape. The shape is described in the spec under "The recording", and `src/data/recording.ts` checks it on load. If the file is missing or malformed, the page says which field is wrong.
+Replace `public/recording.json`, or `dist/recording.json` in a build, with another file in the same shape. The shape is defined and checked on load by `src/data/recording.ts`. If the file is missing or malformed, the page says which field is wrong.
 
 The current file is a 21-day simulated run of the `rosa` household, written by `source/recording.py`. To make a new one, from the repo root:
 

@@ -1,5 +1,5 @@
 {
- "about": "Sample data for the demo screen (docs/demo-plan.md, C11), in the contract's shapes. GET /moments, /thoughts and /planted serve it for the demo house until the real data is there: the simulator's moments and answer key, and the run's wakes and decisions.",
+ "about": "Sample data for the demo screen (docs/contracts.md, C11), in the contract's shapes. GET /moments, /thoughts and /planted serve it for the demo house until the real data is there: the simulator's moments and answer key, and the run's wakes and decisions.",
  "start": "2026-09-21",
  "moments": [
   {"id": "gathering", "title": "The gathering, live", "day": 54, "time": "20:30", "focus": ["occasion-1", "habit-1"],

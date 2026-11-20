@@ -7,7 +7,7 @@ StubAgent only logs what it was given. LangGraphAgent runs a small graph per wak
 Contract (same for both): context dict in, {notes, trigger_updates, actions, proposals} out.
 `actions` is built from the tool calls actually made, never taken from the LLM: every write
 goes through guard.guarded_write (allow-list, then read-back by code). `proposals` are what the
-LLM would do because of a learned wake (docs/demo-plan.md C9); code turns them into decisions
+LLM would do because of a learned wake (docs/contracts.md C9); code turns them into decisions
 and sets their confidence (source/anticipate.py, decide). The thermostat is changed only that
 way: the guard blocks the LLM's direct writes to it.
 

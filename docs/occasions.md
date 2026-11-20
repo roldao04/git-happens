@@ -1,6 +1,6 @@
 # Occasions: rare evenings, recognised by resemblance
 
-Part C of [`habits-plan.md`](habits-plan.md). An **occasion** is a rare departure from the usual day, such as friends to dinner: many door openings, the light on until 01:00, a late bedtime. The first one is only "an unusual evening". The next one that looks like it is the same occasion, and from then on Alfred can tell it is happening again while it is still under way. Plain code and statistics, no LLM. Every cut-off is measured against the home's own history; the only fixed numbers are the knobs in `source/learn/__init__.py` (`ALPHA = 0.01`, `MIN_OCCURRENCES = 5`).
+An **occasion** is a rare departure from the usual day, such as friends to dinner: many door openings, the light on until 01:00, a late bedtime. The first one is only "an unusual evening". The next one that looks like it is the same occasion, and from then on Alfred can tell it is happening again while it is still under way. Plain code and statistics, no LLM. Every cut-off is measured against the home's own history; the only fixed numbers are the knobs in `source/learn/__init__.py` (`ALPHA = 0.01`, `MIN_OCCURRENCES = 5`).
 
 | Step | What | How |
 |---|---|---|
@@ -99,7 +99,7 @@ Each returns empty when the tables or data are missing.
 - **Bursty sensors:** the counts assume a Poisson rate, so a door that bounces open and shut in seconds counts several times.
 - Occasions never merge, and an episode's occasion isn't re-decided later.
 - **Shifts need the next day over**: a shift is only measured once the day after an episode has ended (6 h past the habit's usual time), and only habits due on the day being forecast are listed. A habit the occasion stopped altogether (no waking up at all) is not a shift.
-- **Phones as activity**: a known phone's `connected` happening lasts as long as the person is home, so if phones count as activity (C2), the night's quiet never starts while someone is in, and the awake minutes and `quiet_start` lose their meaning. Presence signals should be kept out of the quiets (`source.learn.is_activity`, part B), or read only at their edges.
+- **Phones as activity**: a known phone's `connected` happening lasts as long as the person is home, so phones count only at their edges, an arrival or a departure (`activity_edges`, [`learners.md`](learners.md#signal-names-several-plugs-phones-the-thermostat)). Otherwise the night's quiet would never start while someone is in.
 
 ## Run
 ```
@@ -107,11 +107,3 @@ uv run python -m unittest tests.test_occasions -v                               
 uv run python -m source.learn.occasions --db data/sim/rosa-plus/home.sqlite3 --learn      # forget and replay every day
 uv run python -m source.learn.occasions --db data/sim/rosa-plus/home.sqlite3 --at 2026-09-21T23:00
 ```
-
-## For the integration step
-1. Call `learn_occasions(db, day)` at each day end, right after `learn_day` (in `run.learn_day` or the pipeline's `on_day_end`). `occasions.py` imports `run.counted_days` inside a function, so `run.py` may import `occasions` at the top. Replays need nothing: re-running a day forgets that day and later ones. For a clean start, add `DELETE FROM occasions; DELETE FROM occasion_episodes;` to `storage.reset_learned`.
-2. Live (part B): `match_now(db, now)` at each poll. Today's happenings must be stored as they end, for example `save_happenings(store, now)` at each poll; the loop now does this at each re-plan (every 5 min), and a state still held (a guest's phone) is read from the events (`storage.ongoing_happenings`). `_match` is remembered per store, moment and learned state: one tick asks it several times (the forecast's shifts, the wakes, the plan).
-3. The namer names occasions from `fingerprint`, `usual_hours`, `weekdays`, `episodes` and `changes`. Names should say "looks like". `name` and `named_by` are kept when an occasion gains episodes.
-4. The knowledge tab and dashboard read `export_occasions(db)`.
-
-Background: [Fisher's method](https://en.wikipedia.org/wiki/Fisher%27s_method) · [conformal p-values](https://www.stat.berkeley.edu/~ryantibs/statlearn-s24/lectures/conformal.pdf) · [negative binomial as a Poisson-gamma predictive](https://en.wikipedia.org/wiki/Negative_binomial_distribution#Gamma%E2%80%93Poisson_mixture) · [Mann-Whitney U](https://en.wikipedia.org/wiki/Mann%E2%80%93Whitney_U_test)

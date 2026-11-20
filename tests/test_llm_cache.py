@@ -1,4 +1,4 @@
-"""The LLM reply cache (source/llm_cache.py, docs/demo-plan.md C10). No network.
+"""The LLM reply cache (source/llm_cache.py, docs/contracts.md C10). No network.
 
   uv run python -m unittest tests.test_llm_cache -v
 """

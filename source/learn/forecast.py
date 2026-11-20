@@ -2,7 +2,7 @@
 
   uv run python -m source.learn.forecast --db data/sim/rosa/home.sqlite3 --at 2026-09-21T22:00
 
-Plain code over the `habits` table and its `habit_readings` (shapes in docs/habits-plan.md,
+Plain code over the `habits` table and its `habit_readings` (shapes in docs/contracts.md,
 written by the grouper, source/learn/grouping.py). For each active habit, every occurrence its
 rhythm (`recurrence`) makes due with an expected time in [now, now + hours) gets
 (docs/anticipation.md):
@@ -14,7 +14,7 @@ rhythm (`recurrence`) makes due with an expected time in [now, now + hours) gets
 - expected time: its usual time, moved by its weekday shift (`variation.by_weekday`, "later at
   weekends") and by its drift (`trend`) since the middle of its history; window: its own window,
   or ± twice its spread when some weekdays are shifted. A habit with weekday `windows` (C3 in
-  docs/demo-plan.md) takes the usual time and window of the day's own window instead;
+  docs/contracts.md) takes the usual time and window of the day's own window instead;
 - shifted: when an occasion going on now (or the one that ended the night before) has moved
   this habit the next day in its past episodes (occasions.shifts_now, `shifts`), the expected time
   and window move by that much, and `shifted` keeps what they were before;
