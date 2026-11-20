@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { groupChats, type AutoDelete, type Chat } from "../store/chats";
 import type { Lang, Settings, Theme } from "../store/settings";
-import type { ModeWords } from "../words";
+import { clockText, type ModeWords } from "../words";
 import { BoxIcon, CloseIcon, DotsIcon, GearIcon, NewChatIcon, TrashIcon } from "./icons";
 
 interface Props {
@@ -99,7 +99,7 @@ function Row({ chat, current, now, menuOpen, onOpen, onMenu, onSwipeDelete }: {
   const suppress = useRef(false);
   const when = new Date(chat.updated);
   const label = now - chat.updated < 86_400_000 && when.getDate() === new Date(now).getDate()
-    ? when.toTimeString().slice(0, 5)
+    ? clockText(chat.updated)
     : when.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
   const end = (cancel: boolean) => {

@@ -5,9 +5,7 @@ import type { Turn } from "../store/chats";
 import { DeviceControl, SensorList, type OnResult } from "./DeviceControl";
 import { MicIcon, Mark } from "./icons";
 import { PlanList } from "./PlanList";
-import { whatOf } from "../words";
-
-const clock = (ms: number) => new Date(ms).toTimeString().slice(0, 5);
+import { clockText, whatOf } from "../words";
 
 interface Props {
   turns: Turn[];
@@ -44,7 +42,7 @@ function TurnView({ turn, onResult, onAnswer, onEvent }: { turn: Turn } & Omit<P
   if (turn.who === "event") return <div className="ev">{turn.text}</div>;
   return (
     <div className="msg alf">
-      <div className="by"><Mark size={16} /><span>Alfred</span><time>{clock(turn.at)}</time></div>
+      <div className="by"><Mark size={16} /><span>Alfred</span><time>{clockText(turn.at)}</time></div>
       {turn.reply.text && <p>{turn.reply.text}</p>}
       {turn.reply.blocks.map((b, i) => <BlockView key={i} block={b} onResult={onResult} onEvent={onEvent} />)}
       {turn.suggestionId && <Suggestion id={turn.suggestionId} onAnswer={onAnswer} />}

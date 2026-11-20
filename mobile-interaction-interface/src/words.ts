@@ -4,6 +4,7 @@ import type { Change, ControlBody, Device, HomeSnapshot, Status, Value } from ".
 // Device values and Alfred's changes in plain words (from dashboard/src/data/words.ts, trimmed for the phone).
 
 export const hhmm = (iso: string | null | undefined): string => (iso ? iso.slice(11, 16) : "");
+export const clockText = (ms: number): string => new Date(ms).toTimeString().slice(0, 5);
 export const fmtNum = (x: number): string => (Number.isInteger(x) ? String(x) : x.toFixed(1));
 const num = (v: Value | undefined): number | null => (typeof v === "number" ? v : null);
 

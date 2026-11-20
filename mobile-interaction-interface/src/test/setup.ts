@@ -16,8 +16,7 @@ if (typeof window.PointerEvent === "undefined") {
       this.pointerId = init.pointerId ?? 1;
     }
   }
-  // @ts-expect-error jsdom stand-in
-  window.PointerEvent = PointerEventStandIn;
+  Object.defineProperty(window, "PointerEvent", { value: PointerEventStandIn, configurable: true, writable: true });
 }
 
 // jsdom has no scrollTo on elements.

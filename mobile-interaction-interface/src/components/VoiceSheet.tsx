@@ -37,7 +37,6 @@ export function VoiceSheet({ engine, onDone, onCancel }: { engine: VoiceEngine; 
       setState("error");
     });
     return () => engine.cancel();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine]);
 
   useEffect(() => {

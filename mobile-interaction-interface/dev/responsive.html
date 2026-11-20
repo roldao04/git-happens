@@ -53,7 +53,7 @@ function controls() {
 
 function build() {
   controls();
-  try { localStorage.setItem("alfred-mobile-settings", JSON.stringify({ theme, autoDelete: 0, speakReplies: false, lang: "auto" })); } catch {}
+  try { localStorage.setItem("alfred-mobile-settings", JSON.stringify({ theme, autoDelete: 0, speakReplies: false, lang: "auto" })); } catch { /* storage blocked: the frames keep their own theme */ }
   const small = document.getElementById("small").checked;
   const frames = document.getElementById("frames");
   frames.replaceChildren();

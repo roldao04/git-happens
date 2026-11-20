@@ -1,5 +1,5 @@
 // Speech for the server's model (Parakeet TDT 0.6B v3): 16 kHz, mono, 16-bit PCM WAV, made in the browser
-// so the server needs no ffmpeg (docs/build-tree.md on the docs/build-tree branch).
+// so the server needs no ffmpeg.
 
 export const RATE = 16000;
 
