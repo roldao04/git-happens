@@ -60,8 +60,8 @@ function devicesAt(rec: Recording, t: number, holdMs: number): DevicesNow {
     if (ts > t) break;
     values.set(e.device_id, { ...values.get(e.device_id), [e.capability]: e.value });
     const type = byId.get(e.device_id)?.type ?? "";
-    if (marksChange(type, e.capability)) last.set(e.device_id, ts);
     if (marksChange(type, e.capability)) {
+      last.set(e.device_id, ts);
       const device = byId.get(e.device_id);
       if (!wentActive(type, e.capability, e.value)) isActive.delete(e.device_id);
       else {

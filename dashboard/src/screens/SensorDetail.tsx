@@ -1,5 +1,6 @@
 import { DaysChart } from "../components/DaysChart";
 import { FoundSteps } from "../components/FoundSteps";
+import { FadingPill } from "../components/FadingPill";
 import { Later } from "../components/Later";
 import { Shell } from "../components/Shell";
 import { RecentDays } from "../components/RecentDays";
@@ -8,7 +9,6 @@ import type { Recording } from "../data/recording";
 import type { SensorNow, StateAt } from "../data/stateAt";
 import { evidence, foundSteps, sensorTitle } from "../data/words";
 import type { Playback } from "../playback/usePlayback";
-import { FadingPill } from "../components/FadingPill";
 
 function Back() {
   return <a className="more back" href="#/learned">← Learned</a>;
@@ -90,11 +90,11 @@ export function SensorDetail({ rec, state, playback, id }: Props) {
   return (
     <Shell state={state} playback={playback} tab="learned" simulated={rec.meta.simulated}>
       <Back />
-        {item ? (
-          <Detail item={item} state={state} />
-        ) : (
-          <p className="al-muted">{known ? "Alfred hasn't learned this one yet at this point of the run" : "This sensor isn't in the recording"}</p>
-        )}
+      {item ? (
+        <Detail item={item} state={state} />
+      ) : (
+        <p className="al-muted">{known ? "Alfred hasn't learned this one yet at this point of the run" : "This sensor isn't in the recording"}</p>
+      )}
     </Shell>
   );
 }

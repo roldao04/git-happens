@@ -30,7 +30,6 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-sans
 .devs{display:grid;margin:0;padding:0;list-style:none}
 .devs>li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--space-3);min-height:56px;padding:var(--space-3) 0;border-top:1px solid var(--line)}
 .devs>li:first-child{border-top:0}
-.devs>li.just-changed .v{color:var(--accent)}
 .devs .n{display:block;font:500 18px/24px var(--font-sans)}
 .devs .s{display:block;font:400 16px/22px var(--font-sans);color:var(--muted)}
 .devs .v{font:500 18px/24px var(--font-sans);font-variant-numeric:tabular-nums;text-align:right}

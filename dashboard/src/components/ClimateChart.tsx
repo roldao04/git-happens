@@ -1,5 +1,5 @@
+import { amount, withUnit } from "../data/amount";
 import { scaleFor, ticksFor, type DayView, type Measure, type Scale, type Zoom } from "../data/timeline";
-import { amount, withUnit } from "./amount";
 
 const MINUTE_MS = 60_000;
 const tidy = (n: number) => Math.round(n * 100) / 100;

@@ -12,7 +12,7 @@ export interface Signal { at: number; device: Device; capability: string; value:
 export interface Entry { at: number; end: number | null; sensor: Sensor; weak: boolean; signals: Signal[] }
 export interface Point { at: number; value: number }
 export interface Measure { label: string; unit: string; low: number; high: number; points: Point[] }
-export interface DayView { day: number; dayStart: number; dayEnd: number; upTo: number; lanes: Lane[]; measures: Measure[]; entries: Entry[]; gaps: Unwatched[] }
+export interface DayView { day: number; dayStart: number; upTo: number; lanes: Lane[]; measures: Measure[]; entries: Entry[]; gaps: Unwatched[] }
 
 const MEASURES = [
   { capability: "temperatureValue", label: "Temperature", unit: "°C" },
@@ -192,7 +192,7 @@ export function dayView(rec: Recording, state: StateAt, dayWanted: number): DayV
     .map((g) => ({ start: toMs(g.start), end: toMs(g.end) }))
     .filter((g) => g.end > dayStart && g.start < upTo)
     .map((g) => ({ start: Math.max(g.start, dayStart), end: Math.min(g.end, upTo) }));
-  return { day, dayStart, dayEnd, upTo, lanes, measures: measuresOf(rec, dayStart, upTo), entries, gaps };
+  return { day, dayStart, upTo, lanes, measures: measuresOf(rec, dayStart, upTo), entries, gaps };
 }
 
 export interface Zoom { start: number; end: number }
