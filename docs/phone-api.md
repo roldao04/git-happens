@@ -13,7 +13,7 @@ What the phone app (`mobile-interaction-interface/`) asks the loop. The API is s
 | Call | Body | Answer |
 |---|---|---|
 | `GET /api/home` | | `{now, household, live, dryRun, lookOnly, devices: [{id, type, name, values, controls, reachable, lastSeen}], people: {home: [{id, name}], guests} \| null, climate: {roomC, targetC, mode, heating} \| null}` |
-| `GET /api/status` | | `{title, since, changes: [{deviceId, device, capability, from, to}], why, decisionId, byAlfred, planned: [PlanItem], suggestions: [PlanItem], notSent: [PlanItem], learning: {daysWatched} \| null}` |
+| `GET /api/status` | | `{title, since, changes: [{deviceId, device, capability, from, to}], why, decisionId, byAlfred, planned: [PlanItem], suggestions: [PlanItem], notSent: [PlanItem], learning: {daysWatched} \| null, alerts: [{id, at, text}]}` |
 | `POST /api/devices/<id>` | `{"body": {"type", "value"}}` | `{status: sent\|blocked\|failed, verified, reason?, note?}` |
 | `POST /api/plan/<id>/skip` · `/unskip` | `{}` | `PlanItem` |
 | `POST /api/plan/<id>/answer` | `{"yes": bool}` | `PlanItem` |
@@ -22,7 +22,7 @@ What the phone app (`mobile-interaction-interface/`) asks the loop. The API is s
 | `GET /api/voice` · `POST /api/voice` | WAV, 16 kHz mono | `200` / `{text, lang, ms}`; `501` without the voice extra |
 
 - **PlanItem** is `{id, at, mode: do|suggest, status, title, does, reason, confidence, answer: yes|no|skip|undo|null}`.
-- **`notSent`** is look-only's "would have": the last 12 h of decisions whose write was refused only because nothing is sent. **`learning`** is set until the first habit is learned.
+- **`notSent`** is look-only's "would have": the last 12 h of decisions whose write was refused only because nothing is sent. **`learning`** is set until the first habit is learned. **`alerts`**: a habit started in the last 2 h (its decision's time came) and a device isn't as that habit learned to expect ("The living-room window is still open. Night is starting, and it has been open since 21:10."). Fixed words, no LLM; stale sensors are skipped; the id is the same all night, so the app shows each once.
 - **Errors** are `{"error": "<plain words>"}` with `400`, `404`, `409` (that decision can't take that answer now; undo in look-only) or `503` (no poll yet, with the reason when a poll failed, e.g. not signed in to the kit).
 
 ## What it does in the loop

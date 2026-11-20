@@ -6,6 +6,7 @@ The phone app. It chats with Alfred by text or voice, and its "Right now" card s
 ```
 npm install
 npm run demo        # the demo house, simulated in the app: no kit, no .env
+                    # add ?moment=bedtime to the URL: 23:10, Night has started and the living-room window is open
 npm run home        # your real home (the kit) and the real Alfred, look-only: nothing is sent
 npm run home:live   # the same, and changes really happen (lamp and plug; never the alarm)
 npm test && npm run typecheck && npm run build
