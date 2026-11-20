@@ -89,6 +89,15 @@ export interface Status {
   notSent: PlanItem[];
   /** Before any habit is learned: how many days the loop has watched. null once it has habits. */
   learning: { daysWatched: number } | null;
+  /** A habit has started and a device isn't as it usually is then (source/alerts.py): one Alfred message each. */
+  alerts: Alert[];
+}
+
+/** Stable for the night: the app shows each id once. */
+export interface Alert {
+  id: string;
+  at: string;
+  text: string;
 }
 
 /** The guard's record of one write (source/guard.py guarded_write). */

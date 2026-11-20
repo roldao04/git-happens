@@ -4,7 +4,7 @@ import type { ChatReply } from "../api/types";
 
 export type Turn =
   | { who: "me"; at: number; text: string; voice?: boolean }
-  | { who: "alfred"; at: number; reply: ChatReply; suggestionId?: string }
+  | { who: "alfred"; at: number; reply: ChatReply; suggestionId?: string; alertId?: string }
   | { who: "event"; at: number; text: string };
 
 export interface Chat {

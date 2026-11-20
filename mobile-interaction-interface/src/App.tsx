@@ -16,7 +16,7 @@ import { detectLang } from "./voice/lang";
 import { speak } from "./voice/speak";
 import { greeting, hhmm, modeWords, pastTense } from "./words";
 
-interface Props { api: HomeApi; homeKey: string; clock?: () => number }
+interface Props { api: HomeApi; chatStore: string; clock?: () => number }
 
 export default function App(props: Props) {
   return <HomeProvider api={props.api}><Phone {...props} /></HomeProvider>;
@@ -25,7 +25,7 @@ export default function App(props: Props) {
 const said = (text: string): ChatReply => ({ text, blocks: [], actions: [], lang: "en" });
 const clockText = (ms: number) => new Date(ms).toTimeString().slice(0, 5);
 
-function Phone({ api, homeKey, clock = Date.now }: Props) {
+function Phone({ api, chatStore, clock = Date.now }: Props) {
   const { home, status, error, refresh, answer } = useHome();
 
   // ---- settings and theme ----
@@ -39,13 +39,13 @@ function Phone({ api, homeKey, clock = Date.now }: Props) {
 
   // ---- chats ----
   const [chats, setChats] = useState<Chat[]>(() => {
-    const all = autoDelete(loadChats(homeKey, clock()), settings.autoDelete, clock()).kept.filter((c) => c.turns.length > 0);
+    const all = autoDelete(loadChats(chatStore, clock()), settings.autoDelete, clock()).kept.filter((c) => c.turns.length > 0);
     const today = all.find((c) => !c.archived && ageDays(c.updated, clock()) === 0); // carry on with today's chat
     return today ? [today, ...all.filter((c) => c !== today)] : [newChat(clock()), ...all];
   });
   const [currentId, setCurrentId] = useState(() => chats[0]!.id);
   const current = chats.find((c) => c.id === currentId) ?? chats[0]!;
-  useEffect(() => { saveChats(homeKey, chats.filter((c) => c.turns.length > 0)); }, [homeKey, chats]);
+  useEffect(() => { saveChats(chatStore, chats.filter((c) => c.turns.length > 0)); }, [chatStore, chats]);
 
   const push = useCallback((turn: Turn, title?: string) => {
     setChats((all) => all.map((c) => (c.id === currentId ? { ...(title ? titled(c, title) : c), updated: turn.at, turns: [...c.turns, turn] } : c)));
@@ -60,6 +60,16 @@ function Phone({ api, homeKey, clock = Date.now }: Props) {
     for (const s of status.suggestions) if (!asked.has(s.id)) turns.push({ who: "alfred", at: clock(), reply: said(""), suggestionId: s.id });
     setChats((all) => all.map((c) => (c.id === current.id ? { ...c, title: c.title === "New chat" ? "This morning" : c.title, turns } : c)));
   }, [status, home?.now, current.id, current.turns.length, chats, clock]);
+
+  // Alfred's alerts join today's conversation as they come, each once in any chat.
+  useEffect(() => {
+    if (!status?.alerts.length) return;
+    const shown = new Set(chats.flatMap((c) => c.turns.map((t) => (t.who === "alfred" ? t.alertId : undefined))));
+    const fresh = status.alerts.filter((a) => !shown.has(a.id));
+    if (!fresh.length) return;
+    const turns: Turn[] = fresh.map((a) => ({ who: "alfred", at: Date.parse(a.at), reply: said(a.text), alertId: a.id }));
+    setChats((all) => all.map((c) => (c.id === current.id ? { ...c, updated: clock(), turns: [...c.turns, ...turns] } : c)));
+  }, [status, chats, current.id, clock]);
 
   // ---- talking to Alfred ----
   const [thinking, setThinking] = useState<string | null>(null);

@@ -3,11 +3,12 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { HttpHomeApi } from "./api/http";
 import { MockHomeApi } from "./api/mock/MockHomeApi";
-import { homeKey, makeApi, modeFrom } from "./api/select";
+import { chatStoreFor, makeApi, modeFrom } from "./api/select";
 import "./app.css";
 
 const mode = modeFrom(import.meta.env as { VITE_ALFRED_MODE?: string });
-const api = makeApi(mode);
+const api = makeApi(mode, location.search);
+const chats = chatStoreFor(mode, location.search);
 const root = document.getElementById("root");
 if (!root) throw new Error("index.html has no #root element");
 
@@ -19,7 +20,7 @@ void (async () => {
   if (api instanceof MockHomeApi) api.transcribe = voice.transcribe;
   createRoot(root).render(
     <StrictMode>
-      <App api={api} homeKey={homeKey(mode)} />
+      <App api={api} chatStore={chats} />
     </StrictMode>,
   );
 })();
