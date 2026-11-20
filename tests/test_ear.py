@@ -4,6 +4,7 @@ firing, the relay failing, and the checks before it starts. ffmpeg, the model an
   uv run python -m unittest tests.test_ear -v
 """
 import asyncio
+import inspect
 import io
 import os
 import subprocess
@@ -125,6 +126,10 @@ class Stream(unittest.TestCase):
             asyncio.run(self.stream(program, timeout_s=0.5).read())
         self.assertIn("no audio in 0.5s", str(caught.exception))
         self.assertTrue(gone(int(pid_file.read_text())))
+
+    def test_by_default_the_relay_gets_45_s_to_send_audio(self):
+        default = inspect.signature(ear.CameraStream).parameters["timeout_s"].default
+        self.assertEqual(default, 45.0)
 
     def test_after_a_failure_the_next_piece_starts_a_new_session(self):
         async def fail_then_read(stream):

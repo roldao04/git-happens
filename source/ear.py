@@ -22,7 +22,7 @@ log = logging.getLogger("source.ear")
 
 RATE = 16000
 PIECE_S = 4.0
-TIMEOUT_S = 20.0
+TIMEOUT_S = 45.0
 RETRY_S = 5.0
 WAKE = re.compile(r"\balf\w*", re.IGNORECASE)
 
