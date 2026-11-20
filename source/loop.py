@@ -73,10 +73,8 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
         except SourceError as exc:
             if api is not None:
                 api.poll_failed(str(exc))
-            if not in_gap:  # record the gap once; never treat a failed poll as "all zero"
-                now = int(time.time() * 1000)
-                store.save_events([Event(now, "loop", "Loop", "poll", "gap", None, str(exc))])
-                log.warning("poll failed, recording a gap: %s", exc, extra={"data": {"error": str(exc)}})
+            if not in_gap:  # never treat a failed poll as "all zero"; the gap is saved when polling recovers
+                log.warning("poll failed, a gap begins: %s", exc, extra={"data": {"error": str(exc)}})
                 in_gap = True
             else:
                 log.debug("poll still failing: %s", exc)
@@ -85,7 +83,8 @@ async def run(source: Source, store: Store, triggers: Triggers, agent, *,
 
         if in_gap:
             log.info("polling recovered")
-            store.save_events([Event(now, "loop", "Loop", "poll", "gap", None, "recovered")])
+            if prev_now is not None:  # as ingest writes it: old = the last poll before, new = the first after
+                store.save_events([Event(now, "loop", "Loop", "poll", "gap", prev_now, now)])
             in_gap = False
 
         state = normalize(home, prev)  # with prev, a phone that left reads "off"
