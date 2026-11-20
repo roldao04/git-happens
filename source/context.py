@@ -99,7 +99,20 @@ def baselines(db, now_ms: int) -> dict:
     warm = _guarded(_warmup, db, now, default=None)
     if warm:
         out["warmup"] = warm
+    overrides = _guarded(_overrides, db, now_ms, default=[])
+    if overrides:
+        out["overrides_7d"] = overrides
     return out
+
+
+def _overrides(db, now_ms: int) -> list[dict]:
+    """How often a person overruled Alfred in the last 7 days (the phone app's undo, skip, decline and
+    changes back by hand), per habit or decision: [{"habit_id", "decision_id", "kind", "count"}]."""
+    if not _has_table(db, "overrides"):
+        return []
+    rows = db.execute("SELECT habit_id, kind, COUNT(*), MAX(decision_id) FROM overrides WHERE ts >= ?"
+                      " GROUP BY habit_id, kind ORDER BY COUNT(*) DESC", (now_ms - 7 * 86_400_000,)).fetchall()
+    return [{"habit_id": h, "decision_id": d, "kind": k, "count": n} for h, k, n, d in rows]
 
 
 def _warmup(db, now: datetime) -> dict | None:

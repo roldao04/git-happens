@@ -33,7 +33,7 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict
 
 from . import llm_cache
-from .guard import WRITE_TOOL, guarded_write
+from .guard import LOOK_ONLY_REASON, WRITE_TOOL, guarded_write
 
 log = logging.getLogger("source.agent")
 
@@ -59,6 +59,11 @@ class Report(BaseModel):
 
 
 class StubAgent:
+    """No LLM: logs each wake. `say` is what it answers a person (the phone app's chat)."""
+
+    def __init__(self, say: str = "stub"):
+        self.say = say
+
     async def run(self, ctx: dict) -> dict:
         why = ", ".join(r["trigger_id"] for r in ctx["reasons"])
         log.info("wake   (%s) %d new events since last run",
@@ -66,7 +71,7 @@ class StubAgent:
                  extra={"data": {"reasons": ctx["reasons"], "events": ctx["events_since_last_run"]}})
         for line in ctx["events_since_last_run"][-10:]:
             log.debug("  %s", line)
-        return {"notes": "stub", "trigger_updates": [], "actions": [], "proposals": []}
+        return {"notes": self.say, "trigger_updates": [], "actions": [], "proposals": []}
 
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
@@ -175,8 +180,9 @@ def _tell_llm(action: dict) -> str:
 
 
 def guard_writes(tools: list[BaseTool], devices: dict[str, str], actions: list[dict], *,
-                 allow_plug_on: bool, readback_tries: int, readback_delay_s: float) -> list[BaseTool]:
-    """Replaces the write tool with one that runs guarded_write and records each action."""
+                 allow_plug_on: bool, readback_tries: int, readback_delay_s: float, send: bool = True) -> list[BaseTool]:
+    """Replaces the write tool with one that runs guarded_write and records each action.
+    `send=False` (--look-only): every write is answered "not sent" without reaching the MCP."""
     by_name = {t.name: t for t in tools}
     write = by_name.get(WRITE_TOOL)
     if write is None:
@@ -190,6 +196,11 @@ def guard_writes(tools: list[BaseTool], devices: dict[str, str], actions: list[d
         return _text(getattr(msg, "content", msg))
 
     async def guarded(**args) -> str:
+        if not send:
+            action = {"tool": WRITE_TOOL, "args": args, "status": "blocked", "verified": None,
+                      "result": LOOK_ONLY_REASON, "error": True, "reason": LOOK_ONLY_REASON}
+            actions.append(action)
+            return _tell_llm(action)
         action = await guarded_write(call_tool, args, devices, allow_plug_on=allow_plug_on,
                                      readback_tries=readback_tries, readback_delay_s=readback_delay_s)
         actions.append(action)
@@ -204,8 +215,9 @@ class LangGraphAgent:
     def __init__(self, model: BaseChatModel,
                  tools_provider: Callable[[], Awaitable[list[BaseTool]]] | None = None,
                  *, max_steps: int = 12, allow_plug_on: bool = False,
-                 readback_tries: int = 3, readback_delay_s: float = 2.0):
+                 readback_tries: int = 3, readback_delay_s: float = 2.0, send: bool = True):
         self.model = model
+        self.send = send  # False: --look-only, the write tool answers "not sent"
         self.tools_provider = tools_provider
         self.max_steps = max_steps
         self.allow_plug_on = allow_plug_on  # only source.ask: a person asked directly (tier 2)
@@ -228,7 +240,8 @@ class LangGraphAgent:
         actions: list[dict] = []
         devices = {dev_id: d.get("type", "") for dev_id, d in ctx["state"].items() if d.get("fresh") is True}
         tools = guard_writes(tools, devices, actions, allow_plug_on=self.allow_plug_on,
-                             readback_tries=self.readback_tries, readback_delay_s=self.readback_delay_s)
+                             readback_tries=self.readback_tries, readback_delay_s=self.readback_delay_s,
+                             send=self.send)
 
         graph = build_graph(self.model, tools)
         messages = [SystemMessage(PROMPT_PATH.read_text()),

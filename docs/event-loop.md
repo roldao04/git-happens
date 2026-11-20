@@ -105,7 +105,7 @@ uv run python -m source.pipeline --household rosa --days 14 --out data/sim/rosa/
 # 4. Tests (about a minute: some run simulated months)
 uv run python -m unittest discover -s tests -t . -v
 ```
-The first live run needs the `mcp-remote` sign-in that Claude Code already did (`~/.mcp-auth`); without it a browser window opens once. Regenerate the demo with `uv run python tests/fixtures/make_morning.py`. All settings are in [`.env.example`](../.env.example).
+A live run reads the kit over HTTP with Claude Code's sign-in (`tools/connected_home_auth.py`, tokens in `~/.config/connected-home/`). Without it, the loop records a gap and says to run `python3 tools/connected_home_auth.py login` once. Regenerate the demo with `uv run python tests/fixtures/make_morning.py`. All settings are in [`.env.example`](../.env.example).
 
 ### Logs and history
 Live runs write to `data/`, replays to `data/replay/` (both gitignored):
@@ -114,7 +114,6 @@ Live runs write to `data/`, replays to `data/replay/` (both gitignored):
 |---|---|---|
 | `logs/loop.log` | Human-readable log, DEBUG and up, rotated daily, 14 days kept | `tail -f data/logs/loop.log` |
 | `logs/loop.jsonl` | Same log as JSON, with structured `data` (events, wake reasons, agent context at DEBUG) | `jq 'select(.data.wake != null and (.data.wake \| length) > 0)' data/logs/loop.jsonl` |
-| `logs/mcp-remote.log` | The MCP proxy's own output (auth, connection problems) | when polling fails |
 | `home.sqlite3` | Snapshots, events, agent runs | `uv run python -m source.show events \| wakes \| state` (`source.show --replay wakes` for replay data, before the subcommand; `--since 2h`, `-n 100`, `wakes --context`) |
 | `recording.jsonl` | Every raw snapshot (live only) | replay it with `--replay` |
 
@@ -186,7 +185,7 @@ Not used in the loop: poll → diff → store → decide is simpler and easier t
 
 Graph: `START → agent ⇄ tools → report → END`. The `agent` node is the LLM; `tools` runs the MCP calls it asks for and loops back until it has nothing left to call (capped by `AGENT_MAX_STEPS`); `report` turns the result into the output dict.
 
-It shares the loop's `mcp-remote` session (`McpSource.session()`), so there is one connection to the MCP. Tools are an allowlist:
+It shares the loop's MCP session (`McpSource.session()`), so there is one connection to the MCP. Tools are an allowlist:
 
 | Tool | Kind | Why |
 |---|---|---|

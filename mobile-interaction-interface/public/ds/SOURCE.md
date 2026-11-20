@@ -1,0 +1,1 @@
+Copied from the Alfred design system, https://claude.ai/artifact/FGnVqzqNiocjo9Hy8o35nJ (version 1794940672-0f30): components/bundle.css and fonts/. tokens.css is the generated copy from that version's tokens.json. Fonts: Source Serif 4, Archivo, JetBrains Mono, SIL Open Font License.

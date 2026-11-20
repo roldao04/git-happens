@@ -29,3 +29,6 @@ docs/superpowers/
 
 # Live export of the real kit (dashboard ?live)
 dashboard/public/live.json
+
+# Extra
+meeting-notes.md

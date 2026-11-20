@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Protocol
 
-from .guard import READ_TOOL, Heat, guarded_write
+from .guard import LOOK_ONLY_REASON, READ_TOOL, Heat, guarded_write
 
 log = logging.getLogger("source.actions")
 
@@ -39,6 +39,16 @@ class McpActuator:
 class DryRunActuator:
     async def call(self, tool: str, args: dict) -> str:
         return "{}" if tool == READ_TOOL else "dry run"  # reads answer "nothing known": never confirmed
+
+
+class LookOnlyActuator:
+    """--look-only: Alfred's own writes (decisions, rules) are refused, so they settle as not done, never as
+    a pretend "sent" as with DryRunActuator."""
+
+    async def call(self, tool: str, args: dict) -> str:
+        if tool == READ_TOOL:
+            return "{}"
+        raise RuntimeError(LOOK_ONLY_REASON.removeprefix("blocked: "))
 
 
 async def run_actions(actuator: Actuator, trigger_id: str, actions: list[dict],

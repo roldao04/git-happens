@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred at every width</title>
+<style>
+  body{margin:0;font:14px/1.4 system-ui,sans-serif;background:#e9e7e2;color:#1d1c1a}
+  header{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;background:#fff;border-bottom:1px solid #ccc}
+  header b{margin-right:6px}
+  button,select{font:inherit;padding:5px 10px;border:1px solid #999;border-radius:6px;background:#fff;cursor:pointer}
+  button[aria-pressed="true"]{background:#1d1c1a;color:#fff}
+  #frames{display:flex;flex-wrap:wrap;gap:18px;padding:16px;align-items:flex-start}
+  figure{margin:0}
+  figcaption{font-size:12px;margin-bottom:4px}
+  .box{overflow:hidden;border:1px solid #999;background:#fff;transform-origin:0 0}
+  iframe{border:0;display:block;transform-origin:0 0}
+  .bad{color:#b4301e;font-weight:600}.good{color:#16683f}
+  #summary{margin-left:auto}
+</style>
+</head>
+<body>
+<header>
+  <b>Alfred at every width</b>
+  <span id="themes"></span>
+  <span id="states"></span>
+  <label><input type="checkbox" id="small"> scale big ones down</label>
+  <span id="summary"></span>
+</header>
+<div id="frames"></div>
+<script type="module">
+// The app in iframes at phone, tablet and desktop sizes, the same states in each, and a check for anything that
+// sticks out sideways (the page must never scroll horizontally). Dev only: not part of the build.
+// The demo house (npm run dev). The voice state needs the microphone, so the voice model's server: open this
+// page from npm run demo (https://localhost:5174/dev/responsive.html) to check it.
+const SIZES = [[320, 640], [360, 740], [375, 667], [390, 844], [414, 896], [768, 1024], [1024, 768], [1440, 900]];
+const STATES = {
+  rest: [],
+  card: [".mode-sum"],
+  devices: ['[aria-label="Devices"]'],
+  chats: ['[aria-label="Conversations"]'],
+  settings: ['[aria-label="Conversations"]', ".set-open"],
+  voice: ['[aria-label="Speak to Alfred"]'],
+  typed: [],
+};
+let theme = "light", state = "rest";
+
+const button = (label, pressed, on) => { const b = document.createElement("button"); b.textContent = label; b.setAttribute("aria-pressed", String(pressed)); b.onclick = on; return b; };
+function controls() {
+  const t = document.getElementById("themes"); t.replaceChildren(...["light", "dark"].map((x) => button(x, theme === x, () => { theme = x; build(); })));
+  const s = document.getElementById("states"); s.replaceChildren(...Object.keys(STATES).map((x) => button(x, state === x, () => { state = x; build(); })));
+}
+
+function build() {
+  controls();
+  try { localStorage.setItem("alfred-mobile-settings", JSON.stringify({ theme, autoDelete: 0, speakReplies: false, lang: "auto" })); } catch {}
+  const small = document.getElementById("small").checked;
+  const frames = document.getElementById("frames");
+  frames.replaceChildren();
+  for (const [w, h] of SIZES) {
+    const scale = small && w > 600 ? 0.5 : 1;
+    const fig = document.createElement("figure");
+    const cap = document.createElement("figcaption");
+    cap.textContent = `${w}×${h} …`;
+    const box = document.createElement("div");
+    box.className = "box";
+    box.style.width = `${w * scale}px`; box.style.height = `${h * scale}px`;
+    const f = document.createElement("iframe");
+    f.width = w; f.height = h; f.style.transform = `scale(${scale})`;
+    f.src = "/";
+    f.onload = () => setTimeout(() => act(f, cap, w), 700);
+    box.append(f);
+    fig.append(cap, box);
+    frames.append(fig);
+  }
+}
+
+async function act(f, cap, w) {
+  const doc = f.contentDocument;
+  for (const sel of STATES[state]) {
+    const el = doc.querySelector(sel);
+    if (!el && state === "voice") { cap.innerHTML = `${w}px · no microphone here: open this page from npm run demo`; cap.dataset.bad = "0"; summarize(); return; }
+    el?.click();
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  if (state === "typed") {
+    const box = doc.querySelector("#ask");
+    for (const text of ["Dim the lamp to 30 percent", "Is everything ok?"]) {
+      const setter = Object.getOwnPropertyDescriptor(f.contentWindow.HTMLInputElement.prototype, "value").set;
+      setter.call(box, text);
+      box.dispatchEvent(new f.contentWindow.Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 50));
+      box.form.requestSubmit();
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+  }
+  await new Promise((r) => setTimeout(r, 400));
+  for (const a of doc.getAnimations()) if (a.effect?.getComputedTiming().iterations !== Infinity) a.finish(); // slide-ins, not mid-way
+  const width = doc.documentElement.clientWidth;
+  const pageOverflow = doc.documentElement.scrollWidth > width;
+  const out = [...doc.querySelectorAll("body *")].filter((el) => {
+    if (el.closest(".quick, .th-under, .sr, svg") && !el.matches(".quick")) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && (r.right > width + 1 || r.left < -1);
+  }).map((el) => `${el.tagName.toLowerCase()}.${[...el.classList].join(".")}`);
+  const clipped = [...doc.querySelectorAll(".mode-n, .sumline, .th-open b, .pl-w b, .ctl-head b")]
+    .filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis")
+    .map((el) => el.textContent);
+  const bad = pageOverflow || out.length || clipped.length;
+  cap.innerHTML = `${w}px · <span class="${bad ? "bad" : "good"}">${bad ? "problem" : "fits"}</span>` +
+    (pageOverflow ? " · page scrolls sideways" : "") + (out.length ? ` · sticks out: ${[...new Set(out)].slice(0, 4).join(", ")}` : "") +
+    (clipped.length ? ` · cut text: ${clipped.slice(0, 2).join(", ")}` : "");
+  cap.dataset.bad = bad ? "1" : "0";
+  summarize();
+}
+
+function summarize() {
+  const all = [...document.querySelectorAll("figcaption")];
+  const done = all.filter((c) => c.dataset.bad !== undefined);
+  document.getElementById("summary").innerHTML = done.length < all.length ? "checking…"
+    : done.some((c) => c.dataset.bad === "1") ? `<span class="bad">${done.filter((c) => c.dataset.bad === "1").length} width(s) with problems</span>` : '<span class="good">every width fits</span>';
+}
+
+document.getElementById("small").onchange = build;
+build();
+</script>
+</body>
+</html>

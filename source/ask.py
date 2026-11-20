@@ -30,7 +30,7 @@ async def _main(request: str) -> None:
     if not s.api_key or not s.openrouter_api_key:
         sys.exit("CGH_API_KEY and OPENROUTER_API_KEY must be set in .env")
 
-    source = McpSource(s.api_key, proxy_log=s.data_dir / "logs" / "mcp-remote.log")
+    source = McpSource(s.api_key)
     store = Store(s.data_dir, record=False)
     try:
         now, home = await source.fetch()

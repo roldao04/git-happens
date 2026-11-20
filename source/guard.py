@@ -25,6 +25,8 @@ CHANNELS = ("redValue", "greenValue", "blueValue")
 WRITE_TYPES = {"bulb": {"power", "brightness", "temperature", "color_rgb"}, "plug": {"power"},
                "thermostat": {"targetTemperature", "mode"}}
 PLUG_ON_REASON = "blocked: switching the plug on needs a person's approval"
+# --look-only (npm run home): the real home is read and Alfred answers, but no write is ever sent
+LOOK_ONLY_REASON = "blocked: look-only mode, nothing is sent (start npm run home:live to switch things)"
 
 # The thermostat's limits (C7)
 TARGET_MIN_C, TARGET_MAX_C = 16.0, 23.0

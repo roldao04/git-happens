@@ -33,7 +33,16 @@ CREATE TABLE IF NOT EXISTS rule_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts INTEGER NOT NULL, trigger_id TEXT NOT NULL, actions TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL, kind TEXT NOT NULL, decision_id TEXT, habit_id TEXT,
+    device_id TEXT, capability TEXT, alfred_value TEXT, person_value TEXT
+);
+-- the days the live loop has run the learners on (source/loop.py: once a night)
+CREATE TABLE IF NOT EXISTS learned_days (day TEXT PRIMARY KEY, ts INTEGER NOT NULL);
 """
+
+OVERRIDE_KINDS = ("undo", "skip", "decline", "manual")
 
 
 class Store:
@@ -122,6 +131,19 @@ class Store:
     def rule_runs(self) -> list[tuple[int, str, list[dict]]]:
         rows = self.db.execute("SELECT ts, trigger_id, actions FROM rule_runs ORDER BY id").fetchall()
         return [(ts, tid, json.loads(a)) for ts, tid, a in rows]
+
+    def log_override(self, ts: int, kind: str, *, decision_id: str | None = None, habit_id: str | None = None,
+                     device_id: str | None = None, capability: str | None = None,
+                     alfred_value=None, person_value=None) -> None:
+        """A person overruled Alfred (the phone app): undid, skipped or declined one of its decisions, or
+        changed back by hand what it had just set. Read by context.baselines as `overrides_7d`."""
+        if kind not in OVERRIDE_KINDS:
+            raise ValueError(f"override kind must be one of {', '.join(OVERRIDE_KINDS)}")
+        self.db.execute(
+            "INSERT INTO overrides (ts, kind, decision_id, habit_id, device_id, capability, alfred_value, person_value)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (ts, kind, decision_id, habit_id, device_id, capability, json.dumps(alfred_value), json.dumps(person_value)))
+        self.db.commit()
 
     def close(self) -> None:
         self.db.close()
