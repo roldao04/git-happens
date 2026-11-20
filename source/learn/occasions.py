@@ -44,7 +44,7 @@ from datetime import date, datetime, time, timedelta
 import numpy as np
 from scipy.stats import chi2, nbinom, norm
 
-from . import (ALPHA, MIN_OCCURRENCES, Happening, activity_edges, device_type, is_activity, signal_devices, to_local,
+from . import (ALPHA, MIN_OCCURRENCES, Happening, activity_edges, device_type, is_activity, to_local,
                to_ms)
 from .forecast import day_window
 from . import storage
