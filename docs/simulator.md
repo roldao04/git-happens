@@ -1,6 +1,6 @@
 # The simulator
 
-Part 1 of [`starting-plan.md`](starting-plan.md): it writes a household's days as `get_home` snapshots, so the learners have weeks of history that the kit can't give us.
+Part 1 of the pipeline ([`contracts.md`](contracts.md#code-map)): it writes a household's days as `get_home` snapshots, so the learners have weeks of history that the kit can't give us.
 Code: [`source/simulate.py`](../source/simulate.py) · form and 3D view: [`source/simulate_web.py`](../source/simulate_web.py) + [`console/simulator.html`](../console/simulator.html), [`console/visualizer.html`](../console/visualizer.html) · tests: [`tests/test_simulate.py`](../tests/test_simulate.py).
 
 ## Run it
@@ -75,7 +75,7 @@ Made-up houses (`--houses`, the form) draw these settings at random: one of eigh
 A day: lamp on at waking → door → appliance → lamp off; outings and other door openings; lamp on in the evening → off at bedtime → a quiet night (only temperature and humidity move).
 
 ## Rarer rhythms and parties
-What the habits plan ([`habits-plan.md`](habits-plan.md)) must find beyond daily and weekly habits, and its occasions. Off by default, so the other presets don't change by a byte; `rosa-plus` turns them all on. Set them in a `--config` JSON file like any setting.
+What the habit and occasion learners must find beyond daily and weekly habits. Off by default, so the other presets don't change by a byte; `rosa-plus` turns them all on. Set them in a `--config` JSON file like any setting.
 
 | Settings | `rosa-plus` | What happens | Answer key |
 |---|---|---|---|
@@ -93,7 +93,7 @@ What the habits plan ([`habits-plan.md`](habits-plan.md)) must find beyond daily
 With the default seed, 60 days from 2026-09-01: visits on 5 and 19 Sep, 3 and 17 Oct; lunch out on 6 Sep and 4 Oct; parties on Sat 12 Sep, Fri 25 Sep, Fri 9 Oct, Fri 16 Oct and Sat 24 Oct; tea 199 of 240 times. The 3D view's routes take it like any preset (`/day?household=rosa-plus&day=12`).
 
 ## The demo house: `demo`
-The household of the demo ([`demo-plan.md`](demo-plan.md), C1, C7 and C12): two people with phones, a thermostat they set, three plugs and four Friday evenings with friends.
+The household of the demo (contracts C1, C7 and C12 in [`contracts.md`](contracts.md#contracts)): two people with phones, a thermostat they set, three plugs and four Friday evenings with friends.
 ```
 uv run python -m source.simulate --days 60 --household demo --out data/sim/demo.jsonl --truth data/sim/demo-truth.json
 ```

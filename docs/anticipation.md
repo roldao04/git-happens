@@ -1,6 +1,6 @@
 # Anticipation: forecasts and decisions
 
-Part B of [`habits-plan.md`](habits-plan.md). Alfred stops only identifying habits and starts acting ahead of them: it forecasts what each habit will probably do in the next 24 hours, plans small lamp changes before them, expects the unusual when the day looks like a past occasion, and tells the agent all of it. Plain code: every number comes from counts, never from the LLM.
+Alfred stops only identifying habits and starts acting ahead of them: it forecasts what each habit will probably do in the next 24 hours, plans small lamp changes before them, expects the unusual when the day looks like a past occasion, and tells the agent all of it. Plain code: every number comes from counts, never from the LLM.
 
 | What | File | Call |
 |---|---|---|
@@ -98,8 +98,8 @@ Everything is wrapped: a failure in planning or running is logged (`anticipation
 
 The prompt ([`prompts/agent.md`](../source/prompts/agent.md)) teaches the agent to weigh departures by importance, confidence and the forecast, to never alarm when an occasion explains one, to say "looks like", to leave `do` decisions to code and only mention `suggest` ones, and to act only on the lamp itself.
 
-## Waking the LLM and acting on its proposals (demo part D)
-Built for [`demo-plan.md`](demo-plan.md) (C7–C10). The code above only ever touches the lamp, from recipes. The demo needs the heating, which depends on more than a recipe knows (who is home, an occasion, how far the room is from warm), so the LLM is woken by what was learned and proposes, and code decides how sure it is and whether to act.
+## Waking the LLM and acting on its proposals
+Contracts C7–C10 ([`contracts.md`](contracts.md#contracts)). The code above only ever touches the lamp, from recipes. The demo needs the heating, which depends on more than a recipe knows (who is home, an occasion, how far the room is from warm), so the LLM is woken by what was learned and proposes, and code decides how sure it is and whether to act.
 
 | What | File | Call |
 |---|---|---|
@@ -130,9 +130,9 @@ Built for [`demo-plan.md`](demo-plan.md) (C7–C10). The code above only ever to
 
 **Thermostat limits** (C7, in the guard, from `Heat` built by `heat_now`): target 16–23 °C; at most 3 °C from the current target per write; never above 18 °C when no known phone is home, **unless the write prepares a forecast arrival due within 2 h** (otherwise "warm the house before Ana gets home" could never run; the arrival is the habit_soon wake's `expected_at`); at most one of Alfred's thermostat writes per 10 min; none for 2 h after a person changed it. A person's change is a `targetTemperature` or `mode` change in `events` that no write of Alfred's explains (same value, within 15 min after it). Without a `Heat` the thermostat is never written: the LLM's own tool calls carry none, so it proposes instead. A person asking (`allow_plug_on`) skips the rate limit and the 2 h hold.
 
-**Choices where the plan was open**: arrival and departure base 0.8 (seen, but a phone is only a proxy for a person); habit_missing base without the forecast probability (the occurrence is past); the 18 °C rule's exception for a forecast arrival; doubt rules above; the 3 °C rule means 16 → 21 °C takes two writes 10 min apart, which the prompt teaches.
+**Choices made**: arrival and departure base 0.8 (seen, but a phone is only a proxy for a person); habit_missing base without the forecast probability (the occurrence is past); the 18 °C rule's exception for a forecast arrival; doubt rules above; the 3 °C rule means 16 → 21 °C takes two writes 10 min apart, which the prompt teaches.
 
-**What the integration (part F) changed, after running the demo house end to end**
+**What running the demo house end to end changed**
 - **Two steps need a head start**: `EXTRA_LEAD_MIN` is 15 (was 5). 16 → 21 °C is two writes at least 10 min apart, and from a room near 19 °C the first doesn't start the heating; with 5 min the second step landed when Ana walked in, with 10 the room was 20.4 °C at the weekday wake-up. So the wake comes about 45 min before Ana's 18:38 (a 30-min warm-up from 18.5 °C, plus 15), not the plan's 25–30.
 - **A step that comes a tick early waits**: an `llm` decision the guard blocks only for its 10-min rate limit stays `planned` and runs at the next tick after the limit (until the 15-min lateness rule), instead of being skipped.
 - **Heating is prepared only when it is down** (a target of 18 °C or less). A target between, like the gathering's 19 °C, was chosen: no `habit_soon` (the TV at 21:00) undoes it.

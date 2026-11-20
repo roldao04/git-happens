@@ -1,6 +1,6 @@
 # Habits: patterns that go together
 
-Part A of [`habits-plan.md`](habits-plan.md). Plain code and statistics, no LLM, like the [learners](learners.md).
+Plain code and statistics, no LLM, like the [learners](learners.md). The maths in brief: [`../TECHNICAL.md`](../TECHNICAL.md); the habit shape: [`contracts.md`](contracts.md#data-shapes).
 
 A **pattern** is one thing at a consistent time ("light → kettle about 07:59", "the end of the night's quiet about 07:59", "light → door about 07:50"). A person calls all three one **habit**: Waking up. A habit is a group of patterns that recur together, in some rhythm, with variation.
 
@@ -41,7 +41,7 @@ confidence = hit rate × evidence × timing
 - **Readings** (`habit_readings`): one per day it happened. `start` is its first step, `end` its last step (a habit of one step keeps its own end: asleep until 07:59), `steps_seen` the pattern ids in step order. Days before a habit's current first day are kept as history.
 - **Now** (`habit_today`): built on each pattern's status from `today.py`. The usual steps (share > 1/2) decide: `done` all happened, `partly` some did and the rest are late, `now` some did and the rest may still come (or a stretch is going on: asleep), `expected`, `late`, `not_today` (its rhythm skips today), `unknown` (not watched). Each has `steps_done`.
 
-## People and weekday windows (C3 of [`demo-plan.md`](demo-plan.md))
+## People and weekday windows (contract C3)
 ```json
 {"id": "habit-4", "person": {"phone": "c-8f3a", "name": "Ana's phone"},
  "windows": [{"days": ["mon","tue","wed","thu","fri"], "usual": "18:40", "earliest": "18:25", "latest": "18:55"}]}
@@ -52,7 +52,7 @@ confidence = hit rate × evidence × timing
 - **`windows`**: from `weekday_windows`, over the same unwrapped start times as `window` (so a habit around midnight works). `usual` is each group's median, `earliest` and `latest` its extremes. The days of the main window are the rhythm's days (`recurrence.weekdays`, all seven for a daily habit) minus the shifted ones. `window` (overall) and `variation.by_weekday` are kept as before.
 - The forecast (`forecast.py`) uses a habit's `windows` when it has them: the day's own `usual` and `earliest`–`latest`, instead of the usual time plus the weekday shift and ± twice the spread.
 
-## What the demo house taught (part F of [`demo-plan.md`](demo-plan.md))
+## What the demo house taught
 On 60 days of the demo house the first version found "Waking up" anchored on the room warming (05:38–07:16), no weekend window, Ana's arrival with no person and João's Tuesdays inside the TV habit. Four changes, each plain code:
 - **No steps the house does by itself.** A pattern with a slow part (the room's temperature drifting, the thermostat's own `heatingState`: `SLOW_CAPABILITIES`) stays a pattern but is no habit's step (`grouping._slow`). A warming that began before anyone woke only blurred when the habit begins; its cause, the person at the thermostat, is a step, and `warmup.py` reads the heating itself.
 - **A link reaches as far as its second part's start.** Door → lamp ends when the lamp goes on, not at bedtime when it goes off. Before, the evening lamp stretched "Ana gets home" over João's arrival, two phones qualified and the habit had no person.
@@ -62,7 +62,7 @@ On 60 days of the demo house the first version found "Waking up" anchored on the
 
 Day 60 of `demo` (seed 1): Waking up every day, weekdays 07:08 (06:42–07:26), weekends 08:53 (08:25–09:15), confidence 0.90 · Ana gets home every weekday 18:38 (18:17–18:53), Ana's phone, 0.94 · João gets home Mon, Tue, Thu, Fri 19:28 (19:08–19:44), Tuesdays 20:54 (20:45–21:01), João's phone, 0.93 · TV every day 20:56 · washing machine Mondays 19:35 · bedtime 23:29 · warm-up 4.9 °C/h (1 °C in about 12 min), 100 samples.
 
-## Warm-up (C4 of [`demo-plan.md`](demo-plan.md))
+## Warm-up (contract C4)
 `source/learn/warmup.py`, plain code like the rest:
 ```python
 warmup(db, now) -> {"rate_c_per_h": 4.8, "loss_c_per_h": 0.6, "samples": 23, "confidence": 0.82, "as_of": "2026-11-19"}
@@ -90,12 +90,6 @@ Each works (and returns nothing) before the tables exist. `warmup(db, now)` and 
 ```
 uv run python -m unittest tests.test_grouping tests.test_recurrence -v
 ```
-
-## For the integration
-- Call `learn_habits(db, day)` right after `learn_day(db, day)` (`run.learn_day` or the pipeline's day end). `grouping.py` imports `run.py` only inside a function, so `run.py` can import it at the top.
-- Relearning from scratch (`run.py --store`, `storage.reset_learned`) must also clear `habits` and `habit_readings`, or the old ids and dates come back.
-- `export_habits` belongs next to `storage.export` (dashboard, recording, knowledge tab), `habit_today` next to `sensor_today`.
-- Statuses are `active`, `fading` and `merged`; show and forecast the active ones. `person` and `windows` appear on habits learned from now on; an older stored habit lacks them until the next `learn_habits`. The namer may add fields to a habit's data: they are kept until the habit changes.
 
 ## Known limits
 - **Short histories:** "every other weekend" needs about 6 weekends (5 read as "every weekend"), a monthly rhythm about 5 months, single weekdays (Monday, Wednesday, Friday) about 10 weeks (before that they read as "every weekday" with a lower hit rate).
