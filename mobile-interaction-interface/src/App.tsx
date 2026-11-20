@@ -14,7 +14,7 @@ import { loadSettings, saveSettings, type Settings } from "./store/settings";
 import { pickVoice, type Heard, type VoiceEngine } from "./voice/engines";
 import { detectLang } from "./voice/lang";
 import { speak } from "./voice/speak";
-import { greeting, hhmm, modeWords, pastTense } from "./words";
+import { clockText, greeting, hhmm, modeWords, pastTense } from "./words";
 
 interface Props { api: HomeApi; chatStore: string; clock?: () => number }
 
@@ -23,7 +23,6 @@ export default function App(props: Props) {
 }
 
 const said = (text: string): ChatReply => ({ text, blocks: [], actions: [], lang: "en" });
-const clockText = (ms: number) => new Date(ms).toTimeString().slice(0, 5);
 
 function Phone({ api, chatStore, clock = Date.now }: Props) {
   const { home, status, error, refresh, answer } = useHome();

@@ -1,7 +1,7 @@
 """The 3D view's data: one day of a household, cut down to what the page draws, what Alfred learned and knows
 by then (the panel and the knowledge tab), and the routes that serve them.
 
-  uv run python -m unittest tests.test_visualizer -v
+  uv run python -m unittest tests.test_simulate_web -v
 """
 import json
 import sqlite3
@@ -581,7 +581,7 @@ class PlantedTest(unittest.TestCase):
         self.assertEqual(web.planted_view("demo", 59, 1, DEMO_START, simulated=False)["source"], "none")
 
     def test_matches_the_answer_key_with_what_alfred_knows(self):
-        key = [{"planted": "Ana home weekdays 18:40", "usual": "18:40", "days": ["mon", "thu"], "person": "c-8f3a"},
+        rhythms = [{"planted": "Ana home weekdays 18:40", "usual": "18:40", "days": ["mon", "thu"], "person": "c-8f3a"},
                {"planted": "João home Tuesdays 21:00", "usual": "21:00", "days": ["tue"], "person": "c-2b71"},
                {"planted": "João home 19:30", "usual": "18:55", "person": "c-2b71"},  # 35 min off: partly
                {"planted": "Waking up at weekends 08:30", "usual": "08:30", "days": ["sat"]},
@@ -590,7 +590,7 @@ class PlantedTest(unittest.TestCase):
                {"planted": "Warms 5 °C an hour", "kind": "warmup"},
                {"planted": "Already matched", "found": "habit-7", "found_text": "Laundry", "match": "partly"},
                {"no": "planted text"}]
-        with mock.patch.object(web, "_answer_key", return_value=[r for r in key if r.get("planted")]), \
+        with mock.patch.object(web, "_planted_rhythms", return_value=[r for r in rhythms if r.get("planted")]), \
                 mock.patch.object(web, "knowledge_view", return_value=KNOWS):
             out = web.planted_view("rosa", 20, 1, START)
         self.assertEqual(out["source"], "simulator")

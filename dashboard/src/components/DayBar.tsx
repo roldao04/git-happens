@@ -1,3 +1,5 @@
+import { clockOf, toMin } from "../data/days";
+
 const DAY_MIN = 24 * 60;
 
 export interface Piece { left: number; width: number }
@@ -13,20 +15,10 @@ export function windowPieces(centreMin: number, spreadMin: number): Piece[] {
   return [{ left: pct(from), width: pct(to - from) }];
 }
 
-function toMin(hhmm: string): number {
-  const [h = 0, m = 0] = hhmm.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function clock(min: number): string {
-  const m = ((Math.round(min) % DAY_MIN) + DAY_MIN) % DAY_MIN;
-  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-}
-
 export function DayBar({ usual, spreadMin, hits }: { usual: string; spreadMin?: number; hits: number[] }) {
   const centre = toMin(usual);
   const label =
-    spreadMin === undefined ? `usually around ${usual}` : `usually between ${clock(centre - spreadMin)} and ${clock(centre + spreadMin)}`;
+    spreadMin === undefined ? `usually around ${usual}` : `usually between ${clockOf(centre - spreadMin)} and ${clockOf(centre + spreadMin)}`;
   return (
     <div className="ts" role="img" aria-label={label}>
       {[25, 50, 75].map((left) => (

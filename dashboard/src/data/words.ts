@@ -73,6 +73,8 @@ export function formatDate(t: number): string {
   return `${WEEKDAYS[d.getUTCDay()] ?? ""} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()] ?? ""}`;
 }
 
+const capital = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
 function listed(items: string[]): string {
   if (items.length < 2) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1] ?? ""}`;
@@ -93,7 +95,7 @@ export function homeHeadline(devices: DeviceNow[]): string {
   const sentences = [];
   if (parts.length > 0) {
     const text = listed(parts);
-    sentences.push(`${text.charAt(0).toUpperCase()}${text.slice(1)}.`);
+    sentences.push(`${capital(text)}.`);
   }
   if (typeof temp === "number") sentences.push(`It is ${temp.toFixed(1)} °C inside.`);
   return sentences.length > 0 ? sentences.join(" ") : "Nothing to show yet.";
@@ -134,8 +136,6 @@ export function homeSummary(devices: DeviceNow[], newToday: number): string {
     newToday === 0 ? "Nothing new was learned today." : `Alfred learned ${newToday} new ${newToday === 1 ? "sensor" : "sensors"} today.`;
   return `${homeHeadline(devices)} ${learned}`;
 }
-
-const capital = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 export interface DeviceRow { value: string; sub: string }
 

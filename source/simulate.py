@@ -605,9 +605,9 @@ def _config_plan(h: Household, start: date, days: int, rng: random.Random,
         out = back = None
         if day.weekday() in outing_days and rng.random() < h.outing_chance:
             leave = max((_minutes(h.outing_at) + rng.gauss(0, h.outing_spread_min)) * 60, wake + 45 * 60)
-            ret = leave + h.outing_minutes * 60 * rng.uniform(0.9, 1.1)
-            if ret < bed - 1800 and (party is None or ret < party[0] - 1800):
-                out, back = leave, ret
+            return_at = leave + h.outing_minutes * 60 * rng.uniform(0.9, 1.1)
+            if return_at < bed - 1800 and (party is None or return_at < party[0] - 1800):
+                out, back = leave, return_at
                 plan.door(_at(day, out), rng.uniform(15, 45))
                 plan.door(_at(day, back), rng.uniform(15, 45))
                 plan.note("outing", _at(day, out), _at(day, back))

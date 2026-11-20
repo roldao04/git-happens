@@ -403,11 +403,11 @@ def make_agent(scripted: bool, model_name: str | None):
 
 # ---------- 3. what the visualizer reads ----------
 
-def found_for(knowledge: dict, keys: list[str], name: str, seed: int, start: date) -> list[str]:
+def found_for(knowledge: dict, wanted: list[str], name: str, start: date) -> list[str]:
     """The habits and occasions Alfred found for these rows of the answer key (planted vs found)."""
     rows = {r["key"]: r for r in planted(name, start)}
     out = []
-    for k in keys:
+    for k in wanted:
         if k in rows:
             got = web._planted_row(rows[k], knowledge)
             if got.get("found") and got["found"] != "warmup" and got["found"] not in out:
@@ -497,7 +497,7 @@ def precompute(name: str = "demo", seed: int = 1, days: int = 60, out: Path = OU
         db.close()
         for m in moments:
             k = views[m["day"]]["knowledge"]
-            m["focus"] = found_for(k, m.get("planted", []), name, seed, start)
+            m["focus"] = found_for(k, m.get("planted", []), name, start)
         data = {"household": name, "seed": seed, "start": start.isoformat(), "days": days, "llm": llm,
                 "made": datetime.now().isoformat(timespec="seconds"), "moments": moments,
                 "writes": [[ms, cap, value] for ms, cap, value in writes],
@@ -512,7 +512,7 @@ def precompute(name: str = "demo", seed: int = 1, days: int = 60, out: Path = OU
             tmp.cleanup()
 
 
-def report(result: Result, name: str, seed: int) -> str:
+def report(result: Result, name: str) -> str:
     """What each moment shows, in words: the wakes, what Alfred did, and the room."""
     start = start_for(name)
     lines = [f"wrote {result.path} (LLM: {result.llm})"]
@@ -549,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         log.error("%s", exc)
         return 1
-    print(report(result, args.household, args.seed))
+    print(report(result, args.household))
     if result.llm == "scripted":
         print("\nNo LLM: the replies are scripted (source/demo.py, ScriptedAgent). With OPENROUTER_API_KEY set, run "
               "again to ask the model; its replies are cached for ALFRED_LLM_CACHE=only.")

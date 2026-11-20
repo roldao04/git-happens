@@ -186,13 +186,13 @@ function alertingHome(): HomeApi {
 }
 
 test("an alert is Alfred's message in the conversation, at its time", async () => {
-  render(<App api={alertingHome()} chatStore={`test-alert-1`} clock={() => NOW} />);
+  render(<App api={alertingHome()} chatStore="test-alert-1" clock={() => NOW} />);
   const msg = (await screen.findByText(ALERT.text)).closest(".msg")!;
   expect(within(msg as HTMLElement).getByText("23:10")).toBeInTheDocument();
 });
 
 test("an alert is shown once, however often the status comes back", async () => {
-  render(<App api={alertingHome()} chatStore={`test-alert-2`} clock={() => NOW} />);
+  render(<App api={alertingHome()} chatStore="test-alert-2" clock={() => NOW} />);
   await screen.findByText(ALERT.text);
   await userEvent.type(screen.getByRole("textbox", { name: "Ask Alfred" }), "Turn the TV on");
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -201,10 +201,10 @@ test("an alert is shown once, however often the status comes back", async () => 
 });
 
 test("an alert already shown isn't shown again after a reload", async () => {
-  const first = render(<App api={alertingHome()} chatStore={`test-alert-3`} clock={() => NOW} />);
+  const first = render(<App api={alertingHome()} chatStore="test-alert-3" clock={() => NOW} />);
   await screen.findByText(ALERT.text);
   first.unmount();
-  render(<App api={alertingHome()} chatStore={`test-alert-3`} clock={() => NOW} />);
+  render(<App api={alertingHome()} chatStore="test-alert-3" clock={() => NOW} />);
   await screen.findByText(/so I switched/);
   expect(screen.getAllByText(ALERT.text)).toHaveLength(1);
 });

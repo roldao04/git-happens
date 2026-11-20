@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useHome } from "../state/HomeProvider";
-import { modeWords, needsLook } from "../words";
+import { clockText, modeWords, needsLook } from "../words";
 import { DeviceControl, SensorList, type OnResult } from "./DeviceControl";
 import { CloseIcon } from "./icons";
 
@@ -29,7 +29,7 @@ export function DevicesPanel({ onClose, onResult }: { onClose: () => void; onRes
           </div>
           <button ref={close} className="ib" type="button" aria-label="Close devices" onClick={onClose}><CloseIcon /></button>
         </div>
-        {error && lastOk && <p className="stale" role="status">Last reading {new Date(lastOk).toTimeString().slice(0, 5)} · can’t reach Alfred</p>}
+        {error && lastOk && <p className="stale" role="status">Last reading {clockText(lastOk)} · can’t reach Alfred</p>}
         {people && (
           <div className="blk people">
             <span className="al-label">Home</span>

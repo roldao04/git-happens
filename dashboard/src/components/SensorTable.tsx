@@ -1,11 +1,11 @@
 import { minuteOfDay } from "../data/days";
 import { toMs } from "../data/recording";
+import { sensorHref } from "../data/sensorHref";
 import type { SensorNow } from "../data/stateAt";
 import { sensorTitle } from "../data/words";
 import { Chevron } from "./Chevron";
 import { DayBar } from "./DayBar";
 import { FadingPill } from "./FadingPill";
-import { sensorHref } from "./sensorHref";
 
 export function SensorTable({ items, label }: { items: SensorNow[]; label: string }) {
   return (

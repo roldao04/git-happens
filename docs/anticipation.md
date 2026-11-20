@@ -103,7 +103,7 @@ Contracts C7–C10 ([`contracts.md`](contracts.md#contracts)). The code above on
 
 | What | File | Call |
 |---|---|---|
-| Learned wakes | [`source/wake.py`](../source/wake.py) | `learned_wakes(db, now, state) -> list[WakeReason]`; `wake_record(db, key)`, `wakes_between(db, start, end)` |
+| Learned wakes | [`source/wake.py`](../source/wake.py) | `learned_wakes(db, now, state) -> list[WakeReason]`; `wake_record(db, key)` |
 | Proposals → decisions | [`source/anticipate.py`](../source/anticipate.py) | `decide(db, now, proposals) -> list[dict]`; `heat_now(db, state, now, arrival)` |
 | Thermostat limits | [`source/guard.py`](../source/guard.py) | `Heat`, `check_heat` (inside `check_write`) |
 | Reply cache | [`source/llm_cache.py`](../source/llm_cache.py) | `cached(kind, payload, call)`, `acached(...)` |

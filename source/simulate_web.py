@@ -840,10 +840,10 @@ def planted_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START
     """Each rhythm the simulator planted (its answer key, in plain words) and the habit or occasion Alfred found
     for it by the end of day `day`. The simulator's answer key matched against /knowledge when there is one,
     else the fixture's rows for the latest day up to `day`."""
-    key = _answer_key(name, seed, start) if simulated else None
-    if key:
+    answers = _planted_rhythms(name, start) if simulated else None
+    if answers:
         k = knowledge_view(name, day, seed, start)
-        rows, source = [_planted_row(entry, k) for entry in key], "simulator"
+        rows, source = [_planted_row(entry, k) for entry in answers], "simulator"
     else:
         days = (_fixture(name) or {}).get("planted")
         days = {int(d): r for d, r in days.items() if str(d).isdigit() and isinstance(r, list)} if isinstance(days, dict) else {}
@@ -854,7 +854,7 @@ def planted_view(name: str, day: int, seed: int = 1, start: date = DEFAULT_START
             "source": source}
 
 
-def _answer_key(name: str, seed: int, start: date) -> list[dict]:
+def _planted_rhythms(name: str, start: date) -> list[dict]:
     """The planted rhythms (C12's answer key, simulate.planted), for a household of people; else none."""
     from .simulate import planted
 
