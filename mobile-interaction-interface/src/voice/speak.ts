@@ -12,7 +12,3 @@ export function speak(text: string, lang: string | null): void {
   u.lang = lang === "pt" ? "pt-PT" : "en-GB";
   window.speechSynthesis.speak(u);
 }
-
-export function stopSpeaking(): void {
-  if (canSpeak()) window.speechSynthesis.cancel();
-}

@@ -1,4 +1,4 @@
-import { TARGET, TONES } from "../controls";
+import { TONES } from "../controls";
 import type { ActionResult, Block, ChatReply, ControlBody, Device } from "../types";
 import type { MockHomeApi } from "./MockHomeApi";
 
@@ -267,6 +267,3 @@ async function switchTo(api: MockHomeApi, mode: Mode, lead: string): Promise<Cha
 function ordinal(n: number): string {
   return ["zeroth", "first", "second", "third", "fourth", "fifth"][n] ?? `${n}th`;
 }
-
-/** For tests: the target range in words. */
-export const HEAT_RANGE = `${TARGET.min}–${TARGET.max} °C`;
